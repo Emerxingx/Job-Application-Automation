@@ -1,0 +1,315 @@
+// JobPilot AI — data model
+//
+// Local dev uses SQLite. For production, change `provider` to "postgresql"
+// and point DATABASE_URL at your Postgres instance; the model definitions
+// below are portable across both.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Identity
+// ---------------------------------------------------------------------------
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  fullName     String
+  phone        String?
+  city         String?
+  country      String   @default("CA") // CA | US
+  headline     String?
+  linkedinUrl  String?
+  portfolioUrl String?
+  // Work authorization matters a great deal for CA/US postings.
+  workAuth     String?  @default("Canadian Citizen")
+  onboardedAt  DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  subscription  Subscription?
+  agents        Agent[]
+  resumes       Resume[]
+  applications  Application[]
+  savedJobs     SavedJob[]
+  interviewPreps InterviewPrep[]
+  events        ActivityEvent[]
+}
+
+// ---------------------------------------------------------------------------
+// Billing & quota
+// ---------------------------------------------------------------------------
+
+// Plan tiers are seeded rows rather than hardcoded enums so pricing and
+// application limits can change without a migration.
+model Plan {
+  id                String  @id @default(cuid())
+  code              String  @unique // starter | professional | executive
+  name              String
+  tagline           String
+  monthlyPriceCents Int
+  quarterlyPriceCents Int
+  annualPriceCents  Int
+  applicationsPerMonth Int
+  maxAgents         Int
+  // Feature flags, stored as JSON so future modules can extend tiers freely.
+  features          String  @default("[]")
+  highlight         Boolean @default(false)
+  sortOrder         Int     @default(0)
+
+  subscriptions Subscription[]
+}
+
+model Subscription {
+  id         String   @id @default(cuid())
+  userId     String   @unique
+  planId     String
+  // monthly | quarterly | annual
+  interval   String   @default("monthly")
+  // trialing | active | past_due | canceled
+  status     String   @default("active")
+  startedAt  DateTime @default(now())
+  renewsAt   DateTime
+  canceledAt DateTime?
+
+  // Quota window — reset on each billing cycle.
+  periodStart      DateTime @default(now())
+  periodEnd        DateTime
+  applicationsUsed Int      @default(0)
+
+  externalCustomerId String?
+  externalSubId      String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan Plan @relation(fields: [planId], references: [id])
+}
+
+// ---------------------------------------------------------------------------
+// Resumes
+// ---------------------------------------------------------------------------
+
+// The master resume a user uploads/edits once. Structured content is stored as
+// JSON so the AI layer can rewrite individual sections when tailoring.
+model Resume {
+  id        String   @id @default(cuid())
+  userId    String
+  label     String   @default("Master Resume")
+  isMaster  Boolean  @default(true)
+  // JSON: { summary, skills[], experience[], education[], certifications[], projects[] }
+  content   String
+  rawText   String   @default("")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// ---------------------------------------------------------------------------
+// Job agents — the automation unit
+// ---------------------------------------------------------------------------
+
+model Agent {
+  id        String  @id @default(cuid())
+  userId    String
+  name      String
+  // Titles this agent hunts for, JSON string array.
+  titles    String  @default("[]")
+  keywords  String  @default("[]")
+  excludeKeywords String @default("[]")
+  locations String  @default("[]")
+  // onsite | hybrid | remote | any
+  workMode  String  @default("any")
+  // full_time | part_time | contract | any
+  jobType   String  @default("any")
+  minSalary Int?
+  seniority String  @default("any")
+  // Only surface jobs at or above this match score.
+  minMatchScore Int @default(65)
+  // Auto-apply without asking, when a job clears autoApplyThreshold.
+  autoApply Boolean @default(false)
+  autoApplyThreshold Int @default(85)
+  // daily | twice_daily | hourly | manual
+  scanFrequency String @default("daily")
+  status    String  @default("active") // active | paused
+  lastScanAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  matches      JobMatch[]
+  applications Application[]
+
+  @@index([userId])
+}
+
+// ---------------------------------------------------------------------------
+// Jobs
+// ---------------------------------------------------------------------------
+
+// A job posting discovered from any source. Deduplicated on externalId+source.
+model Job {
+  id           String   @id @default(cuid())
+  source       String   // mock | indeed | adzuna | linkedin
+  externalId   String
+  title        String
+  company      String
+  companyLogo  String?
+  location     String
+  country      String   @default("CA")
+  workMode     String   @default("onsite")
+  jobType      String   @default("full_time")
+  salaryMin    Int?
+  salaryMax    Int?
+  salaryCurrency String @default("CAD")
+  description  String
+  // Extracted requirement keywords (JSON string array) used for match scoring.
+  requirements String   @default("[]")
+  skills       String   @default("[]")
+  // Canadian NOC code — powers future "certifications by job code" module.
+  nocCode      String?
+  applyUrl     String   @default("")
+  // Whether the posting can be submitted programmatically.
+  applyMethod  String   @default("external") // external | email | ats_form
+  postedAt     DateTime
+  scrapedAt    DateTime @default(now())
+  expiresAt    DateTime?
+
+  matches      JobMatch[]
+  applications Application[]
+  savedBy      SavedJob[]
+
+  @@unique([source, externalId])
+  @@index([title])
+  @@index([postedAt])
+}
+
+// Join of agent × job, carrying the AI match analysis. This is what the job
+// feed renders, and what "Apply All" iterates over.
+model JobMatch {
+  id        String   @id @default(cuid())
+  agentId   String
+  jobId     String
+  // 0-100 predicted likelihood of clearing ATS + recruiter screen.
+  matchScore Int
+  // Sub-scores, JSON: { skills, experience, keywords, location, seniority }
+  scoreBreakdown String @default("{}")
+  matchedKeywords String @default("[]")
+  missingKeywords String @default("[]")
+  rationale String @default("")
+  // new | reviewed | queued | applied | dismissed
+  status    String   @default("new")
+  createdAt DateTime @default(now())
+
+  agent Agent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  job   Job   @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@unique([agentId, jobId])
+  @@index([agentId, status])
+}
+
+model SavedJob {
+  id        String   @id @default(cuid())
+  userId    String
+  jobId     String
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  job  Job  @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, jobId])
+}
+
+// ---------------------------------------------------------------------------
+// Applications — each one owns a folder on disk
+// ---------------------------------------------------------------------------
+
+model Application {
+  id      String @id @default(cuid())
+  userId  String
+  jobId   String
+  agentId String?
+
+  // queued | applying | submitted | failed | interviewing | offer | rejected | withdrawn
+  status  String @default("queued")
+  matchScore Int  @default(0)
+
+  // Snapshot of the tailored documents at submission time. Kept in the DB so
+  // the record survives even if the filesystem folder is pruned.
+  tailoredResume String @default("")
+  coverLetter    String @default("")
+  // JSON: what the tailoring step changed, for user transparency.
+  tailoringNotes String @default("{}")
+  keywordsInjected String @default("[]")
+  atsScore       Int    @default(0)
+
+  // Relative path of the generated folder, e.g. applications/2026-08/acme-data-analyst-a1b2
+  folderPath String @default("")
+
+  appliedAt   DateTime?
+  respondedAt DateTime?
+  notes       String   @default("")
+  failureReason String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user  User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  job   Job    @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  agent Agent? @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  interviewPrep InterviewPrep?
+
+  @@unique([userId, jobId])
+  @@index([userId, status])
+}
+
+// ---------------------------------------------------------------------------
+// Interview preparation
+// ---------------------------------------------------------------------------
+
+model InterviewPrep {
+  id            String @id @default(cuid())
+  userId        String
+  applicationId String @unique
+
+  // JSON array: [{ question, category, suggestedAnswer, tips[] }]
+  questions String @default("[]")
+  // JSON array of STAR stories: [{ title, situation, task, action, result, mapsTo[] }]
+  stories   String @default("[]")
+  companyResearch String @default("")
+  // JSON array of questions the candidate should ask.
+  questionsToAsk  String @default("[]")
+  status    String   @default("ready") // generating | ready
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// ---------------------------------------------------------------------------
+// Activity feed
+// ---------------------------------------------------------------------------
+
+model ActivityEvent {
+  id        String   @id @default(cuid())
+  userId    String
+  // scan | apply | tailor | prep | billing | agent
+  type      String
+  message   String
+  meta      String   @default("{}")
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}
