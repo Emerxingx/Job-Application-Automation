@@ -19,6 +19,9 @@ import type { TailoringNotes } from '@/lib/types';
 import { Card, ScoreRing, StatusBadge, formatSalary } from '@/components/ui';
 import { ApplicationStatusControl } from '@/components/application-status';
 import { InterviewPrepButton } from '@/components/interview-prep-button';
+import { AssistedApply, type AssistedField } from '@/components/assisted-apply';
+import { atsDisplayName } from '@/lib/providers/apply';
+import type { AtsVendor } from '@/lib/providers/apply';
 
 export const metadata = { title: 'Application' };
 export const dynamic = 'force-dynamic';
@@ -37,6 +40,7 @@ export default async function ApplicationDetailPage({
   });
   if (!application) notFound();
 
+  const assistedFields = parseJson<AssistedField[]>(application.assistedFields, []);
   const notes = parseJson<TailoringNotes>(application.tailoringNotes, {
     summaryRewritten: false,
     bulletsAdjusted: 0,
@@ -46,14 +50,30 @@ export default async function ApplicationDetailPage({
     changes: [],
   });
 
+  // Nothing has reached the employer until the applicant confirms, so the copy
+  // on this page must not describe the documents as sent before then.
+  const sent = application.status !== 'ready_to_submit';
+
   const files = await listFolder(user.id, application.folderPath);
   // Fall back to the database copies when the filesystem folder is unavailable.
   const fileList = files.length
     ? files
     : [
-        { name: 'resume.txt', size: application.tailoredResume.length, description: 'The customized resume that was submitted' },
-        { name: 'cover-letter.txt', size: application.coverLetter.length, description: 'The cover letter that was submitted' },
-        { name: 'job-description.md', size: application.job.description.length, description: 'The posting as it appeared when you applied' },
+        {
+          name: 'resume.txt',
+          size: application.tailoredResume.length,
+          description: sent ? 'The customized resume that was submitted' : 'The customized resume, ready to send',
+        },
+        {
+          name: 'cover-letter.txt',
+          size: application.coverLetter.length,
+          description: sent ? 'The cover letter that was submitted' : 'The cover letter, ready to send',
+        },
+        {
+          name: 'job-description.md',
+          size: application.job.description.length,
+          description: sent ? 'The posting as it appeared when you applied' : 'The posting as it appeared when this was prepared',
+        },
       ];
 
   return (
@@ -77,16 +97,33 @@ export default async function ApplicationDetailPage({
             </div>
           </div>
         </div>
-        <ApplicationStatusControl applicationId={application.id} status={application.status} />
+        {/* Outcome tracking only applies once the application has actually been
+            sent. While it is awaiting confirmation, the assisted panel below
+            owns the next action. */}
+        {sent && (
+          <ApplicationStatusControl applicationId={application.id} status={application.status} />
+        )}
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="space-y-6 lg:col-span-2">
+          {/* Assisted apply — shown until the applicant confirms they sent it */}
+          {application.status === 'ready_to_submit' && assistedFields.length > 0 && (
+            <AssistedApply
+              applicationId={application.id}
+              applyUrl={application.job.applyUrl}
+              atsName={application.atsVendor ? atsDisplayName(application.atsVendor as AtsVendor) : undefined}
+              fields={assistedFields}
+            />
+          )}
+
           {/* Folder */}
           <Card className="p-5">
             <h2 className="mb-1 font-semibold text-ink">Application folder</h2>
             <p className="mb-4 text-sm text-muted">
-              Everything submitted on your behalf, exactly as it was sent.
+              {application.status === 'ready_to_submit'
+                ? 'Everything prepared for this role, ready to send.'
+                : 'Everything submitted on your behalf, exactly as it was sent.'}
             </p>
 
             <ul className="divide-y divide-line">
@@ -154,7 +191,9 @@ export default async function ApplicationDetailPage({
 
           {/* Submitted resume */}
           <Card className="p-5">
-            <h2 className="mb-3 font-semibold text-ink">Resume submitted</h2>
+            <h2 className="mb-3 font-semibold text-ink">
+              {sent ? 'Resume submitted' : 'Resume prepared'}
+            </h2>
             <div className="scroll-x max-h-96 overflow-y-auto rounded-xl bg-raised p-4">
               <pre className="whitespace-pre-wrap font-mono text-xs leading-relaxed text-muted">
                 {application.tailoredResume}
@@ -164,7 +203,9 @@ export default async function ApplicationDetailPage({
 
           {/* Cover letter */}
           <Card className="p-5">
-            <h2 className="mb-3 font-semibold text-ink">Cover letter submitted</h2>
+            <h2 className="mb-3 font-semibold text-ink">
+              {sent ? 'Cover letter submitted' : 'Cover letter prepared'}
+            </h2>
             <div className="scroll-x max-h-96 overflow-y-auto rounded-xl bg-raised p-4">
               <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed text-muted">
                 {application.coverLetter}

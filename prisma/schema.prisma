@@ -238,9 +238,19 @@ model Application {
   jobId   String
   agentId String?
 
-  // queued | applying | submitted | failed | interviewing | offer | rejected | withdrawn
+  // queued | applying | ready_to_submit | submitted | failed | interviewing | offer | rejected | withdrawn
   status  String @default("queued")
   matchScore Int  @default(0)
+
+  // How the application reached the employer: ats_api | assisted | unavailable.
+  applyChannel String @default("")
+  // Which ATS was detected behind the posting, when one was (greenhouse, lever, …).
+  atsVendor    String?
+  // JSON: the pre-filled fields for an assisted submission, so the applicant
+  // confirms rather than retypes. Empty for programmatic submissions.
+  assistedFields String @default("[]")
+  // Confirmation reference returned by the employer system, when there is one.
+  confirmation   String?
 
   // Snapshot of the tailored documents at submission time. Kept in the DB so
   // the record survives even if the filesystem folder is pruned.

@@ -19,7 +19,19 @@ export function getJobProvider(): JobProvider {
   if (jobProvider) return jobProvider;
 
   const configured = (process.env.JOB_PROVIDER || 'mock').toLowerCase();
-  if (configured !== 'mock') {
+
+  if (configured === 'adzuna') {
+    if (!process.env.ADZUNA_APP_ID || !process.env.ADZUNA_APP_KEY) {
+      console.warn(
+        '[providers] JOB_PROVIDER=adzuna but ADZUNA_APP_ID/ADZUNA_APP_KEY are unset; using the mock source.',
+      );
+    } else {
+      // Required lazily so the live source never loads in mock deployments.
+      const { AdzunaJobProvider } = require('./jobs/adzuna') as typeof import('./jobs/adzuna');
+      jobProvider = new AdzunaJobProvider();
+      return jobProvider;
+    }
+  } else if (configured !== 'mock') {
     console.warn(
       `[providers] JOB_PROVIDER="${configured}" is not implemented yet; using the mock source.`,
     );
@@ -27,6 +39,12 @@ export function getJobProvider(): JobProvider {
 
   jobProvider = new MockJobProvider();
   return jobProvider;
+}
+
+/** Test seam — clears the memoized providers. */
+export function resetProviders(): void {
+  jobProvider = null;
+  aiProvider = null;
 }
 
 /** Resolve the configured intelligence layer. */

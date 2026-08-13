@@ -29,6 +29,7 @@ type SortKey = 'score' | 'recent' | 'salary';
 
 interface ApplyResult {
   submitted: number;
+  prepared: number;
   failed: number;
   skipped: number;
   outcomes: { jobTitle: string; company: string; ok: boolean; reason?: string }[];
@@ -198,12 +199,20 @@ export function JobFeed({ items, remaining }: { items: JobFeedItem[]; remaining:
             <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-success" />
             <div className="min-w-0 flex-1">
               <p className="font-semibold text-ink">
-                {result.submitted} application{result.submitted === 1 ? '' : 's'} submitted
+                {[
+                  result.submitted > 0 &&
+                    `${result.submitted} application${result.submitted === 1 ? '' : 's'} submitted`,
+                  result.prepared > 0 && `${result.prepared} ready for you to send`,
+                ]
+                  .filter(Boolean)
+                  .join(', ') || 'Nothing was applied to'}
                 {result.failed > 0 && `, ${result.failed} need${result.failed === 1 ? 's' : ''} attention`}
                 {result.skipped > 0 && `, ${result.skipped} skipped`}
               </p>
               <p className="mt-0.5 text-sm text-muted">
-                Each one has its own folder with the resume and cover letter that were sent.
+                {result.prepared > 0
+                  ? 'Each one has its own folder. The ready ones open the employer form with every field pre-filled — one click each.'
+                  : 'Each one has its own folder with the resume and cover letter that were sent.'}
               </p>
               <Link
                 href="/dashboard/applications"

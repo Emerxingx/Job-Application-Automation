@@ -126,6 +126,8 @@ export async function activatePlan(
   userId: string,
   planCode: string,
   interval: BillingInterval,
+  /** Gateway identifiers, when a real payment provider processed the checkout. */
+  external?: { customerId?: string; subscriptionId?: string },
 ): Promise<void> {
   const plan = await db.plan.findUnique({ where: { code: planCode } });
   if (!plan) throw new Error(`Unknown plan: ${planCode}`);
@@ -148,6 +150,8 @@ export async function activatePlan(
       periodStart: now,
       periodEnd,
       applicationsUsed: 0,
+      externalCustomerId: external?.customerId ?? null,
+      externalSubId: external?.subscriptionId ?? null,
     },
     update: {
       planId: plan.id,
@@ -158,6 +162,28 @@ export async function activatePlan(
       periodEnd,
       applicationsUsed: 0,
       canceledAt: null,
+      // Preserve existing identifiers when a call omits them.
+      ...(external?.customerId ? { externalCustomerId: external.customerId } : {}),
+      ...(external?.subscriptionId ? { externalSubId: external.subscriptionId } : {}),
+    },
+  });
+}
+
+/** Mark a subscription's lifecycle state from a gateway event. */
+export async function setSubscriptionStatus(
+  externalSubId: string,
+  status: 'active' | 'past_due' | 'canceled',
+): Promise<void> {
+  const subscription = await db.subscription.findFirst({ where: { externalSubId } });
+  if (!subscription) {
+    console.warn(`[subscription] no local record for external subscription ${externalSubId}`);
+    return;
+  }
+  await db.subscription.update({
+    where: { id: subscription.id },
+    data: {
+      status,
+      canceledAt: status === 'canceled' ? new Date() : null,
     },
   });
 }

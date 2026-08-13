@@ -83,6 +83,7 @@ export function ScoreRing({ score, size = 56 }: { score: number; size?: number }
 const STATUS_STYLES: Record<string, { bg: string; text: string; label: string }> = {
   queued: { bg: 'bg-raised', text: 'text-muted', label: 'Queued' },
   applying: { bg: 'bg-brand-500/10', text: 'text-brand-600', label: 'Applying' },
+  ready_to_submit: { bg: 'bg-warning/10', text: 'text-warning', label: 'Ready to send' },
   submitted: { bg: 'bg-success/10', text: 'text-success', label: 'Submitted' },
   failed: { bg: 'bg-danger/10', text: 'text-danger', label: 'Needs attention' },
   interviewing: { bg: 'bg-brand-500/10', text: 'text-brand-600', label: 'Interviewing' },

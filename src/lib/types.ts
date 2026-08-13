@@ -10,6 +10,8 @@ export type BillingInterval = 'monthly' | 'quarterly' | 'annual';
 export type ApplicationStatus =
   | 'queued'
   | 'applying'
+  /** Tailored and prepared; awaiting the applicant's confirmation on the employer form. */
+  | 'ready_to_submit'
   | 'submitted'
   | 'failed'
   | 'interviewing'

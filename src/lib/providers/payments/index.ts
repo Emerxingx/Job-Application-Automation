@@ -53,7 +53,27 @@ let cached: PaymentProvider | null = null;
 
 export function getPaymentProvider(): PaymentProvider {
   if (cached) return cached;
-  // Stripe implementation drops in here when PAYMENT_PROVIDER=stripe.
+
+  const configured = (process.env.PAYMENT_PROVIDER || 'mock').toLowerCase();
+
+  if (configured === 'stripe') {
+    if (!process.env.STRIPE_SECRET_KEY) {
+      console.warn('[payments] PAYMENT_PROVIDER=stripe but STRIPE_SECRET_KEY is unset; using the mock gateway.');
+    } else {
+      // Required lazily so the Stripe SDK never loads in mock deployments.
+      const { StripePaymentProvider } = require('./stripe') as typeof import('./stripe');
+      cached = new StripePaymentProvider();
+      return cached;
+    }
+  } else if (configured !== 'mock') {
+    console.warn(`[payments] PAYMENT_PROVIDER="${configured}" is not implemented; using the mock gateway.`);
+  }
+
   cached = new MockPaymentProvider();
   return cached;
+}
+
+/** Test seam — clears the memoized provider. */
+export function resetPaymentProvider(): void {
+  cached = null;
 }

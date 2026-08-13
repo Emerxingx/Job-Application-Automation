@@ -1,5 +1,7 @@
 import { db } from '@/lib/db';
-import { getAIProvider, getJobProvider } from '@/lib/providers';
+import { getAIProvider } from '@/lib/providers';
+import { getApplyProvider } from '@/lib/providers/apply';
+import type { ApplyChannel } from '@/lib/providers/apply';
 import { createApplicationFolder } from '@/lib/storage';
 import { consumeQuota, refundQuota } from '@/lib/subscription';
 import { parseJson } from '@/lib/types';
@@ -16,11 +18,18 @@ export interface ApplyOutcome {
   atsScore?: number;
   folderPath?: string;
   reason?: string;
+  /** How this application reached the employer. */
+  channel?: ApplyChannel;
+  /** True when the applicant still has to confirm on the employer's form. */
+  needsConfirmation?: boolean;
 }
 
 export interface BulkApplyResult {
   requested: number;
+  /** Submitted end-to-end by JobPilot. */
   submitted: number;
+  /** Prepared in full, awaiting the applicant's click on the employer form. */
+  prepared: number;
   failed: number;
   skipped: number;
   quotaGranted: number;
@@ -43,6 +52,7 @@ export async function applyToJobs(userId: string, jobIds: string[]): Promise<Bul
     return {
       requested: unique.length,
       submitted: 0,
+      prepared: 0,
       failed: 0,
       skipped: unique.length,
       quotaGranted: 0,
@@ -67,9 +77,12 @@ export async function applyToJobs(userId: string, jobIds: string[]): Promise<Bul
   }
 
   const ai = getAIProvider();
-  const jobs = getJobProvider();
+  const applyEngine = getApplyProvider();
+
+  const [firstName = user.fullName, ...restName] = user.fullName.trim().split(/\s+/);
 
   let submitted = 0;
+  let prepared = 0;
   let failed = 0;
   let skipped = 0;
   // Only the first `granted` jobs are covered by quota.
@@ -126,34 +139,53 @@ export async function applyToJobs(userId: string, jobIds: string[]): Promise<Bul
 
       const tailored = await ai.tailor(resumeContent, context, analysis);
 
-      const submission = await jobs.submit({
+      const submission = await applyEngine.apply({
         job: {
           title: job.title,
           company: job.company,
           applyUrl: job.applyUrl,
           applyMethod: job.applyMethod,
+          description: job.description,
         },
         resumeText: tailored.resumeText,
         coverLetter: tailored.coverLetter,
-        applicant: { fullName: user.fullName, email: user.email, phone: user.phone ?? undefined },
+        applicant: {
+          fullName: user.fullName,
+          firstName,
+          lastName: restName.join(' ') || firstName,
+          email: user.email,
+          phone: user.phone ?? undefined,
+          location: [user.city, user.country].filter(Boolean).join(', ') || undefined,
+          linkedinUrl: user.linkedinUrl ?? undefined,
+          portfolioUrl: user.portfolioUrl ?? undefined,
+          workAuthorization: user.workAuth ?? undefined,
+        },
       });
 
       const appliedAt = new Date();
+      // An assisted application is prepared, not sent: it counts as delivered
+      // work, but the record must not claim a submission that hasn't happened.
+      const isAssisted = submission.ok && submission.channel === 'assisted';
+      const status = !submission.ok ? 'failed' : isAssisted ? 'ready_to_submit' : 'submitted';
 
       const application = await db.application.create({
         data: {
           userId,
           jobId,
           agentId: match?.agentId ?? null,
-          status: submission.ok ? 'submitted' : 'failed',
+          status,
           matchScore: analysis.matchScore,
           tailoredResume: tailored.resumeText,
           coverLetter: tailored.coverLetter,
           tailoringNotes: JSON.stringify(tailored.notes),
           keywordsInjected: JSON.stringify(tailored.notes.keywordsInjected),
           atsScore: tailored.notes.atsScore,
-          appliedAt: submission.ok ? appliedAt : null,
+          appliedAt: status === 'submitted' ? appliedAt : null,
           failureReason: submission.failureReason ?? null,
+          applyChannel: submission.channel,
+          atsVendor: submission.ats ?? null,
+          assistedFields: JSON.stringify(submission.assisted?.fields ?? []),
+          confirmation: submission.confirmation ?? null,
         },
       });
 
@@ -195,7 +227,8 @@ export async function applyToJobs(userId: string, jobIds: string[]): Promise<Bul
       }
 
       if (submission.ok) {
-        submitted += 1;
+        if (isAssisted) prepared += 1;
+        else submitted += 1;
         outcomes.push({
           jobId,
           jobTitle: job.title,
@@ -205,6 +238,8 @@ export async function applyToJobs(userId: string, jobIds: string[]): Promise<Bul
           matchScore: analysis.matchScore,
           atsScore: tailored.notes.atsScore,
           folderPath,
+          channel: submission.channel,
+          needsConfirmation: isAssisted,
         });
       } else {
         failed += 1;
@@ -230,17 +265,24 @@ export async function applyToJobs(userId: string, jobIds: string[]): Promise<Bul
     }
   }
 
-  // Refund everything that didn't result in a real submission.
-  const unused = granted - submitted;
+  // Refund anything that produced no application at all. A prepared assisted
+  // application consumed the tailoring work and counts against the plan.
+  const delivered = submitted + prepared;
+  const unused = granted - delivered;
   if (unused > 0) await refundQuota(userId, unused);
 
-  if (submitted > 0) {
+  if (delivered > 0) {
+    const parts: string[] = [];
+    if (submitted > 0) parts.push(`applied to ${submitted} role${submitted === 1 ? '' : 's'}`);
+    if (prepared > 0) parts.push(`prepared ${prepared} ready to submit`);
+    const message = `${parts.join(' and ')} with customized resumes.`;
+
     await db.activityEvent.create({
       data: {
         userId,
         type: 'apply',
-        message: `Applied to ${submitted} role${submitted === 1 ? '' : 's'} with customized resumes.`,
-        meta: JSON.stringify({ submitted, failed, skipped }),
+        message: message.charAt(0).toUpperCase() + message.slice(1),
+        meta: JSON.stringify({ submitted, prepared, failed, skipped }),
       },
     });
   }
@@ -248,9 +290,35 @@ export async function applyToJobs(userId: string, jobIds: string[]): Promise<Bul
   return {
     requested: unique.length,
     submitted,
+    prepared,
     failed,
     skipped,
     quotaGranted: granted,
     outcomes,
   };
+}
+
+/**
+ * Record that the applicant completed an assisted application on the
+ * employer's form. This is the only way a `ready_to_submit` record becomes
+ * `submitted` — JobPilot never infers a submission it did not make.
+ */
+export async function confirmAssistedSubmission(
+  userId: string,
+  applicationId: string,
+): Promise<{ ok: boolean; reason?: string }> {
+  const application = await db.application.findFirst({
+    where: { id: applicationId, userId },
+  });
+  if (!application) return { ok: false, reason: 'Application not found.' };
+  if (application.status !== 'ready_to_submit') {
+    return { ok: false, reason: 'This application is not awaiting confirmation.' };
+  }
+
+  await db.application.update({
+    where: { id: application.id },
+    data: { status: 'submitted', appliedAt: new Date() },
+  });
+
+  return { ok: true };
 }
