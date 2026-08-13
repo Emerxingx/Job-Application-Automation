@@ -5,13 +5,24 @@ import { getAIProvider } from '@/lib/providers';
 import { toJobContext } from '@/lib/services/scanner';
 import { parseJson } from '@/lib/types';
 import type { ResumeContent } from '@/lib/types';
-import { fail, ok, route } from '@/lib/api';
+import { describeWait, fail, ok, route, tooMany } from '@/lib/api';
+import { LIMITS, rateLimit } from '@/lib/rate-limit';
 
 const schema = z.object({ applicationId: z.string().min(1) });
 
 /** Generate (or regenerate) the interview preparation pack for an application. */
 export const POST = route(async (request: Request) => {
   const user = await requireUser();
+
+  // Each pack is a full generation, so it is metered like the other AI calls.
+  const limit = rateLimit('interviewPrep', user.id, LIMITS.interviewPrep);
+  if (!limit.ok) {
+    return tooMany(
+      `You have generated a lot of prep packs. Try again in ${describeWait(limit.retryAfterSeconds)}.`,
+      limit.retryAfterSeconds,
+    );
+  }
+
   const body = schema.parse(await request.json());
 
   const application = await db.application.findFirst({

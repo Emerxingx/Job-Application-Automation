@@ -2,7 +2,8 @@ import { z } from 'zod';
 import { db } from '@/lib/db';
 import { createSession, hashPassword } from '@/lib/auth';
 import { activatePlan } from '@/lib/subscription';
-import { fail, ok, route } from '@/lib/api';
+import { describeWait, fail, ok, route, tooMany } from '@/lib/api';
+import { LIMITS, clientAddress, rateLimit } from '@/lib/rate-limit';
 import type { BillingInterval } from '@/lib/types';
 
 const schema = z.object({
@@ -15,6 +16,14 @@ const schema = z.object({
 });
 
 export const POST = route(async (request: Request) => {
+  const limit = rateLimit('auth', clientAddress(request), LIMITS.auth);
+  if (!limit.ok) {
+    return tooMany(
+      `Too many sign-up attempts. Try again in ${describeWait(limit.retryAfterSeconds)}.`,
+      limit.retryAfterSeconds,
+    );
+  }
+
   const body = schema.parse(await request.json());
   const email = body.email.toLowerCase().trim();
 

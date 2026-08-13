@@ -2,7 +2,8 @@ import { z } from 'zod';
 import { requireUser } from '@/lib/auth';
 import { applyToJobs } from '@/lib/services/applicator';
 import { getQuota } from '@/lib/subscription';
-import { fail, ok, route } from '@/lib/api';
+import { describeWait, fail, ok, route, tooMany } from '@/lib/api';
+import { LIMITS, rateLimit } from '@/lib/rate-limit';
 
 const schema = z.object({
   jobIds: z.array(z.string().min(1)).min(1, 'Select at least one job to apply to.').max(100),
@@ -14,6 +15,17 @@ const schema = z.object({
  */
 export const POST = route(async (request: Request) => {
   const user = await requireUser();
+
+  // The plan quota caps applications per month; this caps how fast they can be
+  // requested, so a runaway client cannot burn the AI budget in a loop.
+  const limit = rateLimit('apply', user.id, LIMITS.apply);
+  if (!limit.ok) {
+    return tooMany(
+      `That is a lot of applications at once. Try again in ${describeWait(limit.retryAfterSeconds)}.`,
+      limit.retryAfterSeconds,
+    );
+  }
+
   const body = schema.parse(await request.json());
 
   const quota = await getQuota(user.id);

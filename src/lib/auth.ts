@@ -6,14 +6,31 @@ import { db } from './db';
 const COOKIE_NAME = 'jobpilot_session';
 const SESSION_DAYS = 30;
 
+/**
+ * The development fallback. It also ships in `.env.example`, which is exactly
+ * why production has to reject it by value: it is long enough to pass a length
+ * check, so a deployment that copied the example file would otherwise sign
+ * every session with a key published in the repository.
+ */
+export const DEV_AUTH_SECRET = 'dev-only-secret-change-me-in-production-0123456789';
+
+/** Whether a candidate secret is safe to sign sessions with in production. */
+export function isUsableSecret(value: string | undefined): value is string {
+  return typeof value === 'string' && value.length >= 32 && value !== DEV_AUTH_SECRET;
+}
+
 function secret(): Uint8Array {
   const value = process.env.AUTH_SECRET;
-  if (!value || value.length < 32) {
-    // Fail loudly in production rather than signing sessions with a weak key.
+  if (!isUsableSecret(value)) {
+    // Fail loudly in production rather than signing sessions with a weak or
+    // publicly known key.
     if (process.env.NODE_ENV === 'production') {
-      throw new Error('AUTH_SECRET must be set to at least 32 characters in production.');
+      throw new Error(
+        'AUTH_SECRET must be set to a generated value of at least 32 characters in production. ' +
+          'The placeholder from .env.example is not accepted — run: openssl rand -base64 32',
+      );
     }
-    return new TextEncoder().encode('dev-only-secret-change-me-in-production-0123456789');
+    return new TextEncoder().encode(DEV_AUTH_SECRET);
   }
   return new TextEncoder().encode(value);
 }

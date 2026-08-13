@@ -1,7 +1,8 @@
 import { z } from 'zod';
 import { requireUser } from '@/lib/auth';
 import { runAgentScan, runAllScans } from '@/lib/services/scanner';
-import { ok, route } from '@/lib/api';
+import { describeWait, ok, route, tooMany } from '@/lib/api';
+import { LIMITS, rateLimit } from '@/lib/rate-limit';
 
 const schema = z.object({ agentId: z.string().optional() });
 
@@ -11,6 +12,16 @@ const schema = z.object({ agentId: z.string().optional() });
  */
 export const POST = route(async (request: Request) => {
   const user = await requireUser();
+
+  // Scanning scores every posting against the resume, so it is metered
+  // separately from the monthly application allowance.
+  const limit = rateLimit('scan', user.id, LIMITS.scan);
+  if (!limit.ok) {
+    return tooMany(
+      `You have run a lot of scans in a short time. Try again in ${describeWait(limit.retryAfterSeconds)}.`,
+      limit.retryAfterSeconds,
+    );
+  }
 
   const raw = await request.text();
   const body = schema.parse(raw ? JSON.parse(raw) : {});
