@@ -15,6 +15,7 @@ import { CareerGuides } from './cms/collections/CareerGuides';
 import { Certifications } from './cms/collections/Certifications';
 import { SiteSettings } from './cms/globals/SiteSettings';
 import { PricingCopy } from './cms/globals/PricingCopy';
+import { DashboardLayout } from './cms/globals/DashboardLayout';
 
 const dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -48,7 +49,7 @@ export default buildConfig({
   // without it Payload silently skips resizing.
   sharp,
   collections: [Editors, Media, Pages, BlogPosts, LearningPaths, CareerGuides, Certifications],
-  globals: [SiteSettings, PricingCopy],
+  globals: [SiteSettings, PricingCopy, DashboardLayout],
   secret: resolvePayloadSecret(),
   db: sqliteAdapter({
     client: {

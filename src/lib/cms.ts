@@ -117,3 +117,54 @@ export async function getLandingContent(): Promise<LandingContent> {
     return empty;
   }
 }
+
+// --- Dashboard layout ------------------------------------------------------
+
+/** One configured widget from the dashboard-layout global. */
+export interface DashboardWidget {
+  id?: string;
+  blockType: string;
+  [key: string]: unknown;
+}
+
+/**
+ * The built-in layout, mirroring the original hardcoded dashboard exactly.
+ * Used whenever the CMS global is absent, empty, or unreachable — so a fresh
+ * install, a cleared layout, or a CMS failure all render the same dashboard
+ * users have always had.
+ */
+export const DEFAULT_DASHBOARD_LAYOUT: DashboardWidget[] = [
+  { id: 'default-stats', blockType: 'statsRow', stats: ['applications', 'agents', 'matches', 'interviewRate'] },
+  {
+    id: 'default-getting-started',
+    blockType: 'gettingStarted',
+    heading: 'Create your first job agent',
+    body: 'Tell JobPilot which titles you want and where. Your agent will scan live postings and score each one against your resume.',
+    ctaLabel: 'Create an agent',
+  },
+  { id: 'default-matches', blockType: 'topMatches', heading: 'Your best matches', count: 4 },
+  { id: 'default-activity', blockType: 'recentActivity', heading: 'Recent activity', count: 6 },
+  { id: 'default-pipeline', blockType: 'pipeline', heading: 'Pipeline' },
+];
+
+/**
+ * Fetch the CMS-managed dashboard layout, falling back to the built-in
+ * default when no layout has been saved. The dashboard must render for every
+ * signed-in user no matter what state the CMS is in.
+ */
+export async function getDashboardLayout(): Promise<DashboardWidget[]> {
+  try {
+    const payload = await getPayload({ config });
+    const layout = await payload.findGlobal({ slug: 'dashboard-layout' });
+    const widgets = (layout as { widgets?: unknown }).widgets;
+    if (Array.isArray(widgets) && widgets.length > 0) {
+      return widgets.filter(
+        (w): w is DashboardWidget => typeof w === 'object' && w !== null && typeof (w as DashboardWidget).blockType === 'string',
+      );
+    }
+    return DEFAULT_DASHBOARD_LAYOUT;
+  } catch (error) {
+    console.error('[cms] could not load dashboard layout; using built-in default:', error);
+    return DEFAULT_DASHBOARD_LAYOUT;
+  }
+}

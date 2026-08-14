@@ -100,10 +100,12 @@ export interface Config {
   globals: {
     'site-settings': SiteSetting;
     'pricing-copy': PricingCopy;
+    'dashboard-layout': DashboardLayout;
   };
   globalsSelect: {
     'site-settings': SiteSettingsSelect<false> | SiteSettingsSelect<true>;
     'pricing-copy': PricingCopySelect<false> | PricingCopySelect<true>;
+    'dashboard-layout': DashboardLayoutSelect<false> | DashboardLayoutSelect<true>;
   };
   locale: null;
   widgets: {
@@ -836,6 +838,74 @@ export interface PricingCopy {
   createdAt?: string | null;
 }
 /**
+ * Order and configuration of the widgets on every user’s dashboard overview. Drag to reorder. Widgets are pre-built and safe: layout edits cannot change what a widget does or whose data it sees.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "dashboard-layout".
+ */
+export interface DashboardLayout {
+  id: number;
+  widgets?:
+    | (
+        | {
+            /**
+             * Which stat tiles appear, in this order.
+             */
+            stats?: ('applications' | 'agents' | 'matches' | 'interviewRate')[] | null;
+            id?: string | null;
+            blockName?: string | null;
+            blockType: 'statsRow';
+          }
+        | {
+            heading?: string | null;
+            body?: string | null;
+            ctaLabel?: string | null;
+            id?: string | null;
+            blockName?: string | null;
+            blockType: 'gettingStarted';
+          }
+        | {
+            heading?: string | null;
+            /**
+             * How many matches to show (1–10).
+             */
+            count?: number | null;
+            id?: string | null;
+            blockName?: string | null;
+            blockType: 'topMatches';
+          }
+        | {
+            heading?: string | null;
+            /**
+             * How many events to show (1–20).
+             */
+            count?: number | null;
+            id?: string | null;
+            blockName?: string | null;
+            blockType: 'recentActivity';
+          }
+        | {
+            heading?: string | null;
+            id?: string | null;
+            blockName?: string | null;
+            blockType: 'pipeline';
+          }
+        | {
+            heading: string;
+            body?: string | null;
+            tone?: ('info' | 'success' | 'warning') | null;
+            linkLabel?: string | null;
+            linkHref?: string | null;
+            id?: string | null;
+            blockName?: string | null;
+            blockType: 'announcement';
+          }
+      )[]
+    | null;
+  updatedAt?: string | null;
+  createdAt?: string | null;
+}
+/**
  * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "site-settings_select".
  */
@@ -874,6 +944,69 @@ export interface PricingCopySelect<T extends boolean = true> {
         question?: T;
         answer?: T;
         id?: T;
+      };
+  updatedAt?: T;
+  createdAt?: T;
+  globalType?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "dashboard-layout_select".
+ */
+export interface DashboardLayoutSelect<T extends boolean = true> {
+  widgets?:
+    | T
+    | {
+        statsRow?:
+          | T
+          | {
+              stats?: T;
+              id?: T;
+              blockName?: T;
+            };
+        gettingStarted?:
+          | T
+          | {
+              heading?: T;
+              body?: T;
+              ctaLabel?: T;
+              id?: T;
+              blockName?: T;
+            };
+        topMatches?:
+          | T
+          | {
+              heading?: T;
+              count?: T;
+              id?: T;
+              blockName?: T;
+            };
+        recentActivity?:
+          | T
+          | {
+              heading?: T;
+              count?: T;
+              id?: T;
+              blockName?: T;
+            };
+        pipeline?:
+          | T
+          | {
+              heading?: T;
+              id?: T;
+              blockName?: T;
+            };
+        announcement?:
+          | T
+          | {
+              heading?: T;
+              body?: T;
+              tone?: T;
+              linkLabel?: T;
+              linkHref?: T;
+              id?: T;
+              blockName?: T;
+            };
       };
   updatedAt?: T;
   createdAt?: T;
