@@ -18,6 +18,9 @@ prisma/*.db
 # generated application folders (user data)
 storage/
 
+# CMS uploads
+media/
+
 # misc
 .DS_Store
 *.pem

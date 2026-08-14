@@ -4,6 +4,10 @@ The app runs locally with no third-party accounts: every provider falls back to
 a mock implementation. Going to production means replacing three of those mocks
 and changing two things that only work on a machine with a persistent disk.
 
+The headless CMS (section 3) runs inside this same app and needs no extra
+service — only its own secret and, for multi-instance deployments, its own
+database.
+
 ## 1. Database — required
 
 Local development uses SQLite, which will not survive on a serverless host: the
@@ -56,7 +60,88 @@ Two workable options:
 
 Until one of those is done, prefer a host with a real filesystem.
 
-## 3. Providers
+## 3. Headless CMS (Payload)
+
+The CMS runs **inside this same Next.js app** — there is no second service to
+deploy:
+
+| Surface | Path |
+| --- | --- |
+| Admin UI | `/admin` |
+| REST API | `/api/cms/*` |
+| GraphQL | `/api/cms/graphql` |
+
+It is mounted at `/api/cms` rather than Payload's default `/api` specifically
+so its catch-all route can never shadow the application's own endpoints
+(`/api/apply`, `/api/auth/*`, `/api/webhooks/stripe`, …). Verified: with the
+CMS mounted, `/api/apply` still returns 401 rather than a CMS 404.
+
+### Two databases, on purpose
+
+`PAYLOAD_DATABASE_URI` is separate from `DATABASE_URL`:
+
+- **Prisma** owns transactional product data — users, jobs, applications,
+  subscriptions. The tables that drive billing and quota enforcement.
+- **Payload** owns editorial content — pages, blog posts, learning paths,
+  career guides, certifications.
+
+Different lifecycles and different restore stories: rolling back a bad content
+edit should never risk customer subscription records. Nothing in the CMS reads
+or writes a Prisma table.
+
+One deliberate consequence: **pricing numbers are not in the CMS.** Plan
+prices, quotas and features live in Prisma's `Plan` table because they drive
+real checkout and quota enforcement. The `pricing-copy` global holds only the
+surrounding heading and FAQ text. If the amounts lived in both places, a
+content edit could silently disagree with what a customer is charged.
+
+### First run
+
+Visit `/admin`. Payload prompts to create the first editor account, then that
+account manages the rest (`Editors` collection, roles: admin / editor).
+
+The public site does not depend on the CMS having content. Every accessor in
+`src/lib/cms.ts` returns `null` rather than throwing, and the landing page
+falls back to its built-in copy — so an empty CMS, or an unreachable one,
+never takes the front page down. Verified both directions: publishing a `home`
+page overrides the hero live, and deleting it restores the built-in copy.
+
+### Production notes
+
+- `PAYLOAD_SECRET` must be a generated value. It is validated the same way as
+  `AUTH_SECRET`, including rejecting the `.env.example` placeholder by value —
+  the placeholder is long enough to pass a naive length check. The two secrets
+  are deliberately distinct so a single leak cannot compromise both editor and
+  job-seeker sessions.
+- The guard intentionally does **not** fire during `next build`
+  (`NEXT_PHASE=phase-production-build`), so CI can build without runtime
+  secrets. It fires at server start, which is what actually matters.
+- **No email adapter is configured.** Editor password-reset emails are written
+  to the server console. Add a Payload email adapter before real editors rely
+  on self-service password resets.
+- Uploaded media is written to `media/` on local disk — the same
+  persistent-storage caveat as `storage/` in section 2 applies.
+- SQLite is fine for a single instance. For Postgres, swap `sqliteAdapter` for
+  the already-installed `@payloadcms/db-postgres` in `src/payload.config.ts`
+  and point `PAYLOAD_DATABASE_URI` at the connection string.
+
+### Regenerating CMS artifacts
+
+After changing collections or fields:
+
+```bash
+npm run cms:types      # regenerate src/payload-types.ts
+npm run cms:importmap  # regenerate the admin import map
+```
+
+Both run through `scripts/payload-cli.mjs`. Payload's CLI requires an ESM
+project, while this app builds and runs correctly as CommonJS — the wrapper
+toggles `"type": "module"` for the duration of the command and restores
+`package.json` afterwards, including on failure or Ctrl-C. Converting the whole
+project to ESM purely to satisfy a codegen tool would have meant rewriting the
+lazy `require()` provider loads for no runtime benefit.
+
+## 4. Providers
 
 | Variable | Effect |
 | --- | --- |
@@ -105,7 +190,7 @@ one, `auto` behaves exactly like `assisted`. This is deliberate: the major job
 boards prohibit automated submission and enforce it against the *applicant's*
 account, so the engine does not drive their forms.
 
-## 4. Secrets
+## 5. Secrets
 
 `AUTH_SECRET` signs session cookies. The committed default is a development
 placeholder — **replace it**, or every session token is forgeable by anyone who
@@ -118,7 +203,7 @@ AUTH_SECRET=$(openssl rand -base64 32)
 Also set `NEXT_PUBLIC_APP_URL` to the real origin; Stripe's success and cancel
 URLs are built from it.
 
-## 5. Known limits at scale
+## 6. Known limits at scale
 
 - **Rate limiting is per instance.** `src/lib/rate-limit.ts` keeps counters in
   process memory, so with N instances the effective ceiling is N × the
@@ -139,6 +224,8 @@ URLs are built from it.
 - [ ] `AUTH_SECRET` replaced with a generated value
 - [ ] `NEXT_PUBLIC_APP_URL` set to the real origin
 - [ ] Storage decision made (persistent disk or object storage)
+- [ ] `PAYLOAD_SECRET` replaced with a generated value (distinct from `AUTH_SECRET`)
+- [ ] First CMS editor account created at `/admin`
 - [ ] Stripe prices created, mapped, and the webhook registered
 - [ ] `APPLY_MODE` set deliberately
 - [ ] `npm run check` passes (types + tests)

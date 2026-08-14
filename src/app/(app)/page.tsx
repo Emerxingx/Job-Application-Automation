@@ -16,12 +16,37 @@ import { getCurrentUser } from '@/lib/auth';
 import { PricingTable } from '@/components/pricing-table';
 import { parseJson } from '@/lib/types';
 import { SiteHeader } from '@/components/site-header';
+import { getLandingContent } from '@/lib/cms';
+
+/**
+ * Built-in hero copy.
+ *
+ * This is the fallback, not dead code: it renders until an editor publishes a
+ * `home` page in the CMS, so a fresh install (or an unreachable CMS) still
+ * shows a complete landing page rather than an empty shell.
+ */
+const DEFAULT_HERO = {
+  eyebrow: 'Built for the Canadian & US job market',
+  headline: 'Stop applying to jobs.',
+  headlineAccent: 'Start getting interviews.',
+  subheadline:
+    'JobPilot AI scans live postings for the titles you want, scores your real chance of getting through the screen, rewrites your resume for each role, and applies — keeping a complete, auditable folder for every single application.',
+  primaryCtaLabel: 'Start your search',
+  primaryCtaHref: '/signup',
+  secondaryCtaLabel: 'Try the live demo',
+  secondaryCtaHref: '/login?demo=1',
+} as const;
 
 export default async function LandingPage() {
-  const [plans, user] = await Promise.all([
+  const [plans, user, cms] = await Promise.all([
     db.plan.findMany({ orderBy: { sortOrder: 'asc' } }),
     getCurrentUser(),
+    getLandingContent(),
   ]);
+
+  // CMS content wins field by field, so a partially-filled hero still renders
+  // a complete page instead of blanking whatever the editor left empty.
+  const hero = { ...DEFAULT_HERO, ...(cms.hero ?? {}) };
 
   const planData = plans.map((p) => ({
     code: p.code,
@@ -47,30 +72,42 @@ export default async function LandingPage() {
           className="pointer-events-none absolute left-1/2 top-0 h-[420px] w-[820px] -translate-x-1/2 rounded-full bg-brand-500/10 blur-3xl"
         />
         <div className="relative mx-auto max-w-4xl text-center">
-          <span className="chip mx-auto mb-6 border border-line bg-surface px-3 py-1.5">
-            <Sparkles className="h-3.5 w-3.5 text-brand-500" />
-            Built for the Canadian &amp; US job market
-          </span>
+          {hero.eyebrow && (
+            <span className="chip mx-auto mb-6 border border-line bg-surface px-3 py-1.5">
+              <Sparkles className="h-3.5 w-3.5 text-brand-500" />
+              {hero.eyebrow}
+            </span>
+          )}
 
           <h1 className="text-balance text-4xl font-bold tracking-tight text-ink sm:text-6xl">
-            Stop applying to jobs.
-            <br />
-            <span className="text-brand-500">Start getting interviews.</span>
+            {hero.headline}
+            {hero.headlineAccent && (
+              <>
+                <br />
+                <span className="text-brand-500">{hero.headlineAccent}</span>
+              </>
+            )}
           </h1>
 
-          <p className="mx-auto mt-6 max-w-2xl text-pretty text-lg text-muted">
-            JobPilot AI scans live postings for the titles you want, scores your real chance of
-            getting through the screen, rewrites your resume for each role, and applies — keeping a
-            complete, auditable folder for every single application.
-          </p>
+          {hero.subheadline && (
+            <p className="mx-auto mt-6 max-w-2xl text-pretty text-lg text-muted">
+              {hero.subheadline}
+            </p>
+          )}
 
           <div className="mt-9 flex flex-wrap items-center justify-center gap-3">
-            <Link href="/signup" className="btn-primary px-6 py-3 text-base">
-              Start your search
+            <Link
+              href={hero.primaryCtaHref || DEFAULT_HERO.primaryCtaHref}
+              className="btn-primary px-6 py-3 text-base"
+            >
+              {hero.primaryCtaLabel || DEFAULT_HERO.primaryCtaLabel}
               <ArrowRight className="h-4 w-4" />
             </Link>
-            <Link href="/login?demo=1" className="btn-secondary px-6 py-3 text-base">
-              Try the live demo
+            <Link
+              href={hero.secondaryCtaHref || DEFAULT_HERO.secondaryCtaHref}
+              className="btn-secondary px-6 py-3 text-base"
+            >
+              {hero.secondaryCtaLabel || DEFAULT_HERO.secondaryCtaLabel}
             </Link>
           </div>
 
