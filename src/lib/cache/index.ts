@@ -1,3 +1,6 @@
+import { createRequire } from 'node:module';
+import path from 'node:path';
+
 /**
  * A tiny cache abstraction with two backends.
  *
@@ -9,7 +12,9 @@
  *
  * The backend is chosen by REDIS_URL, the same "works with zero config,
  * upgrades when a credential appears" pattern used for the job/AI/payment
- * providers. Nothing in the app depends on Redis being present.
+ * providers. Nothing in the app depends on Redis being present, and `ioredis`
+ * is deliberately absent from package.json — install it only on deployments
+ * that actually set REDIS_URL.
  */
 
 export interface Cache {
@@ -63,18 +68,49 @@ class MemoryCache implements Cache {
 
 // --- redis backend ---------------------------------------------------------
 
+// Typed loosely so ioredis stays a lazy load — the SDK never loads when
+// REDIS_URL is unset.
+interface RedisClient {
+  get(key: string): Promise<string | null>;
+  set(key: string, value: string, mode: string, ttl: number): Promise<unknown>;
+  del(key: string): Promise<unknown>;
+}
+
+type RedisConstructor = new (url: string, opts?: unknown) => RedisClient;
+
+/**
+ * Load ioredis through Node's own resolver at runtime.
+ *
+ * A literal `require('ioredis')` here would be a compile-time failure rather
+ * than a runtime one: bundlers trace the string and refuse to build when the
+ * package is missing, even on the overwhelming majority of installs that never
+ * set REDIS_URL and would never execute this line. Resolving through
+ * createRequire with an assembled specifier keeps the dependency out of the
+ * module graph entirely, which is what "optional" has to mean for a package
+ * that is not in package.json.
+ */
+function loadRedisConstructor(): RedisConstructor | null {
+  try {
+    const requireFromApp = createRequire(path.join(process.cwd(), 'package.json'));
+    const specifier = ['io', 'redis'].join('');
+    const mod = requireFromApp(specifier) as RedisConstructor & { default?: RedisConstructor };
+    return mod.default ?? mod;
+  } catch {
+    return null;
+  }
+}
+
 class RedisCache implements Cache {
   readonly backend = 'redis' as const;
-  // Typed loosely so ioredis stays a lazy require — the SDK never loads when
-  // REDIS_URL is unset.
-  private client: {
-    get(key: string): Promise<string | null>;
-    set(key: string, value: string, mode: string, ttl: number): Promise<unknown>;
-    del(key: string): Promise<unknown>;
-  };
+  private client: RedisClient;
 
   constructor(url: string) {
-    const Redis = require('ioredis') as new (url: string, opts?: unknown) => RedisCache['client'];
+    const Redis = loadRedisConstructor();
+    if (!Redis) {
+      throw new Error(
+        "REDIS_URL is set but the 'ioredis' package is not installed — run `npm install ioredis`, or unset REDIS_URL to use the in-memory cache.",
+      );
+    }
     this.client = new Redis(url, {
       // Fail fast rather than hanging a request when Redis is unreachable; the
       // caller falls back to a direct read.

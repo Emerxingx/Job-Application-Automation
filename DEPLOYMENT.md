@@ -203,6 +203,27 @@ AUTH_SECRET=$(openssl rand -base64 32)
 Also set `NEXT_PUBLIC_APP_URL` to the real origin; Stripe's success and cancel
 URLs are built from it.
 
+### Redis — optional
+
+The CMS fast-read cache (`src/lib/cache/`) backs the ATS-ruleset and prompt
+lookups on the automation engine's hot path. With no configuration it uses a
+process-local TTL map, which is correct for a single instance and needs nothing
+installed.
+
+To share the cache across instances, set `REDIS_URL` **and** install the client,
+which is deliberately not a package.json dependency:
+
+```bash
+npm install ioredis
+```
+
+The two go together. `ioredis` is loaded through Node's resolver at runtime, so
+an install without it builds and boots normally; but if `REDIS_URL` is set while
+the package is missing, cache construction throws and the app logs
+`[cache] REDIS_URL set but Redis init failed` and falls back to the in-memory
+map — working, but not shared. Check that line in the logs after a deploy that
+turns Redis on.
+
 ## 6. Known limits at scale
 
 - **Rate limiting is per instance.** `src/lib/rate-limit.ts` keeps counters in
