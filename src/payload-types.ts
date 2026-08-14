@@ -74,6 +74,10 @@ export interface Config {
     'learning-paths': LearningPath;
     'career-guides': CareerGuide;
     certifications: Certification;
+    'ats-rulesets': AtsRuleset;
+    'prompt-registry': PromptRegistry;
+    'field-mappings': FieldMapping;
+    'seo-pages': SeoPage;
     'payload-kv': PayloadKv;
     'payload-locked-documents': PayloadLockedDocument;
     'payload-preferences': PayloadPreference;
@@ -88,6 +92,10 @@ export interface Config {
     'learning-paths': LearningPathsSelect<false> | LearningPathsSelect<true>;
     'career-guides': CareerGuidesSelect<false> | CareerGuidesSelect<true>;
     certifications: CertificationsSelect<false> | CertificationsSelect<true>;
+    'ats-rulesets': AtsRulesetsSelect<false> | AtsRulesetsSelect<true>;
+    'prompt-registry': PromptRegistrySelect<false> | PromptRegistrySelect<true>;
+    'field-mappings': FieldMappingsSelect<false> | FieldMappingsSelect<true>;
+    'seo-pages': SeoPagesSelect<false> | SeoPagesSelect<true>;
     'payload-kv': PayloadKvSelect<false> | PayloadKvSelect<true>;
     'payload-locked-documents': PayloadLockedDocumentsSelect<false> | PayloadLockedDocumentsSelect<true>;
     'payload-preferences': PayloadPreferencesSelect<false> | PayloadPreferencesSelect<true>;
@@ -423,6 +431,220 @@ export interface Certification {
   createdAt: string;
 }
 /**
+ * How the automation engine fills each ATS application form. Editing a ruleset takes effect without a code deploy. Only one version per platform can be active at a time.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "ats-rulesets".
+ */
+export interface AtsRuleset {
+  id: number;
+  /**
+   * Human-readable name, e.g. "Greenhouse — multi-step v3".
+   */
+  label?: string | null;
+  atsPlatformName:
+    'greenhouse' | 'lever' | 'workday' | 'workable' | 'taleo' | 'ashby' | 'smartrecruiters' | 'icims' | 'linkedin';
+  /**
+   * Increment when you change selectors. Keep old versions for rollback.
+   */
+  version: number;
+  /**
+   * The engine uses the single active ruleset per platform. Activating this retires the others.
+   */
+  isActive?: boolean | null;
+  navigationFlowType: 'single_page' | 'multi_step' | 'account_required';
+  /**
+   * Signals how carefully the engine should pace itself. "Human delay required" also means assisted-apply only.
+   */
+  antiBotMitigationLevel: 'standard' | 'heavy_stealth' | 'human_delay';
+  /**
+   * Primary selectors keyed by field: first_name, last_name, email, phone, resume_upload, cover_letter_input, submit_button, next_step_button. CSS or XPath strings.
+   */
+  selectorMap:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  /**
+   * Optional secondary selectors tried when a primary fails. Same keys as selectorMap; each value is an array of CSS/XPath strings.
+   */
+  fallbackSelectors?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  /**
+   * Why this version exists, quirks of the platform, etc.
+   */
+  notes?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * Versioned system/user prompts for the LLM orchestrator. Editing a prompt takes effect without a deploy. One default per slug.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "prompt-registry".
+ */
+export interface PromptRegistry {
+  id: number;
+  label?: string | null;
+  /**
+   * Stable identifier the orchestrator fetches by, e.g. "resume-tailor-v2", "qa-salary-expectation".
+   */
+  promptSlug: string;
+  version: number;
+  /**
+   * The version served for this slug. Setting this retires the previous default.
+   */
+  isDefault?: boolean | null;
+  modelProvider: 'anthropic' | 'openai';
+  /**
+   * Exact model id, e.g. "claude-sonnet-5", "gpt-4o".
+   */
+  targetModel: string;
+  /**
+   * System prompt. Use {{variable}} placeholders, e.g. {{master_resume}}, {{job_description}}.
+   */
+  systemPrompt: string;
+  /**
+   * Optional user-message template, same {{variable}} syntax.
+   */
+  userPromptTemplate?: string | null;
+  /**
+   * Every interpolation variable this prompt needs. The interpolation engine refuses to run if a caller omits one.
+   */
+  requiredVariables?:
+    | {
+        name: string;
+        id?: string | null;
+      }[]
+    | null;
+  /**
+   * JSON: temperature, max_tokens, top_p, response_format. Validated on save.
+   */
+  modelParameters?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  notes?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * Maps the free-text questions ATS forms ask onto canonical profile keys, so the engine can answer them consistently.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "field-mappings".
+ */
+export interface FieldMapping {
+  id: number;
+  /**
+   * Stable key on the user profile, e.g. "work_authorization_us", "salary_expectation_usd".
+   */
+  canonicalFieldKey: string;
+  /**
+   * Human-readable name for operators, e.g. "US work authorization".
+   */
+  label?: string | null;
+  dataType: 'boolean' | 'numeric' | 'text' | 'select';
+  /**
+   * Patterns matched against an ATS form label. Choose "contains" for a substring, or "regex" for a full regular expression.
+   */
+  fuzzyQuestionPatterns: {
+    kind: 'contains' | 'regex';
+    pattern: string;
+    id?: string | null;
+  }[];
+  /**
+   * For dropdown fields: the canonical option values the engine may choose from.
+   */
+  selectOptions?:
+    | {
+        value: string;
+        id?: string | null;
+      }[]
+    | null;
+  /**
+   * Instruction for the LLM when the profile has no value for this key, e.g. "If unknown, answer No and do not fabricate authorization." Never invents credentials.
+   */
+  defaultFallbackRule: string;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * Programmatic SEO landing pages, e.g. "AI Resume Builder for Data Analyst in Toronto". Templated and high-volume.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "seo-pages".
+ */
+export interface SeoPage {
+  id: number;
+  pageTitle: string;
+  /**
+   * URL path, e.g. "ai-resume-builder/data-analyst/toronto".
+   */
+  slug: string;
+  /**
+   * Meta description, ~155 chars.
+   */
+  seoMetaDescription?: string | null;
+  targetJobTitle?: string | null;
+  industry?: string | null;
+  heroHeadline?: string | null;
+  bodyContent?: {
+    root: {
+      type: string;
+      children: {
+        type: any;
+        version: number;
+        [k: string]: unknown;
+      }[];
+      direction: ('ltr' | 'rtl') | null;
+      format: 'left' | 'start' | 'center' | 'right' | 'end' | 'justify' | '';
+      indent: number;
+      version: number;
+    };
+    [k: string]: unknown;
+  } | null;
+  /**
+   * Before/after examples shown as social proof — a weak input bullet next to the tailored output.
+   */
+  sampleTailoredBullets?:
+    | {
+        /**
+         * The applicant’s original bullet.
+         */
+        input: string;
+        /**
+         * The tailored version.
+         */
+        output: string;
+        id?: string | null;
+      }[]
+    | null;
+  seo?: {
+    title?: string | null;
+    ogImage?: (number | null) | Media;
+  };
+  updatedAt: string;
+  createdAt: string;
+  _status?: ('draft' | 'published') | null;
+}
+/**
  * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "payload-kv".
  */
@@ -473,6 +695,22 @@ export interface PayloadLockedDocument {
     | ({
         relationTo: 'certifications';
         value: number | Certification;
+      } | null)
+    | ({
+        relationTo: 'ats-rulesets';
+        value: number | AtsRuleset;
+      } | null)
+    | ({
+        relationTo: 'prompt-registry';
+        value: number | PromptRegistry;
+      } | null)
+    | ({
+        relationTo: 'field-mappings';
+        value: number | FieldMapping;
+      } | null)
+    | ({
+        relationTo: 'seo-pages';
+        value: number | SeoPage;
       } | null);
   globalSlug?: string | null;
   user: {
@@ -752,6 +990,101 @@ export interface CertificationsSelect<T extends boolean = true> {
       };
   updatedAt?: T;
   createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "ats-rulesets_select".
+ */
+export interface AtsRulesetsSelect<T extends boolean = true> {
+  label?: T;
+  atsPlatformName?: T;
+  version?: T;
+  isActive?: T;
+  navigationFlowType?: T;
+  antiBotMitigationLevel?: T;
+  selectorMap?: T;
+  fallbackSelectors?: T;
+  notes?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "prompt-registry_select".
+ */
+export interface PromptRegistrySelect<T extends boolean = true> {
+  label?: T;
+  promptSlug?: T;
+  version?: T;
+  isDefault?: T;
+  modelProvider?: T;
+  targetModel?: T;
+  systemPrompt?: T;
+  userPromptTemplate?: T;
+  requiredVariables?:
+    | T
+    | {
+        name?: T;
+        id?: T;
+      };
+  modelParameters?: T;
+  notes?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "field-mappings_select".
+ */
+export interface FieldMappingsSelect<T extends boolean = true> {
+  canonicalFieldKey?: T;
+  label?: T;
+  dataType?: T;
+  fuzzyQuestionPatterns?:
+    | T
+    | {
+        kind?: T;
+        pattern?: T;
+        id?: T;
+      };
+  selectOptions?:
+    | T
+    | {
+        value?: T;
+        id?: T;
+      };
+  defaultFallbackRule?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "seo-pages_select".
+ */
+export interface SeoPagesSelect<T extends boolean = true> {
+  pageTitle?: T;
+  slug?: T;
+  seoMetaDescription?: T;
+  targetJobTitle?: T;
+  industry?: T;
+  heroHeadline?: T;
+  bodyContent?: T;
+  sampleTailoredBullets?:
+    | T
+    | {
+        input?: T;
+        output?: T;
+        id?: T;
+      };
+  seo?:
+    | T
+    | {
+        title?: T;
+        ogImage?: T;
+      };
+  updatedAt?: T;
+  createdAt?: T;
+  _status?: T;
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
