@@ -47,6 +47,12 @@ export default buildConfig({
   admin: {
     user: Editors.slug,
     meta: { titleSuffix: ' — JobPilot AI CMS' },
+    components: {
+      // A launcher to the client-management console (/console) so staff can
+      // reach the CRM from the CMS without the CRM's data crossing into the
+      // CMS's trust boundary.
+      afterNavLinks: ['@/cms/components/CrmLauncher'],
+    },
   },
   editor: lexicalEditor({}),
   // Required for the Media collection's imageSizes to actually generate;

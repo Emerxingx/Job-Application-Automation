@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { db } from '@/lib/db';
 import { getCustomerDetail } from '@/lib/crm/customers';
+import { SubscriptionManager } from '@/components/console/subscription-manager';
 import { getCustomerTimeline, type TimelineSource } from '@/lib/crm/activities';
 import { STAFF_RANK } from '@/lib/crm/auth';
 import { Card, Meter, PageHeader, StatusBadge } from '@/components/ui';
@@ -83,9 +84,11 @@ export default async function ConsoleCustomerPage({ params }: { params: Params }
   // quota without calling getQuota(), which would roll the billing window
   // forward — a support agent opening a record must not hand that customer a
   // fresh month of applications as a side effect of looking.
-  const [detail, timeline] = await Promise.all([
+  const [detail, timeline, plans] = await Promise.all([
     getCustomerDetail(id, now),
     getCustomerTimeline(id, { limit: 40 }),
+    // For the management panel's plan picker.
+    db.plan.findMany({ orderBy: { sortOrder: 'asc' }, select: { code: true, name: true } }),
   ]);
 
   if (!detail) notFound();
@@ -271,6 +274,16 @@ export default async function ConsoleCustomerPage({ params }: { params: Params }
                       </p>
                     </div>
                   )}
+
+                  {/* Staff management: billing_ops-gated server actions, every
+                      change reason-required and written to the audit log. */}
+                  <SubscriptionManager
+                    userId={detail.profile.userId}
+                    currentPlanCode={subscription.planCode}
+                    currentInterval={subscription.interval}
+                    cancelAtPeriodEnd={subscription.cancelAtPeriodEnd}
+                    plans={plans}
+                  />
                 </>
               ) : (
                 <Blank>
