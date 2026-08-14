@@ -1,0 +1,152 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Design tokens.
+ *
+ * Light palette on :root, dark overrides in both the media query (system
+ * preference) and the [data-theme="dark"] attribute (explicit toggle), so the
+ * theme resolves correctly in all three states.
+ */
+:root {
+  --bg: 250 250 249;
+  --surface: 255 255 255;
+  --raised: 245 245 244;
+  --line: 231 229 228;
+  --ink: 28 25 23;
+  --muted: 87 83 78;
+  --faint: 138 132 127;
+
+  --brand-50: 240 249 255;
+  --brand-100: 224 242 254;
+  --brand-400: 56 152 248;
+  --brand-500: 14 116 233;
+  --brand-600: 8 92 197;
+  --brand-700: 12 74 158;
+
+  --maple: 220 68 55;
+  --success: 22 143 92;
+  --warn: 202 138 4;
+  --danger: 220 38 38;
+
+  --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --bg: 12 12 14;
+    --surface: 24 24 27;
+    --raised: 32 32 36;
+    --line: 51 51 57;
+    --ink: 250 250 249;
+    --muted: 168 162 158;
+    --faint: 120 113 108;
+
+    --brand-50: 12 34 56;
+    --brand-100: 16 48 80;
+    --brand-400: 96 175 255;
+    --brand-500: 56 152 248;
+    --brand-600: 96 175 255;
+    --brand-700: 147 197 253;
+
+    --maple: 248 113 113;
+    --success: 52 190 130;
+    --warn: 234 179 8;
+    --danger: 248 113 113;
+  }
+}
+
+:root[data-theme='dark'] {
+  --bg: 12 12 14;
+  --surface: 24 24 27;
+  --raised: 32 32 36;
+  --line: 51 51 57;
+  --ink: 250 250 249;
+  --muted: 168 162 158;
+  --faint: 120 113 108;
+
+  --brand-50: 12 34 56;
+  --brand-100: 16 48 80;
+  --brand-400: 96 175 255;
+  --brand-500: 56 152 248;
+  --brand-600: 96 175 255;
+  --brand-700: 147 197 253;
+
+  --maple: 248 113 113;
+  --success: 52 190 130;
+  --warn: 234 179 8;
+  --danger: 248 113 113;
+}
+
+* {
+  border-color: rgb(var(--line));
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  background-color: rgb(var(--bg));
+  color: rgb(var(--ink));
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Focus ring — visible for keyboard users, quiet for pointer users. */
+:focus-visible {
+  outline: 2px solid rgb(var(--brand-500));
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+@layer components {
+  .card {
+    @apply rounded-2xl border border-line bg-surface shadow-card;
+  }
+
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold
+           transition-all duration-150 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .btn-primary {
+    @apply btn bg-brand-500 text-white hover:bg-brand-600 active:scale-[0.98];
+  }
+
+  .btn-secondary {
+    @apply btn border border-line bg-surface text-ink hover:bg-raised active:scale-[0.98];
+  }
+
+  .btn-ghost {
+    @apply btn text-muted hover:bg-raised hover:text-ink;
+  }
+
+  .input {
+    @apply w-full rounded-xl border border-line bg-surface px-3.5 py-2.5 text-sm text-ink
+           placeholder:text-faint focus:border-brand-500 focus:outline-none
+           focus:ring-2 focus:ring-brand-500/20;
+  }
+
+  .label {
+    @apply mb-1.5 block text-sm font-medium text-ink;
+  }
+
+  .chip {
+    @apply inline-flex items-center gap-1 rounded-lg bg-raised px-2 py-1 text-xs font-medium text-muted;
+  }
+}
+
+/* Wide content scrolls inside its own container, never the page body. */
+.scroll-x {
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+}
