@@ -4,6 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
+  BarChart3,
   CreditCard,
   FileText,
   FolderTree,
@@ -12,7 +13,10 @@ import {
   type LucideIcon,
   Menu,
   MessagesSquare,
+  Files,
+  Plug,
   Radar,
+  Receipt,
   Search,
   Settings,
   X,
@@ -21,13 +25,20 @@ import { Logo } from '@/components/site-header';
 import { Meter, cn } from '@/components/ui';
 
 const NAV: { href: string; label: string; icon: LucideIcon }[] = [
+  // The search itself.
   { href: '/dashboard', label: 'Overview', icon: LayoutDashboard },
   { href: '/dashboard/agents', label: 'Job agents', icon: Radar },
   { href: '/dashboard/jobs', label: 'Job feed', icon: Search },
   { href: '/dashboard/applications', label: 'Applications', icon: FolderTree },
+  { href: '/dashboard/analytics', label: 'Analytics', icon: BarChart3 },
+  // What the search produced.
   { href: '/dashboard/interview-prep', label: 'Interview prep', icon: MessagesSquare },
   { href: '/dashboard/resume', label: 'My resume', icon: FileText },
+  { href: '/dashboard/documents', label: 'Documents', icon: Files },
+  // The account.
   { href: '/dashboard/billing', label: 'Plan & billing', icon: CreditCard },
+  { href: '/dashboard/invoices', label: 'Invoices', icon: Receipt },
+  { href: '/dashboard/integrations', label: 'Integrations', icon: Plug },
   { href: '/dashboard/settings', label: 'Settings', icon: Settings },
 ];
 

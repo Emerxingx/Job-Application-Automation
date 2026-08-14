@@ -18,29 +18,70 @@ datasource db {
 // ---------------------------------------------------------------------------
 
 model User {
-  id           String   @id @default(cuid())
-  email        String   @unique
+  id           String    @id @default(cuid())
+  email        String    @unique
   passwordHash String
   fullName     String
   phone        String?
   city         String?
-  country      String   @default("CA") // CA | US
+  country      String    @default("CA") // CA | US
   headline     String?
   linkedinUrl  String?
   portfolioUrl String?
   // Work authorization matters a great deal for CA/US postings.
-  workAuth     String?  @default("Canadian Citizen")
+  workAuth     String?   @default("Canadian Citizen")
   onboardedAt  DateTime?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  // Staff identity. Staff reach /console; customers never do. There is no
+  // separate staff table on purpose — one identity keeps requireUser() and
+  // the session cookie unchanged. Anything other than "member" is staff.
+  role         String    @default("member") // member | support | billing_ops | admin
+  // PIPEDA/GDPR erasure marker. PII is scrubbed in place rather than the row
+  // being deleted, because invoices, payments and audit rows must be retained
+  // (and they carry their own bill-to snapshot, so they still read correctly).
+  anonymizedAt DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
-  subscription  Subscription?
-  agents        Agent[]
-  resumes       Resume[]
-  applications  Application[]
-  savedJobs     SavedJob[]
+  subscription   Subscription?
+  agents         Agent[]
+  resumes        Resume[]
+  applications   Application[]
+  savedJobs      SavedJob[]
   interviewPreps InterviewPrep[]
-  events        ActivityEvent[]
+  events         ActivityEvent[]
+
+  // --- commercial layer back-relations ---
+  billingProfile     BillingProfile?
+  customer           Customer?
+  deletionRequest    DeletionRequest?
+  referralCode       ReferralCode?
+  emailTokens        EmailToken[]
+  emailLogs          EmailLog[]
+  invoices           Invoice[]
+  creditNotes        CreditNote[]
+  payments           Payment[]
+  paymentMethods     PaymentMethod[]
+  refunds            Refund[]
+  creditLedger       CreditLedgerEntry[]
+  dunningStates      DunningState[]
+  couponRedemptions  CouponRedemption[]
+  referralsMade      Referral[]               @relation("ReferralReferrer")
+  referralReceived   Referral?                @relation("ReferralReferee")
+  resumeScans        ResumeScan[]
+  supportTickets     SupportTicket[]
+  notifications      Notification[]
+  notificationPrefs  NotificationPreference[]
+  integrations       Integration[]
+  apiKeys            ApiKey[]
+  apiIdempotency     ApiIdempotencyRecord[]
+  webhookEndpoints   WebhookEndpoint[]
+  outboundEvents     OutboundEvent[]
+  usageEvents        UsageEvent[]
+  usageRollups       DailyUsageRollup[]
+  subscriptionEvents SubscriptionEvent[]
+  exportJobs         ExportJob[]
+  memberships        Membership[]
+  impersonations     ImpersonationSession[]
 }
 
 // ---------------------------------------------------------------------------
@@ -50,32 +91,38 @@ model User {
 // Plan tiers are seeded rows rather than hardcoded enums so pricing and
 // application limits can change without a migration.
 model Plan {
-  id                String  @id @default(cuid())
-  code              String  @unique // starter | professional | executive
-  name              String
-  tagline           String
-  monthlyPriceCents Int
-  quarterlyPriceCents Int
-  annualPriceCents  Int
+  id                   String  @id @default(cuid())
+  code                 String  @unique // starter | professional | executive
+  name                 String
+  tagline              String
+  monthlyPriceCents    Int
+  quarterlyPriceCents  Int
+  annualPriceCents     Int
   applicationsPerMonth Int
-  maxAgents         Int
+  maxAgents            Int
   // Feature flags, stored as JSON so future modules can extend tiers freely.
-  features          String  @default("[]")
-  highlight         Boolean @default(false)
-  sortOrder         Int     @default(0)
+  features             String  @default("[]")
+  highlight            Boolean @default(false)
+  sortOrder            Int     @default(0)
 
   subscriptions Subscription[]
+  // Per-currency, per-interval prices. Additive: the three price columns above
+  // remain the CAD defaults until this table is populated.
+  prices        PlanPrice[]
+  organizations Organization[]
 }
 
 model Subscription {
-  id         String   @id @default(cuid())
-  userId     String   @unique
+  id         String    @id @default(cuid())
+  userId     String    @unique
   planId     String
   // monthly | quarterly | annual
-  interval   String   @default("monthly")
-  // trialing | active | past_due | canceled
-  status     String   @default("active")
-  startedAt  DateTime @default(now())
+  interval   String    @default("monthly")
+  // trialing | active | past_due | grace | suspended | canceled
+  // ("grace" and "suspended" are added by the dunning state machine; the
+  //  column was already a plain String, so no existing code changes meaning.)
+  status     String    @default("active")
+  startedAt  DateTime  @default(now())
   renewsAt   DateTime
   canceledAt DateTime?
 
@@ -87,8 +134,31 @@ model Subscription {
   externalCustomerId String?
   externalSubId      String?
 
+  // --- commercial layer, all additive and defaulted ---
+  // Which gateway owns this subscription's retry schedule. When it is
+  // "stripe", Stripe Smart Retries own dunning and our cron must not retry.
+  provider          String    @default("stripe") // stripe | paypal | manual
+  currency          String    @default("CAD") // CAD | USD
+  // Normalised monthly recurring revenue in CAD-base cents. CACHE, written by
+  // the SubscriptionEvent writer; SubscriptionEvent is the truth.
+  mrrCents          Int       @default(0)
+  // Extra applications granted by referrals, coupons or staff goodwill. Added
+  // on top of Plan.applicationsPerMonth for the current window.
+  bonusApplications Int       @default(0)
+  trialEndsAt       DateTime?
+  pastDueAt         DateTime? // dunning day 0
+  graceEndsAt       DateTime? // access continues until this instant
+  suspendedAt       DateTime?
+  cancelAtPeriodEnd Boolean   @default(false)
+  lastInvoiceId     String? // plain id, not an FK — avoids a second Invoice relation
+
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
   plan Plan @relation(fields: [planId], references: [id])
+
+  invoices          Invoice[]
+  dunningStates     DunningState[]
+  couponRedemptions CouponRedemption[]
+  events            SubscriptionEvent[]
 }
 
 // ---------------------------------------------------------------------------
@@ -118,35 +188,37 @@ model Resume {
 // ---------------------------------------------------------------------------
 
 model Agent {
-  id        String  @id @default(cuid())
-  userId    String
-  name      String
+  id                 String    @id @default(cuid())
+  userId             String
+  name               String
   // Titles this agent hunts for, JSON string array.
-  titles    String  @default("[]")
-  keywords  String  @default("[]")
-  excludeKeywords String @default("[]")
-  locations String  @default("[]")
+  titles             String    @default("[]")
+  keywords           String    @default("[]")
+  excludeKeywords    String    @default("[]")
+  locations          String    @default("[]")
   // onsite | hybrid | remote | any
-  workMode  String  @default("any")
+  workMode           String    @default("any")
   // full_time | part_time | contract | any
-  jobType   String  @default("any")
-  minSalary Int?
-  seniority String  @default("any")
+  jobType            String    @default("any")
+  minSalary          Int?
+  seniority          String    @default("any")
   // Only surface jobs at or above this match score.
-  minMatchScore Int @default(65)
+  minMatchScore      Int       @default(65)
   // Auto-apply without asking, when a job clears autoApplyThreshold.
-  autoApply Boolean @default(false)
-  autoApplyThreshold Int @default(85)
+  autoApply          Boolean   @default(false)
+  autoApplyThreshold Int       @default(85)
   // daily | twice_daily | hourly | manual
-  scanFrequency String @default("daily")
-  status    String  @default("active") // active | paused
-  lastScanAt DateTime?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  scanFrequency      String    @default("daily")
+  status             String    @default("active") // active | paused
+  lastScanAt         DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
-  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user         User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   matches      JobMatch[]
   applications Application[]
+  // Makes scanFrequency and autoApply real: the cron reads this cursor.
+  schedule     AgentSchedule?
 
   @@index([userId])
 }
@@ -157,31 +229,31 @@ model Agent {
 
 // A job posting discovered from any source. Deduplicated on externalId+source.
 model Job {
-  id           String   @id @default(cuid())
-  source       String   // mock | indeed | adzuna | linkedin
-  externalId   String
-  title        String
-  company      String
-  companyLogo  String?
-  location     String
-  country      String   @default("CA")
-  workMode     String   @default("onsite")
-  jobType      String   @default("full_time")
-  salaryMin    Int?
-  salaryMax    Int?
-  salaryCurrency String @default("CAD")
-  description  String
+  id             String    @id @default(cuid())
+  source         String // mock | indeed | adzuna | linkedin
+  externalId     String
+  title          String
+  company        String
+  companyLogo    String?
+  location       String
+  country        String    @default("CA")
+  workMode       String    @default("onsite")
+  jobType        String    @default("full_time")
+  salaryMin      Int?
+  salaryMax      Int?
+  salaryCurrency String    @default("CAD")
+  description    String
   // Extracted requirement keywords (JSON string array) used for match scoring.
-  requirements String   @default("[]")
-  skills       String   @default("[]")
+  requirements   String    @default("[]")
+  skills         String    @default("[]")
   // Canadian NOC code — powers future "certifications by job code" module.
-  nocCode      String?
-  applyUrl     String   @default("")
+  nocCode        String?
+  applyUrl       String    @default("")
   // Whether the posting can be submitted programmatically.
-  applyMethod  String   @default("external") // external | email | ats_form
-  postedAt     DateTime
-  scrapedAt    DateTime @default(now())
-  expiresAt    DateTime?
+  applyMethod    String    @default("external") // external | email | ats_form
+  postedAt       DateTime
+  scrapedAt      DateTime  @default(now())
+  expiresAt      DateTime?
 
   matches      JobMatch[]
   applications Application[]
@@ -195,19 +267,19 @@ model Job {
 // Join of agent × job, carrying the AI match analysis. This is what the job
 // feed renders, and what "Apply All" iterates over.
 model JobMatch {
-  id        String   @id @default(cuid())
-  agentId   String
-  jobId     String
+  id              String   @id @default(cuid())
+  agentId         String
+  jobId           String
   // 0-100 predicted likelihood of clearing ATS + recruiter screen.
-  matchScore Int
+  matchScore      Int
   // Sub-scores, JSON: { skills, experience, keywords, location, seniority }
-  scoreBreakdown String @default("{}")
-  matchedKeywords String @default("[]")
-  missingKeywords String @default("[]")
-  rationale String @default("")
+  scoreBreakdown  String   @default("{}")
+  matchedKeywords String   @default("[]")
+  missingKeywords String   @default("[]")
+  rationale       String   @default("")
   // new | reviewed | queued | applied | dismissed
-  status    String   @default("new")
-  createdAt DateTime @default(now())
+  status          String   @default("new")
+  createdAt       DateTime @default(now())
 
   agent Agent @relation(fields: [agentId], references: [id], onDelete: Cascade)
   job   Job   @relation(fields: [jobId], references: [id], onDelete: Cascade)
@@ -233,47 +305,47 @@ model SavedJob {
 // ---------------------------------------------------------------------------
 
 model Application {
-  id      String @id @default(cuid())
+  id      String  @id @default(cuid())
   userId  String
   jobId   String
   agentId String?
 
   // queued | applying | ready_to_submit | submitted | failed | interviewing | offer | rejected | withdrawn
-  status  String @default("queued")
-  matchScore Int  @default(0)
+  status     String @default("queued")
+  matchScore Int    @default(0)
 
   // How the application reached the employer: ats_api | assisted | unavailable.
-  applyChannel String @default("")
+  applyChannel   String  @default("")
   // Which ATS was detected behind the posting, when one was (greenhouse, lever, …).
-  atsVendor    String?
+  atsVendor      String?
   // JSON: the pre-filled fields for an assisted submission, so the applicant
   // confirms rather than retypes. Empty for programmatic submissions.
-  assistedFields String @default("[]")
+  assistedFields String  @default("[]")
   // Confirmation reference returned by the employer system, when there is one.
   confirmation   String?
 
   // Snapshot of the tailored documents at submission time. Kept in the DB so
   // the record survives even if the filesystem folder is pruned.
-  tailoredResume String @default("")
-  coverLetter    String @default("")
+  tailoredResume   String @default("")
+  coverLetter      String @default("")
   // JSON: what the tailoring step changed, for user transparency.
-  tailoringNotes String @default("{}")
+  tailoringNotes   String @default("{}")
   keywordsInjected String @default("[]")
-  atsScore       Int    @default(0)
+  atsScore         Int    @default(0)
 
   // Relative path of the generated folder, e.g. applications/2026-08/acme-data-analyst-a1b2
   folderPath String @default("")
 
-  appliedAt   DateTime?
-  respondedAt DateTime?
-  notes       String   @default("")
+  appliedAt     DateTime?
+  respondedAt   DateTime?
+  notes         String    @default("")
   failureReason String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
-  user  User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  job   Job    @relation(fields: [jobId], references: [id], onDelete: Cascade)
-  agent Agent? @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  job           Job            @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  agent         Agent?         @relation(fields: [agentId], references: [id], onDelete: SetNull)
   interviewPrep InterviewPrep?
 
   @@unique([userId, jobId])
@@ -290,15 +362,15 @@ model InterviewPrep {
   applicationId String @unique
 
   // JSON array: [{ question, category, suggestedAnswer, tips[] }]
-  questions String @default("[]")
+  questions       String   @default("[]")
   // JSON array of STAR stories: [{ title, situation, task, action, result, mapsTo[] }]
-  stories   String @default("[]")
-  companyResearch String @default("")
+  stories         String   @default("[]")
+  companyResearch String   @default("")
   // JSON array of questions the candidate should ask.
-  questionsToAsk  String @default("[]")
-  status    String   @default("ready") // generating | ready
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  questionsToAsk  String   @default("[]")
+  status          String   @default("ready") // generating | ready
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
   application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
@@ -322,4 +394,1746 @@ model ActivityEvent {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, createdAt])
+}
+
+// ===========================================================================
+// COMMERCIAL LAYER
+// ===========================================================================
+// Conventions below match the models above. Read this block before coding:
+//
+//  * ids are cuid(); state columns are String with the allowed values in a
+//    trailing comment — no native enums, so the schema stays portable.
+//  * structured payloads are JSON in String columns, read with
+//    parseJson<T>(value, fallback) from src/lib/types.ts.
+//  * MONEY is always integer cents. Never a float, never Decimal.
+//  * RATES are always integer PARTS PER MILLION, in a column whose name ends
+//    in `Parts`. 1_000_000 = 100%. GST 5% = 50000, ON HST 13% = 130000,
+//    QC QST 9.975% = 99750 — which basis points cannot express without a
+//    float, and a float tax rate produces off-by-one-cent invoices.
+//    Tax arithmetic: Math.round(taxableCents * rateParts / 1_000_000),
+//    computed per line per component and summed upward.
+//  * `provider` is the gateway discriminator (stripe | paypal | manual),
+//    matching getPaymentProvider(). `externalId` / `externalCustomerId` name
+//    the provider's own ids, matching Subscription.externalCustomerId above.
+//  * Day keys on rollups are `day String` in UTC YYYY-MM-DD, not DateTime —
+//    SQLite stores DateTime as an integer and Postgres as a timestamp, so an
+//    ISO date string is the only key that is stable across both and cannot
+//    drift by timezone. Sorts correctly for range scans.
+//  * STAFF POINTERS (ownerStaffId, assigneeStaffId, staffId, actorId,
+//    initiatedByStaffId, revokedByStaffId…) are plain indexed String columns
+//    holding a User.id — NOT foreign keys. Staff are Users with
+//    role != "member". Twenty FKs back to User would make offboarding a
+//    referential-integrity problem; financial rows snapshot the actor email
+//    instead. A requireStaff(role) helper is mandatory on every /console
+//    route — requireUser() does not distinguish roles.
+//  * FINANCIAL AND AUDIT ROWS USE onDelete: Restrict. Deleting a user must
+//    never erase tax records the CRA expects to be retained, so
+//    db.user.delete() WILL FAIL for any user with an invoice, payment,
+//    credit note, refund, coupon redemption or credit ledger entry. Erasure
+//    is anonymise-in-place: scrub the PII columns and stamp
+//    User.anonymizedAt. The invoice keeps reading from its own billToSnapshot.
+//  * Columns commented CACHE are denormalised aggregates. Write them ONLY
+//    inside the same transaction as the child row they summarise, and
+//    reconcile nightly by recomputing and reporting mismatches.
+
+// ---------------------------------------------------------------------------
+// Identity, lifecycle & compliance
+// ---------------------------------------------------------------------------
+
+// Password reset and email verification. Only the hash is stored; the
+// plaintext token exists solely in the email that was sent.
+model EmailToken {
+  id          String    @id @default(cuid())
+  userId      String
+  kind        String // password_reset | email_verify
+  tokenHash   String    @unique
+  expiresAt   DateTime
+  usedAt      DateTime?
+  requestedIp String?
+  createdAt   DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, kind])
+  @@index([expiresAt])
+}
+
+// The single audit record for every outbound email, including sends that have
+// no Notification behind them (password reset, receipts). Notification-driven
+// emails set notificationId; in-app read state stays on Notification, so an
+// email bounce never marks the in-app item unread.
+model EmailLog {
+  id                String    @id @default(cuid())
+  userId            String?
+  notificationId    String?
+  toAddress         String
+  template          String // password_reset | email_verify | receipt | invoice | dunning | weekly_digest | match_alert | ticket_reply | referral
+  subject           String
+  status            String    @default("queued") // queued | sent | delivered | bounced | failed | suppressed
+  provider          String    @default("internal") // internal | resend | ses | postmark
+  providerMessageId String?
+  error             String?
+  attempt           Int       @default(1)
+  dedupeKey         String?   @unique // e.g. digest:<userId>:2026-W33 — write null, never ""
+  meta              String    @default("{}")
+  sentAt            DateTime?
+  deliveredAt       DateTime?
+  failedAt          DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  user         User?         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  notification Notification? @relation(fields: [notificationId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+  @@index([toAddress])
+}
+
+// Global do-not-send list, checked before every outbound email regardless of
+// NotificationPreference. Hard bounces and complaints must suppress across all
+// categories or sender reputation degrades.
+model EmailSuppression {
+  id        String    @id @default(cuid())
+  email     String    @unique
+  reason    String // hard_bounce | complaint | unsubscribe | manual
+  source    String    @default("provider") // provider | user | staff
+  detail    String    @default("")
+  expiresAt DateTime? // soft suppressions lapse; hard bounces set null
+  createdAt DateTime  @default(now())
+}
+
+// Makes the settings page's existing promise true under PIPEDA/GDPR. A grace
+// window rather than immediate destruction, so an accidental or
+// compromised-account deletion is recoverable.
+model DeletionRequest {
+  id            String    @id @default(cuid())
+  userId        String    @unique
+  reason        String?
+  status        String    @default("scheduled") // scheduled | canceled | completed | failed
+  scheduledFor  DateTime // requestedAt + 14 days
+  canceledAt    DateTime?
+  completedAt   DateTime?
+  exportPath    String    @default("") // the data-export bundle the same right entitles them to
+  purgedFolders Boolean   @default(false) // storage/<userId>/ removed
+  anonymizedAt  DateTime? // financial rows are retained; PII is scrubbed in place
+  requestedIp   String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([status, scheduledFor])
+}
+
+// Turns Agent.scanFrequency and Agent.autoApply from inert UI into real
+// automation. lockedAt is a single-flight lease so a multi-instance
+// deployment cannot double-run one agent; stale locks reclaim after 10 min.
+model AgentSchedule {
+  id                  String    @id @default(cuid())
+  agentId             String    @unique
+  nextRunAt           DateTime
+  lastRunAt           DateTime?
+  lastStatus          String    @default("pending") // pending | ok | failed
+  lastError           String?
+  consecutiveFailures Int       @default(0)
+  lockedAt            DateTime?
+  lockedBy            String?
+  runCount            Int       @default(0)
+  autoAppliedCount    Int       @default(0)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  agent Agent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  // The scheduler's only query.
+  @@index([nextRunAt, lockedAt])
+}
+
+// Every "view as customer" session, with a stated reason and an end time, so
+// impersonation is reviewable after the fact. The session issued during
+// impersonation must be read-only: no applying, no billing, no resume edits.
+model ImpersonationSession {
+  id         String    @id @default(cuid())
+  staffId    String // User.id with role != "member"; plain id, not an FK
+  staffEmail String    @default("") // snapshot, survives offboarding
+  userId     String
+  reason     String
+  readOnly   Boolean   @default(true)
+  ipAddress  String?
+  startedAt  DateTime  @default(now())
+  endedAt    DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([staffId, startedAt])
+  @@index([userId, startedAt])
+}
+
+// ---------------------------------------------------------------------------
+// Billing profile, catalogue & tax reference data
+// ---------------------------------------------------------------------------
+
+// The customer's current bill-to identity and tax registration. Mutable and
+// current; every issued invoice freezes a copy in Invoice.billToSnapshot, so
+// editing an address never rewrites history. Separate from User because the
+// place-of-supply address is a legal artifact that must not drift when
+// someone edits their job-search city.
+model BillingProfile {
+  id                     String   @id @default(cuid())
+  userId                 String   @unique
+  legalName              String
+  billingEmail           String // may differ from the login email
+  line1                  String   @default("")
+  line2                  String   @default("")
+  city                   String   @default("")
+  region                 String   @default("") // province (ON, BC, QC) or state (NY, WA). THE tax input.
+  postalCode             String   @default("")
+  country                String   @default("CA") // CA | US
+  taxNumberType          String? // gst | qst | us_exempt
+  taxNumber              String? // the customer's own number. In Canada it does NOT exempt them.
+  taxExempt              Boolean  @default(false)
+  exemptionReason        String?
+  poNumber               String? // printed on invoices for B2B buyers who require it
+  currency               String   @default("CAD") // CAD | USD — presentment currency, frozen once set
+  provider               String   @default("stripe") // stripe | paypal | manual
+  externalCustomerId     String? // cus_… / PayPal payer id
+  defaultPaymentMethodId String?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([country, region])
+}
+
+// Per-currency, per-interval prices. Plan carries one unlabelled CAD price
+// triple today; this is the additive path to billing a US customer in USD.
+// Existing Plan columns stay authoritative until this table is populated.
+model PlanPrice {
+  id              String   @id @default(cuid())
+  planId          String
+  currency        String // CAD | USD
+  interval        String // monthly | quarterly | annual
+  amountCents     Int
+  externalPriceId String? // Stripe price_… / PayPal plan id for this exact cell
+  active          Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  plan Plan @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  @@unique([planId, currency, interval])
+  @@index([currency, interval, active])
+}
+
+// Sequential, human-facing document numbers. SQLite has no sequences and
+// autoincrement leaves holes on rollback, so this is a counter row bumped
+// inside the same transaction that issues the document. One row per
+// (scope, series, year); the sequence restarts at 1 each January 1.
+//
+// NOTE FOR THE POSTGRES MIGRATION: this is gap-free today only because SQLite
+// serialises writers. On Postgres the counter row needs SELECT … FOR UPDATE
+// or two concurrent issues collide on the same number. Do not "optimise" the
+// serialisation away — gap-free numbering is a Canadian audit expectation.
+model DocumentSequence {
+  id        String   @id @default(cuid())
+  scope     String // invoice | credit_note | ticket
+  series    String   @default("JP") // JP | JP-CN | TKT
+  year      Int
+  prefix    String   @default("JP-")
+  nextValue Int      @default(1)
+  padding   Int      @default(6) // JP-2026-000137
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([scope, series, year])
+}
+
+// Effective-dated rate table. Effective dating is not optional: Nova Scotia's
+// HST moved 15% -> 14% on 2025-04-01, so a single mutable rate column would
+// silently re-tax every historical invoice on the next PDF render. Seeded
+// rows, like Plan — not hardcoded.
+model TaxRate {
+  id                String    @id @default(cuid())
+  country           String // CA | US
+  region            String    @default("*") // ON, QC, BC… / NY, WA…; "*" = country-wide (GST)
+  locality          String? // US home-rule city/county; null for state-level
+  code              String // GST | HST | PST | QST | RST | US_STATE | US_LOCAL
+  label             String // printed on the invoice face: "GST", "HST (13%)", "QST (9.975%)"
+  // Parts per million. GST 50000, ON HST 130000, NS HST 140000 (from
+  // 2025-04-01), NB/NL/PE HST 150000, QC QST 99750, BC PST 70000,
+  // SK PST 60000, MB RST 70000. AB/NT/NU/YT are GST only.
+  rateParts         Int
+  // ALWAYS NULL today: QST stopped compounding on GST in 2013. The column
+  // exists so the arithmetic is explicit rather than an invisible assumption.
+  compoundsOnCode   String?
+  // For a reduced base, e.g. Texas taxing SaaS on 80% of value = 800000.
+  taxableBasisParts Int       @default(1000000)
+  appliesTo         String    @default("digital_services")
+  effectiveFrom     DateTime
+  effectiveTo       DateTime? // null = current
+  active            Boolean   @default(true)
+  note              String    @default("") // the statutory citation this row came from
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  invoiceTaxLines InvoiceTaxLine[]
+
+  @@index([country, region, effectiveFrom])
+  @@index([active, effectiveFrom])
+}
+
+// Where JobPilot is ACTUALLY registered to collect and remit. resolveTax()
+// must collect only where an active registration exists — tax collected
+// without a registration cannot be remitted and becomes a liability, which is
+// strictly worse than not collecting it. This is what makes the US path
+// legally defensible; default US_TAX_MODE=none collects nothing.
+model TaxRegistration {
+  id              String    @id @default(cuid())
+  country         String // CA | US
+  region          String    @default("*") // "*" for Canadian federal GST/HST
+  code            String    @default("") // GST | QST | US_STATE
+  number          String // GST/HST business number, QST number, state permit number
+  label           String // printed on the invoice beside its components
+  registeredFrom  DateTime
+  registeredTo    DateTime?
+  active          Boolean   @default(true)
+  filingFrequency String? // monthly | quarterly | annual — drives the remittance report
+  note            String    @default("")
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([country, region, code])
+  @@index([active])
+}
+
+// ---------------------------------------------------------------------------
+// Invoicing
+// ---------------------------------------------------------------------------
+
+// The billing document. Draft invoices are mutable and unnumbered; issuing
+// allocates a number, freezes the snapshots, and makes the row effectively
+// immutable except for payment state. Corrections are CreditNotes — an open
+// invoice issued in error is VOIDED with a reason and keeps its number
+// forever; a paid invoice is never edited. A gap in the series is a red flag
+// to an auditor, a voided invoice is a normal explainable event.
+model Invoice {
+  id        String  @id @default(cuid())
+  // NULL while draft. Allocated from DocumentSequence inside the same
+  // transaction as the draft -> open flip, so a discarded draft burns no number.
+  number    String? @unique // JP-2026-000137
+  series    String  @default("JP")
+  issueYear Int?
+  sequence  Int?
+
+  userId         String
+  subscriptionId String? // null for one-off or manually raised invoices
+  organizationId String?
+
+  status           String @default("draft") // draft | open | paid | void | uncollectible
+  collectionMethod String @default("charge_automatically") // charge_automatically | send_invoice
+  currency         String @default("CAD") // CAD | USD, never mixed within one invoice
+
+  subtotalCents       Int @default(0) // sum of line subtotals, before discount and tax
+  discountCents       Int @default(0)
+  taxCents            Int @default(0)
+  totalCents          Int @default(0) // subtotal - discount + tax
+  amountPaidCents     Int @default(0) // CACHE: sum of PaymentAllocation.amountCents
+  amountCreditedCents Int @default(0) // CACHE: sum of issued CreditNote.creditCents
+  amountRefundedCents Int @default(0) // CACHE: sum of succeeded Refund.amountCents
+  amountDueCents      Int @default(0) // CACHE: total - paid - credited. Stored so dunning can index it.
+
+  // Denormalised plan facts frozen at issue. Columns rather than JSON because
+  // both invoice tables filter and sort on them.
+  planCode String @default("")
+  planName String @default("")
+  interval String @default("monthly") // monthly | quarterly | annual
+
+  periodStart DateTime? // service period covered, for proration and revenue recognition
+  periodEnd   DateTime?
+  issuedAt    DateTime? // draft -> open transition; the number is allocated here
+  dueAt       DateTime?
+  paidAt      DateTime?
+  voidedAt    DateTime?
+  voidReason  String?
+
+  // Frozen at issue and never recomputed. This is snapshotting, not
+  // duplication: the invoice must state what was charged then, not what the
+  // plan costs now. Plan and Subscription remain the only live truth.
+  billToSnapshot String @default("{}") // JSON copy of BillingProfile at issue
+  sellerSnapshot String @default("{}") // JSON: our legal name, address, GST/HST number
+  taxSnapshot    String @default("{}") // JSON: place of supply, registration numbers, engine used
+  // Rate to the CAD base at issue, parts per million. Makes cross-currency MRR
+  // reproducible years later instead of drifting with today's rate.
+  fxToBaseParts  Int    @default(1000000)
+
+  // Dunning cursor. DunningState below is the full retry record; these two
+  // exist so the collection list is one indexed scan.
+  attemptCount  Int       @default(0)
+  nextAttemptAt DateTime?
+  dunningStage  String    @default("none") // none | retrying | grace | suspended | exhausted | recovered
+
+  provider                String? // stripe | paypal | manual — where collection was attempted
+  externalInvoiceId       String?
+  externalPaymentIntentId String?
+  hostedUrl               String?
+
+  // Rendered lazily and cached; NEVER regenerated from live rates. sha256
+  // detects a lost or altered file.
+  pdfPath        String?
+  pdfSha256      String?
+  pdfGeneratedAt DateTime?
+
+  notes  String @default("")
+  footer String @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user              User                @relation(fields: [userId], references: [id], onDelete: Restrict)
+  subscription      Subscription?       @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+  organization      Organization?       @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  lines             InvoiceLine[]
+  taxLines          InvoiceTaxLine[]
+  creditNotes       CreditNote[]
+  allocations       PaymentAllocation[]
+  dunning           DunningState?
+  dunningAttempts   DunningAttempt[]
+  couponRedemptions CouponRedemption[]
+  creditEntries     CreditLedgerEntry[]
+
+  @@index([userId, issuedAt])
+  @@index([status, nextAttemptAt])
+  @@index([status, dueAt])
+  @@index([subscriptionId])
+  @@index([provider, externalInvoiceId])
+}
+
+// One charge on an invoice. Separate from the invoice total because a
+// mid-cycle upgrade produces three lines (credit for the unused old plan,
+// charge for the new plan, both prorated) and the customer must be able to
+// see why the number is what it is. Mutable only while the parent is draft.
+model InvoiceLine {
+  id              String    @id @default(cuid())
+  invoiceId       String
+  kind            String    @default("subscription") // subscription | usage | one_time | proration_charge | proration_credit | discount | credit
+  description     String // rendered verbatim on the PDF
+  planCode        String?
+  interval        String? // monthly | quarterly | annual
+  quantity        Int       @default(1)
+  unitAmountCents Int // negative allowed ONLY for proration_credit / discount / credit
+  subtotalCents   Int // quantity * unitAmountCents
+  taxCents        Int       @default(0)
+  totalCents      Int
+  taxInclusive    Boolean   @default(false)
+  periodStart     DateTime?
+  periodEnd       DateTime?
+  sortOrder       Int       @default(0)
+  metadata        String    @default("{}")
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  invoice         Invoice          @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  taxLines        InvoiceTaxLine[]
+  creditNoteLines CreditNoteLine[]
+
+  @@index([invoiceId, sortOrder])
+}
+
+// One tax component against one line. Rows rather than a single taxCents
+// column because BC must print GST 5% and PST 7% as two separate amounts,
+// Quebec must print GST and QST each beside its own registration number, and
+// Ontario prints one HST 13% — a scalar column cannot render any of those.
+// Rate and registration number are SNAPSHOTS, never read live at render time.
+model InvoiceTaxLine {
+  id                 String   @id @default(cuid())
+  invoiceId          String
+  invoiceLineId      String? // null for an invoice-level component
+  taxRateId          String? // provenance back to the rate row actually used
+  code               String // snapshot: GST | HST | PST | QST | RST | US_STATE | US_LOCAL
+  label              String // snapshot: "HST (13%)", "QST (9.975%)"
+  jurisdiction       String // snapshot: CA-ON | CA-QC | US-NY | US-CO-DENVER
+  rateParts          Int // snapshot of the rate applied, parts per million
+  taxableCents       Int
+  amountCents        Int // Math.round(taxableCents * rateParts / 1_000_000), half-up, per line
+  registrationNumber String? // our GST/HST or QST number; legally required on the document
+  source             String   @default("table") // table | stripe_tax | vendor | manual
+  createdAt          DateTime @default(now())
+
+  invoice     Invoice      @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  invoiceLine InvoiceLine? @relation(fields: [invoiceLineId], references: [id], onDelete: Cascade)
+  taxRate     TaxRate?     @relation(fields: [taxRateId], references: [id], onDelete: SetNull)
+
+  @@index([invoiceId])
+  // The remittance-by-jurisdiction report a bookkeeper actually files from.
+  @@index([jurisdiction, code])
+}
+
+// A negative document issued against exactly one invoice, with its own
+// gap-free series. Splits explicitly into the part refunded to a payment
+// method and the part returned as account credit, because those settle
+// through different systems — a goodwill credit returns zero money, and a
+// credit note can be issued when the refund itself fails.
+model CreditNote {
+  id        String  @id @default(cuid())
+  number    String? @unique // JP-CN-2026-000012
+  series    String  @default("JP-CN")
+  issueYear Int?
+  sequence  Int?
+  invoiceId String
+  userId    String
+  status    String  @default("draft") // draft | issued | void
+  reason    String  @default("adjustment") // refund | goodwill | correction | downgrade_proration | duplicate_charge | chargeback | adjustment
+  currency  String  @default("CAD")
+
+  subtotalCents Int @default(0)
+  taxCents      Int @default(0)
+  totalCents    Int @default(0)
+  refundCents   Int @default(0) // portion returned to a payment method via Refund
+  creditCents   Int @default(0) // portion returned as account credit via CreditLedgerEntry
+
+  memo            String    @default("")
+  issuedByStaffId String? // User.id; plain id, not an FK. Null = automated.
+  issuedByEmail   String    @default("") // snapshot, survives offboarding
+  issuedAt        DateTime?
+  voidedAt        DateTime?
+  pdfPath         String?
+  pdfSha256       String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  invoice       Invoice             @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+  user          User                @relation(fields: [userId], references: [id], onDelete: Restrict)
+  lines         CreditNoteLine[]
+  refunds       Refund[]
+  creditEntries CreditLedgerEntry[]
+
+  @@index([userId, issuedAt])
+  @@index([invoiceId])
+  @@index([status])
+}
+
+// What is being credited, optionally pinned to the original invoice line so
+// partial credits are traceable. Tax is a JSON component snapshot rather than
+// rows because a credit note never resolves tax independently — it mirrors
+// the source line's components proportionally, so re-deriving them would be
+// the only way to get them wrong.
+model CreditNoteLine {
+  id                  String   @id @default(cuid())
+  creditNoteId        String
+  sourceInvoiceLineId String? // null for an invoice-level goodwill credit
+  description         String
+  quantity            Int      @default(1)
+  unitAmountCents     Int
+  amountCents         Int // positive magnitude; the document's sign is implied by its type
+  // JSON: [{ code, label, jurisdiction, rateParts, amountCents, registrationNumber }]
+  taxComponents       String   @default("[]")
+  taxCents            Int      @default(0)
+  totalCents          Int
+  sortOrder           Int      @default(0)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  creditNote        CreditNote   @relation(fields: [creditNoteId], references: [id], onDelete: Cascade)
+  sourceInvoiceLine InvoiceLine? @relation(fields: [sourceInvoiceLineId], references: [id], onDelete: SetNull)
+
+  @@index([creditNoteId, sortOrder])
+}
+
+// ---------------------------------------------------------------------------
+// Payments
+// ---------------------------------------------------------------------------
+
+// A tokenised instrument at a gateway. Stores only what is safe to display
+// and what dunning needs to retry off-session. No PAN, no CVV, ever.
+model PaymentMethod {
+  id                 String    @id @default(cuid())
+  userId             String
+  provider           String // stripe | paypal | manual
+  externalCustomerId String?
+  externalId         String? // pm_… | PayPal vault id; null for manual
+  type               String    @default("card") // card | paypal | bank_transfer | bank_account
+  brand              String? // visa | mastercard | amex | interac
+  last4              String?
+  expMonth           Int?
+  expYear            Int?
+  holderName         String?
+  billingPostalCode  String? // AVS + tax cross-check
+  // Exactly one per user, enforced in code — SQLite has no partial unique index.
+  isDefault          Boolean   @default(false)
+  status             String    @default("active") // active | expiring | expired | detached | requires_action
+  expiryWarnedAt     DateTime? // pre-dunning: warn 14 days before expiry
+  detachedAt         DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  payments Payment[]
+
+  @@unique([provider, externalId])
+  @@index([userId, status])
+  // Drives the pre-dunning expiry warning sweep.
+  @@index([expYear, expMonth])
+}
+
+// One money movement at one gateway. Gateway-agnostic by construction: every
+// provider-specific value lives behind the `provider` discriminator, so
+// PayPal ships by writing rows with provider = "paypal" and no migration.
+//
+// DELIBERATELY HAS NO invoiceId — see PaymentAllocation. That join is the
+// only shape that represents partial payment, overpayment, one payment
+// covering two invoices, and unapplied payments without a nullable field
+// that lies. Invoice.amountPaidCents is a declared cache over it.
+model Payment {
+  id              String  @id @default(cuid())
+  userId          String
+  provider        String // stripe | paypal | manual
+  externalId      String? // pi_… | PayPal capture id; null until the gateway responds
+  paymentMethodId String?
+  kind            String  @default("charge") // charge | authorization | manual | credit_applied
+  method          String  @default("card") // card | paypal | bank_transfer | manual_adjustment
+  status          String  @default("pending") // pending | requires_action | succeeded | failed | canceled | refunded | partially_refunded | disputed
+
+  amountCents         Int
+  currency            String @default("CAD")
+  amountRefundedCents Int    @default(0) // CACHE: sum of succeeded Refunds
+  feeCents            Int    @default(0) // gateway fee as reported; ~2.9% + 30c, material at $29/mo
+  netCents            Int    @default(0) // amountCents - feeCents
+  fxToBaseParts       Int    @default(1000000)
+
+  description    String    @default("")
+  failureCode    String? // insufficient_funds | card_declined | stolen_card | … kept raw for triage
+  failureMessage String?
+  receiptUrl     String?
+  capturedAt     DateTime?
+  succeededAt    DateTime?
+  failedAt       DateTime?
+  receivedAt     DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  user            User                @relation(fields: [userId], references: [id], onDelete: Restrict)
+  paymentMethod   PaymentMethod?      @relation(fields: [paymentMethodId], references: [id], onDelete: SetNull)
+  attempts        PaymentAttempt[]
+  allocations     PaymentAllocation[]
+  refunds         Refund[]
+  dunningAttempts DunningAttempt[]
+
+  @@unique([provider, externalId])
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+}
+
+// Each individual call to a gateway for a Payment. The idempotency key is
+// PERSISTED BEFORE the network call, so a retry after a timeout replays with
+// the identical key and the gateway deduplicates. A key generated after the
+// response is a double charge waiting for its first outage.
+model PaymentAttempt {
+  id               String    @id @default(cuid())
+  paymentId        String
+  attemptNumber    Int       @default(1)
+  idempotencyKey   String    @unique
+  provider         String
+  status           String    @default("pending") // pending | succeeded | failed | errored
+  gatewayRequestId String?
+  errorType        String? // card_error | api_error | network_error | validation_error
+  errorCode        String?
+  errorMessage     String?
+  httpStatus       Int?
+  requestSnapshot  String    @default("{}") // JSON, secrets stripped by the writer
+  responseSnapshot String    @default("{}") // JSON, truncated by the writer
+  durationMs       Int       @default(0)
+  startedAt        DateTime  @default(now())
+  finishedAt       DateTime?
+  createdAt        DateTime  @default(now())
+
+  payment Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+
+  @@index([paymentId, attemptNumber])
+}
+
+// Applies part or all of a payment to an invoice.
+model PaymentAllocation {
+  id          String   @id @default(cuid())
+  paymentId   String
+  invoiceId   String
+  amountCents Int
+  createdAt   DateTime @default(now())
+
+  payment Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+
+  @@index([invoiceId])
+  @@index([paymentId])
+}
+
+// Money returned to a payment method. Separate from CreditNote because the
+// tax document and the money movement are different events with different
+// failure modes — a refund can fail and retry without touching an
+// already-issued document.
+model Refund {
+  id                 String    @id @default(cuid())
+  paymentId          String
+  creditNoteId       String? // the tax document this refund settles, when there is one
+  userId             String
+  provider           String
+  externalId         String? // re_… | PayPal refund id
+  amountCents        Int
+  currency           String    @default("CAD")
+  reason             String    @default("requested_by_customer") // duplicate | fraudulent | requested_by_customer | goodwill | error
+  status             String    @default("pending") // pending | succeeded | failed | canceled
+  // Deterministic, e.g. "jp_ref_<creditNoteId>". Persisted before the call.
+  idempotencyKey     String    @unique
+  failureMessage     String?
+  // Refund authority moves money out of the business. Staff attribution is
+  // mandatory; an amount ceiling requiring a second approver is policy.
+  initiatedByStaffId String? // User.id; plain id, not an FK. Null = automated.
+  initiatedByEmail   String    @default("") // snapshot, survives offboarding
+  succeededAt        DateTime?
+  settledAt          DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  payment    Payment     @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+  creditNote CreditNote? @relation(fields: [creditNoteId], references: [id], onDelete: SetNull)
+  user       User        @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@unique([provider, externalId])
+  @@index([userId, createdAt])
+  @@index([status])
+}
+
+// The retry cursor for one failed invoice — one row per invoice under
+// collection, not a row per attempt.
+//
+// ACCESS TIMELINE: day 0 past_due (access unchanged), days 0-7 retries, day 8
+// grace (access unchanged, messaging escalates), day 15 suspended, day 45
+// canceled. Suspension holds back future AI spend only; everything already
+// produced stays readable and downloadable, and nothing is ever deleted.
+model DunningState {
+  id                String    @id @default(cuid())
+  invoiceId         String    @unique
+  userId            String
+  subscriptionId    String?
+  state             String    @default("scheduled") // scheduled | retrying | awaiting_action | grace | recovered | exhausted | canceled
+  // TRUE when the gateway owns the retry schedule (Stripe Smart Retries).
+  // Our cron must NEVER retry these — idempotency keys do not protect
+  // against it, because they are different logical charges to the gateway.
+  gatewayOwned      Boolean   @default(false)
+  attemptCount      Int       @default(0)
+  maxAttempts       Int       @default(5)
+  schedule          String    @default("[0,1,3,5,7]") // JSON array of day offsets from first failure
+  lastAttemptAt     DateTime?
+  lastFailureCode   String?
+  nextRetryAt       DateTime?
+  notificationsSent Int       @default(0)
+  gracePeriodEndsAt DateTime? // access continues until this; then Subscription.status -> suspended
+  recoveredAt       DateTime?
+  exhaustedAt       DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  invoice      Invoice          @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  user         User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subscription Subscription?    @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+  attempts     DunningAttempt[]
+
+  // Exactly what the retry cron scans — a single indexed range scan.
+  @@index([state, nextRetryAt])
+  @@index([userId])
+}
+
+// One scheduled retry of one failing invoice. Written BEFORE the charge is
+// attempted, carrying its deterministic key, so a crash mid-request replays
+// with the same key instead of double-charging. Also the audit trail behind
+// the failed-payment recovery-rate metric.
+//
+// SOFT vs HARD DECLINE: insufficient_funds, card_declined, processing_error,
+// issuer_unavailable are retryable. stolen_card, lost_card, pickup_card,
+// invalid_account, revocation_of_authorization are terminal — skip the
+// remaining attempts and ask for a new card.
+model DunningAttempt {
+  id               String    @id @default(cuid())
+  invoiceId        String
+  dunningStateId   String?
+  attemptNumber    Int // 1..5
+  scheduledFor     DateTime // day 0, +1, +3, +5, +7
+  attemptedAt      DateTime?
+  outcome          String    @default("pending") // pending | succeeded | soft_decline | hard_decline | error | skipped_gateway_owned
+  provider         String
+  paymentId        String?
+  failureCode      String?
+  failureMessage   String?
+  idempotencyKey   String    @unique // "jp_dun_<invoiceId>_<attemptNumber>"
+  notifiedChannels String    @default("[]") // JSON: ["in_app","email"]
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  invoice      Invoice       @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  dunningState DunningState? @relation(fields: [dunningStateId], references: [id], onDelete: SetNull)
+  payment      Payment?      @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+
+  @@index([invoiceId, attemptNumber])
+  @@index([outcome, scheduledFor])
+}
+
+// Inbound webhook inbox — exactly-once processing. THE INSERT IS THE LOCK:
+// attempt create, and a P2002 on (provider, externalEventId) proves the event
+// was already accepted, so return 200 without reprocessing. Store first,
+// process second, so a handler crash cannot lose the event.
+//
+// This closes a live bug class in the current Stripe route: a redelivered
+// checkout.session.completed calls activatePlan() again, which resets
+// periodStart/periodEnd and zeroes applicationsUsed — a free quota reset.
+//
+// 5xx MEANS RETRY ME, 200 MEANS STOP. Return 5xx only for genuinely transient
+// failures. A permanently unprocessable event records status="failed" with
+// lastError and returns 200 — a gateway retrying an event that can never
+// succeed eventually disables the whole endpoint.
+model WebhookEvent {
+  id              String    @id @default(cuid())
+  provider        String // stripe | paypal | manual
+  externalEventId String // evt_… | PayPal event id
+  // NORMALIZED across gateways, so the handler is written once and never
+  // learns a gateway's vocabulary. `unknown` is recorded and acknowledged,
+  // never 500'd.
+  type            String // checkout.completed | invoice.paid | invoice.payment_failed | subscription.updated | subscription.canceled | payment.succeeded | payment.failed | refund.succeeded | dispute.opened | unknown
+  rawType         String    @default("") // the gateway's own string, kept for triage
+  status          String    @default("received") // received | processed | ignored | failed
+  subjectType     String? // subscription | invoice | payment
+  subjectId       String? // external id of the subject; the ordering guard keys on this
+  amountCents     Int?
+  currency        String?
+  payload         String // raw verified body — stored only AFTER signature verification
+  livemode        Boolean   @default(false)
+  attempts        Int       @default(0)
+  lastError       String?
+  // The gateway's own timestamp, NOT receipt time. No gateway guarantees
+  // ordering: before applying a subscription state transition, compare this
+  // against the latest processed event for the same subjectId and DISCARD the
+  // older one, or a delayed subscription.updated(active) arriving after
+  // deleted will resurrect a canceled subscription.
+  occurredAt      DateTime
+  receivedAt      DateTime  @default(now())
+  processedAt     DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([provider, externalEventId])
+  @@index([status, occurredAt])
+  @@index([subjectType, subjectId, occurredAt])
+}
+
+// Account credit as an append-only SIGNED ledger rather than a mutable
+// balance column. Balance is SUM(amountCents) — it cannot drift and always
+// explains itself.
+model CreditLedgerEntry {
+  id           String    @id @default(cuid())
+  userId       String
+  amountCents  Int // signed: positive grants credit, negative consumes it
+  currency     String    @default("CAD")
+  source       String // credit_note | referral | promo | goodwill | invoice_applied | expiry
+  creditNoteId String?
+  invoiceId    String? // set when source = invoice_applied
+  referralId   String?
+  description  String    @default("")
+  staffId      String? // who granted a goodwill credit; User.id, plain id not an FK
+  expiresAt    DateTime?
+  createdAt    DateTime  @default(now()) // append-only: no updatedAt, rows are never modified
+
+  user       User        @relation(fields: [userId], references: [id], onDelete: Restrict)
+  creditNote CreditNote? @relation(fields: [creditNoteId], references: [id], onDelete: SetNull)
+  invoice    Invoice?    @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  referral   Referral?   @relation(fields: [referralId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([source])
+}
+
+// ---------------------------------------------------------------------------
+// Growth — coupons, referrals, the free scanner, flags & experiments
+// ---------------------------------------------------------------------------
+
+// A discount definition. Eligibility rules dashboards do not filter on live
+// in JSON; everything queried lives in a column.
+model Coupon {
+  id                    String    @id @default(cuid())
+  code                  String    @unique // stored uppercase; compared case-insensitively by the app
+  name                  String    @default("")
+  description           String    @default("")
+  kind                  String    @default("percent") // percent | amount | bonus_applications | trial_extension
+  // Parts per million: 150000 = 15.00%. Set when kind = percent.
+  percentOffParts       Int?
+  amountOffCents        Int? // set when kind = amount
+  bonusApplications     Int? // set when kind = bonus_applications
+  trialExtensionDays    Int? // set when kind = trial_extension
+  currency              String    @default("CAD") // only meaningful for amount coupons
+  duration              String    @default("once") // once | repeating | forever
+  durationMonths        Int? // set when duration = repeating
+  appliesToPlanCodes    String    @default("[]") // JSON string array; empty = all plans
+  appliesToIntervals    String    @default("[]") // JSON string array; empty = all intervals
+  firstTimeCustomerOnly Boolean   @default(false)
+  // Enforced in code — CouponRedemption is deliberately not unique on
+  // (couponId, userId), because a repeating coupon applies to many invoices.
+  oncePerCustomer       Boolean   @default(true)
+  minSubtotalCents      Int       @default(0)
+  maxRedemptions        Int?
+  timesRedeemed         Int       @default(0) // CACHE, incremented inside the redemption transaction
+  campaign              String? // attribution bucket
+  externalCouponId      String? // Stripe coupon id, so hosted checkout and in-app agree
+  startsAt              DateTime  @default(now())
+  endsAt                DateTime?
+  active                Boolean   @default(true)
+  createdByStaffId      String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  redemptions CouponRedemption[]
+
+  @@index([active, startsAt, endsAt])
+  @@index([campaign])
+}
+
+// One application of a coupon to a customer, subscription or invoice. Gives
+// finance a join between a discount and the subscription it moved, so
+// campaign ROI is measurable rather than asserted.
+model CouponRedemption {
+  id                 String    @id @default(cuid())
+  couponId           String
+  userId             String
+  subscriptionId     String?
+  invoiceId          String?
+  planCode           String    @default("")
+  interval           String    @default("")
+  amountAppliedCents Int       @default(0)
+  currency           String    @default("CAD")
+  status             String    @default("applied") // applied | reversed
+  reversedAt         DateTime?
+  reversedReason     String?
+  redeemedAt         DateTime  @default(now())
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  coupon       Coupon        @relation(fields: [couponId], references: [id], onDelete: Restrict)
+  user         User          @relation(fields: [userId], references: [id], onDelete: Restrict)
+  subscription Subscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+  invoice      Invoice?      @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+
+  @@index([couponId, redeemedAt])
+  @@index([userId])
+}
+
+// One shareable code per user with funnel counters for the growth dashboard.
+// Reward amounts live here rather than in config so a campaign can change
+// them without a deploy; each Referral snapshots what it was actually granted.
+model ReferralCode {
+  id                         String   @id @default(cuid())
+  userId                     String   @unique
+  code                       String   @unique // short, uppercase, collision-checked at creation
+  // Denominating the reward in APPLICATIONS costs marginal AI spend instead
+  // of cash, and lands where the product meters value.
+  rewardType                 String   @default("applications") // applications | credit | free_month
+  referrerRewardApplications Int      @default(20)
+  refereeRewardApplications  Int      @default(20)
+  referrerRewardCents        Int      @default(0)
+  refereeRewardCents         Int      @default(0)
+  clicks                     Int      @default(0)
+  signups                    Int      @default(0)
+  qualified                  Int      @default(0)
+  active                     Boolean  @default(true)
+  createdAt                  DateTime @default(now())
+  updatedAt                  DateTime @updatedAt
+
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  referrals Referral[]
+
+  @@index([active])
+}
+
+// One referred signup and its reward lifecycle. Rewards settle as
+// CreditLedgerEntry rows (cash) or Subscription.bonusApplications
+// (applications), never as an opaque balance field.
+//
+// refereeUserId is unique — a person can only ever be referred once. Nothing
+// in the schema stops referrerUserId == refereeUserId; self-referral and
+// coupon stacking are policy, enforced in code.
+model Referral {
+  id                         String    @id @default(cuid())
+  codeId                     String
+  referrerUserId             String
+  refereeUserId              String?   @unique
+  refereeEmail               String?
+  status                     String    @default("pending") // pending | signed_up | qualified | rewarded | rejected
+  qualifyingEvent            String    @default("first_paid_invoice") // signup | first_paid_invoice | first_application | 30_days_active
+  qualifiedAt                DateTime?
+  rewardedAt                 DateTime?
+  rejectedReason             String? // self_referral | duplicate_account | fraud | refunded
+  // Amounts actually granted, snapshotted from the code at grant time.
+  referrerRewardApplications Int       @default(0)
+  refereeRewardApplications  Int       @default(0)
+  referrerRewardCents        Int       @default(0)
+  refereeRewardCents         Int       @default(0)
+  referrerCreditEntryId      String? // the CreditLedgerEntry that paid the referrer
+  refereeCreditEntryId       String?
+  landingUrl                 String    @default("")
+  ip                         String?
+  createdAt                  DateTime  @default(now())
+  updatedAt                  DateTime  @updatedAt
+
+  code          ReferralCode        @relation(fields: [codeId], references: [id], onDelete: Cascade)
+  referrerUser  User                @relation("ReferralReferrer", fields: [referrerUserId], references: [id], onDelete: Cascade)
+  refereeUser   User?               @relation("ReferralReferee", fields: [refereeUserId], references: [id], onDelete: SetNull)
+  creditEntries CreditLedgerEntry[]
+
+  @@index([referrerUserId, status])
+  @@index([status])
+}
+
+// The free, ungated "paste a job description, score my resume" tool. userId is
+// nullable so anonymous visitors can use it; capturing email after showing
+// the score is the lead-gen moment. ipHash backs the rate-limit bucket that
+// keeps it from becoming free AI compute for scrapers.
+model ResumeScan {
+  id              String   @id @default(cuid())
+  userId          String?
+  email           String?
+  jobTitle        String
+  jobDescription  String
+  resumeText      String   @default("")
+  matchScore      Int
+  scoreBreakdown  String   @default("{}") // JSON, same shape as JobMatch.scoreBreakdown
+  matchedKeywords String   @default("[]") // JSON string array
+  missingKeywords String   @default("[]") // JSON string array
+  rationale       String   @default("")
+  atsScore        Int      @default(0)
+  ipHash          String?
+  source          String   @default("public") // public | dashboard | api
+  convertedUserId String? // set when this scan later became a signup
+  createdAt       DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([createdAt])
+  @@index([ipHash, createdAt])
+}
+
+// Dark-launch control. Auto-apply in particular must reach a percentage of
+// users before it touches real employer forms, and a bad tailoring prompt
+// needs a rollback that is not a deploy.
+model FeatureFlag {
+  id             String   @id @default(cuid())
+  key            String   @unique
+  description    String   @default("")
+  enabled        Boolean  @default(false)
+  rolloutPercent Int      @default(0) // deterministic hash of userId + key
+  allowlist      String   @default("[]") // JSON array of userIds
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+// Sticky A/B assignment so a user never sees a price change mid-session.
+// userId and anonymousId are plain columns, not FKs — pre-signup traffic has
+// no User row at all.
+model ExperimentAssignment {
+  id              String    @id @default(cuid())
+  experimentKey   String
+  userId          String?
+  anonymousId     String? // cookie id, so pre-signup traffic is measurable
+  variant         String
+  convertedAt     DateTime?
+  conversionEvent String?
+  assignedAt      DateTime  @default(now())
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([experimentKey, userId])
+  @@unique([experimentKey, anonymousId])
+  @@index([experimentKey, variant])
+}
+
+// ---------------------------------------------------------------------------
+// CRM & support (staff-facing, /console)
+// ---------------------------------------------------------------------------
+
+// The staff-facing view of an account, 1:1 with User. Holds ONLY fields staff
+// own. It restates nothing from Subscription or Invoice.
+model Customer {
+  id                 String    @id @default(cuid())
+  userId             String    @unique
+  // CRM funnel only. NEVER read this for entitlement — Subscription.status is
+  // the only truth for access. The two are updated by different systems on
+  // different schedules and WILL drift. This is a code-review rule.
+  lifecycleStage     String    @default("lead") // lead | trial | active | past_due | churned
+  ownerStaffId       String? // account owner: a User with role != "member". Plain id, not an FK.
+  source             String    @default("organic") // organic | referral | paid_search | partner | outbound
+  campaign           String?
+  segment            String    @default("self_serve") // self_serve | smb | enterprise
+  healthScore        Int       @default(50) // 0-100, recomputed nightly
+  riskLevel          String    @default("normal") // normal | at_risk | critical
+  mrrCents           Int       @default(0) // CACHE of Subscription+Plan, so the console list is one query not N
+  lifetimeValueCents Int       @default(0) // CACHE of paid invoices minus refunds
+  metricsRefreshedAt DateTime? // when the two caches above were last recomputed
+  lastActivityAt     DateTime?
+  lastContactedAt    DateTime?
+  churnedAt          DateTime?
+  churnReason        String? // price | missing_feature | found_job | support | involuntary | unknown
+  vip                Boolean   @default(false)
+  doNotContact       Boolean   @default(false)
+  internalNotes      String    @default("")
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  user       User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  activities CrmActivity[]
+  notes      CrmNote[]
+  tasks      CrmTask[]
+
+  @@index([lifecycleStage, riskLevel])
+  @@index([ownerStaffId])
+  @@index([mrrCents])
+}
+
+// Append-only staff contact timeline. Deliberately separate from the existing
+// ActivityEvent, which is the CUSTOMER'S OWN product feed: this one records
+// outbound contact, calls and meetings the customer must never see. The
+// console merges the two in the read layer.
+model CrmActivity {
+  id               String   @id @default(cuid())
+  customerId       String
+  staffId          String? // null means system-generated. User.id, plain id not an FK.
+  type             String // note | email | call | meeting | ticket | billing | system | task | lifecycle
+  direction        String   @default("internal") // inbound | outbound | internal
+  subject          String   @default("")
+  body             String   @default("")
+  source           String   @default("console") // console | email_sync | webhook | automation
+  relatedTicketId  String?
+  relatedInvoiceId String?
+  meta             String   @default("{}")
+  occurredAt       DateTime @default(now())
+  createdAt        DateTime @default(now()) // append-only: no updatedAt
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId, occurredAt])
+}
+
+// Editable, pinnable staff notes. Kept apart from CrmActivity because notes
+// are mutable and timelines must not be — merging them would produce an
+// editable audit trail, which is worthless as a record.
+model CrmNote {
+  id         String   @id @default(cuid())
+  customerId String
+  staffId    String // User.id, plain id not an FK
+  body       String
+  pinned     Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId, pinned])
+}
+
+// Staff follow-ups against an account.
+model CrmTask {
+  id               String    @id @default(cuid())
+  customerId       String
+  assigneeStaffId  String?
+  createdByStaffId String
+  title            String
+  description      String    @default("")
+  status           String    @default("open") // open | in_progress | done | canceled
+  priority         String    @default("normal") // low | normal | high | urgent
+  dueAt            DateTime?
+  completedAt      DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  // The "my queue" query the console opens on.
+  @@index([assigneeStaffId, status, dueAt])
+  @@index([customerId])
+}
+
+// A support conversation, numbered from the same DocumentSequence table as
+// invoices (scope "ticket"). Carries SLA and CSAT because a support dashboard
+// without first-response time is decorative.
+model SupportTicket {
+  id                   String    @id @default(cuid())
+  number               String    @unique // TKT-2026-000123
+  userId               String? // null for tickets from non-customers
+  email                String
+  subject              String
+  status               String    @default("open") // open | pending | on_hold | resolved | closed
+  priority             String    @default("normal") // low | normal | high | urgent
+  category             String    @default("other") // billing | technical | account | refund | applications | agents | scoring | other
+  channel              String    @default("in_app") // email | in_app | chat | phone
+  assigneeStaffId      String? // User.id, plain id not an FK
+  tags                 String    @default("[]") // JSON string array
+  relatedApplicationId String? // plain id, no FK — keeps Application untouched
+  relatedAgentId       String?
+  // JSON snapshot taken at creation: plan, quota, recent scan errors, failing
+  // application ids. That is most of a support diagnosis before anyone replies.
+  contextSnapshot      String    @default("{}")
+  firstResponseAt      DateTime?
+  resolvedAt           DateTime?
+  closedAt             DateTime?
+  slaDueAt             DateTime?
+  breachedSla          Boolean   @default(false)
+  satisfactionScore    Int? // 1-5 CSAT
+  satisfactionComment  String?
+  lastReplyAt          DateTime  @default(now())
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  user     User?            @relation(fields: [userId], references: [id], onDelete: SetNull)
+  messages SupportMessage[]
+
+  @@index([status, priority])
+  @@index([userId, createdAt])
+  @@index([slaDueAt])
+  @@index([assigneeStaffId, status])
+}
+
+// One message in a ticket thread. `internal` separates customer-visible
+// replies from staff-only notes IN THE SAME THREAD — modelling internal notes
+// as a separate table is the classic way staff comments leak to customers.
+model SupportMessage {
+  id             String   @id @default(cuid())
+  ticketId       String
+  authorType     String // customer | staff | system
+  authorStaffId  String? // User.id when authorType = staff; plain id, not an FK
+  authorUserId   String? // User.id when authorType = customer
+  authorName     String   @default("")
+  body           String
+  internal       Boolean  @default(false)
+  attachments    String   @default("[]") // JSON: [{ name, path, bytes }]
+  emailMessageId String? // RFC 5322 Message-ID, for email threading
+  createdAt      DateTime @default(now())
+
+  ticket SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@index([ticketId, createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Reporting — CQRS-lite: append-only writes, rollup reads
+// ---------------------------------------------------------------------------
+
+// Append-only subscription lifecycle log. activatePlan() overwrites planId in
+// place, so nothing records that a customer was on Starter before they
+// upgraded — historical MRR, cohort retention and expansion/contraction are
+// unreconstructable without this. MRR at any past instant is a fold over rows
+// with occurredAt <= t.
+//
+// Backfill for existing rows is one synthetic "created" event per
+// subscription using startedAt and the CURRENT plan; it misattributes anyone
+// who already upgraded, so mark pre-log history as approximate on the chart.
+model SubscriptionEvent {
+  id             String   @id @default(cuid())
+  userId         String
+  subscriptionId String
+  type           String // created | activated | plan_changed | interval_changed | status_changed | past_due | recovered | suspended | canceled | reactivated | expired
+  fromPlanCode   String?
+  toPlanCode     String?
+  fromInterval   String?
+  toInterval     String?
+  fromStatus     String?
+  toStatus       String?
+  mrrBeforeCents Int      @default(0) // normalised monthly, CAD base
+  mrrAfterCents  Int      @default(0)
+  deltaMrrCents  Int      @default(0) // signed; the movement decomposition reads this
+  movement       String? // new | expansion | contraction | churn | reactivation
+  reason         String? // voluntary | dunning_exhausted | refund | staff | gateway
+  meta           String   @default("{}")
+  occurredAt     DateTime @default(now())
+  createdAt      DateTime @default(now()) // append-only: no updatedAt
+
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subscription Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  @@index([subscriptionId, occurredAt])
+  @@index([occurredAt, movement])
+}
+
+// The write side: append-only raw events, NEVER read by a dashboard.
+// dedupeKey lets an emitter that retries write the same event twice safely.
+// Retention: raw rows pruned after ~90 days, rollups kept forever. That job
+// must exist before launch — a busy month is millions of rows in one file.
+model UsageEvent {
+  id          String   @id @default(cuid())
+  userId      String?
+  name        String // application.submitted | job.scanned | resume.tailored | ai.tokens | api.request | login | plan.upgraded
+  quantity    Int      @default(1)
+  valueCents  Int      @default(0) // cost or revenue attached to the event, when there is one
+  subjectType String? // application | job | agent | invoice | api_key
+  subjectId   String?
+  source      String   @default("app") // app | api | cron | webhook | console
+  dedupeKey   String?  @unique // set by emitters that may retry; write null, never ""
+  meta        String   @default("{}")
+  occurredAt  DateTime @default(now())
+  createdAt   DateTime @default(now()) // append-only: no updatedAt
+
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([name, occurredAt])
+  @@index([userId, occurredAt])
+}
+
+// Read side, per customer per day per metric. Every per-user usage chart
+// reads only this table.
+model DailyUsageRollup {
+  id         String   @id @default(cuid())
+  day        String // YYYY-MM-DD, UTC
+  userId     String
+  metric     String // applications_submitted | jobs_scanned | resumes_tailored | ai_tokens | api_requests | logins | responses | interviews | offers
+  count      Int      @default(0)
+  valueCents Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([day, userId, metric])
+  @@index([userId, metric, day])
+}
+
+// Read side, platform-wide, generic key/dimension/value. Exists so a new
+// dashboard number never needs a migration — `dimension` carries the slice.
+model DailyMetric {
+  id         String   @id @default(cuid())
+  day        String // YYYY-MM-DD, UTC
+  metric     String // signups | activations | applications_submitted | active_users | churn_count | scan_success_rate
+  dimension  String   @default("all") // "all" | plan code | country | acquisition source
+  valueInt   Int      @default(0)
+  valueCents Int      @default(0)
+  valueParts Int      @default(0) // rates, parts per million
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([day, metric, dimension])
+  @@index([metric, day])
+}
+
+// Read side for finance: one wide row per day per currency, so the revenue
+// dashboard is a single indexed range scan instead of joining invoices,
+// payments and refunds. Split by currency because CAD and USD must never be
+// summed without an FX rate — and no FX source is installed.
+//
+// INTEGRITY CHECK, assert it nightly:
+//   new + expansion + reactivation - contraction - churned
+//     == mrrCents delta versus the previous row.
+// A daily assertion catches a missing or mis-signed SubscriptionEvent within
+// 24 hours instead of at the next board meeting.
+//
+// This is OPERATING METRICS, not financial statements. ASC 606 revenue
+// recognition needs QBO/Xero as the book of record.
+model DailyRevenueRollup {
+  id       String @id @default(cuid())
+  day      String // YYYY-MM-DD, UTC
+  currency String @default("CAD") // CAD | USD
+
+  invoicedCents Int @default(0)
+  discountCents Int @default(0)
+  taxCents      Int @default(0)
+  paidCents     Int @default(0)
+  refundedCents Int @default(0)
+  creditedCents Int @default(0)
+  feeCents      Int @default(0)
+  netCents      Int @default(0) // paid - refunded - fees
+
+  mrrCents             Int @default(0) // normalised contracted monthly revenue, NOT cash
+  arrCents             Int @default(0) // mrrCents * 12, stored only to keep dashboards dumb
+  newMrrCents          Int @default(0)
+  expansionMrrCents    Int @default(0)
+  contractionMrrCents  Int @default(0)
+  churnedMrrCents      Int @default(0)
+  reactivationMrrCents Int @default(0)
+  arpuCents            Int @default(0)
+
+  activeSubscriptions   Int @default(0)
+  trialingSubscriptions Int @default(0)
+  pastDueSubscriptions  Int @default(0)
+  canceledSubscriptions Int @default(0)
+  payingCustomers       Int @default(0)
+  newCustomers          Int @default(0)
+  churnedCustomers      Int @default(0)
+
+  // Rates, parts per million: 1_000_000 = 100%.
+  logoChurnParts           Int @default(0)
+  grossMrrChurnParts       Int @default(0)
+  netRevenueRetentionParts Int @default(0)
+  dunningRecoveryParts     Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([day, currency])
+  @@index([currency, day])
+}
+
+// Bookkeeping for the rollup jobs. Without it, a silently skipped night looks
+// identical to a genuinely quiet day on every chart.
+model RollupRun {
+  id          String    @id @default(cuid())
+  job         String // daily_usage | daily_revenue | daily_metrics | customer_health
+  windowStart DateTime
+  windowEnd   DateTime
+  status      String    @default("running") // running | succeeded | failed
+  rowsRead    Int       @default(0)
+  rowsWritten Int       @default(0)
+  error       String?
+  startedAt   DateTime  @default(now())
+  finishedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([job, windowStart])
+  @@index([status, startedAt])
+}
+
+// ---------------------------------------------------------------------------
+// Integrations & public API
+// ---------------------------------------------------------------------------
+
+// A third-party connection owned by a user. Tokens are encrypted at rest and
+// never leave the server.
+//
+// WARNING: there is no key-management or rotation story in this codebase
+// today — only AUTH_SECRET. Shipping accessToken/refreshToken without an
+// encryption helper means storing third-party OAuth tokens in plaintext.
+model Integration {
+  id                String    @id @default(cuid())
+  userId            String
+  provider          String // google_drive | dropbox | google_calendar | gmail | slack | notion | zapier | webhook | greenhouse | lever
+  status            String    @default("disconnected") // connected | disconnected | expired | revoked | error
+  externalAccountId String?
+  displayName       String    @default("") // shown in settings
+  scopes            String    @default("[]") // JSON string array
+  accessToken       String? // AES-GCM encrypted at rest; NEVER serialised to the client
+  refreshToken      String? // AES-GCM encrypted at rest
+  tokenExpiresAt    DateTime?
+  config            String    @default("{}") // per-provider JSON: webhook url, folder id, channel id
+  lastSyncAt        DateTime?
+  lastError         String?
+  errorCount        Int       @default(0)
+  connectedAt       DateTime?
+  revokedAt         DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, provider])
+  @@index([userId])
+}
+
+// Credential for the public API. Stores a displayable prefix and a hash — the
+// full key is shown exactly once at creation and is unrecoverable. Lookup is
+// by prefix, then a constant-time compare against keyHash. Same discipline as
+// password handling in src/lib/auth.ts.
+model ApiKey {
+  id                 String    @id @default(cuid())
+  userId             String?
+  organizationId     String?
+  name               String    @default("Default key")
+  prefix             String    @unique // jp_live_8f3a — the lookup handle, safe to display
+  keyHash            String    @unique
+  scopes             String    @default("[\"read\"]") // JSON string array: read | write | admin | scan:read | match:score | apply:write
+  environment        String    @default("live") // live | test
+  rateLimitPerMinute Int       @default(60)
+  lastUsedAt         DateTime?
+  lastUsedIp         String?
+  requestCount       Int       @default(0)
+  expiresAt          DateTime?
+  revokedAt          DateTime?
+  revokedByStaffId   String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  user               User?                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization       Organization?          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  idempotencyRecords ApiIdempotencyRecord[]
+
+  @@index([userId])
+  @@index([organizationId])
+}
+
+// Idempotency for inbound public-API and billing writes, so a double-clicked
+// upgrade or a retried mobile request produces one invoice rather than two.
+// requestHash rejects the same key replayed with a DIFFERENT body (422, not a
+// replay) — checking only the key is the failure mode that silently corrupts
+// data. Rows are pruned after expiresAt by the same cron as dunning.
+model ApiIdempotencyRecord {
+  id             String   @id @default(cuid())
+  userId         String
+  apiKeyId       String?
+  key            String // client-supplied Idempotency-Key header
+  method         String // POST | PUT | PATCH | DELETE
+  path           String // "/api/billing/checkout"
+  requestHash    String // sha256 of the normalised body
+  status         String   @default("in_progress") // in_progress | completed
+  responseStatus Int?
+  responseBody   String   @default("")
+  expiresAt      DateTime // typically createdAt + 24h
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  apiKey ApiKey? @relation(fields: [apiKeyId], references: [id], onDelete: SetNull)
+
+  @@unique([userId, key])
+  @@index([expiresAt])
+}
+
+// A customer-registered outbound webhook target. consecutiveFailures plus an
+// auto-disable keeps a dead endpoint from consuming the delivery worker.
+model WebhookEndpoint {
+  id                  String    @id @default(cuid())
+  userId              String
+  url                 String
+  description         String    @default("")
+  secret              String // HMAC-SHA256 signing secret, encrypted at rest
+  // JSON string array: application.submitted | job.matched | invoice.paid | *
+  // Filtered in application code — not queryable. If endpoint counts pass a
+  // few thousand this needs a real join table.
+  events              String    @default("[]")
+  status              String    @default("active") // active | paused | disabled
+  apiVersion          String    @default("2026-01-01")
+  consecutiveFailures Int       @default(0)
+  disabledAt          DateTime?
+  disabledReason      String?
+  lastSuccessAt       DateTime?
+  lastFailureAt       DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  user       User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deliveries WebhookDelivery[]
+
+  @@index([userId, status])
+}
+
+// What happened, stored ONCE. Split from delivery so a fan-out to five
+// endpoints stores one payload and five delivery rows, and so replaying an
+// event to a newly registered endpoint is possible.
+model OutboundEvent {
+  id          String   @id @default(cuid())
+  userId      String?
+  type        String // application.submitted | job.matched | invoice.paid | subscription.canceled
+  payload     String   @default("{}") // JSON, already shaped to the public API version
+  subjectType String? // application | job | invoice | subscription
+  subjectId   String?
+  apiVersion  String   @default("2026-01-01")
+  occurredAt  DateTime @default(now())
+  createdAt   DateTime @default(now()) // append-only: no updatedAt
+
+  user       User?             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deliveries WebhookDelivery[]
+
+  @@index([userId, occurredAt])
+  @@index([type, occurredAt])
+}
+
+// One attempt to deliver one event to one endpoint.
+model WebhookDelivery {
+  id             String    @id @default(cuid())
+  endpointId     String
+  eventId        String
+  attempt        Int       @default(1)
+  status         String    @default("pending") // pending | succeeded | failed | exhausted | skipped
+  signature      String    @default("") // the HMAC actually sent, for customer-side debugging
+  responseStatus Int?
+  responseBody   String    @default("") // truncated to 2KB by the writer
+  errorMessage   String?
+  durationMs     Int       @default(0)
+  scheduledAt    DateTime  @default(now())
+  deliveredAt    DateTime?
+  nextRetryAt    DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  endpoint WebhookEndpoint @relation(fields: [endpointId], references: [id], onDelete: Cascade)
+  event    OutboundEvent   @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  // The delivery worker's only query.
+  @@index([status, nextRetryAt])
+  @@index([endpointId, createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Notifications
+// ---------------------------------------------------------------------------
+
+// The logical notification and its in-app representation. Email sends live in
+// EmailLog, so an email bounce never marks the in-app item unread. dedupeKey
+// collapses repeats like "quota low" into one row.
+model Notification {
+  id         String    @id @default(cuid())
+  userId     String
+  type       String // match_batch | ready_to_submit | application_submitted | interview_prep_ready | payment_failed | quota_low | quota_reset | ticket_reply | security_alert | referral | billing
+  category   String    @default("product") // product | billing | security | marketing
+  title      String
+  body       String    @default("")
+  href       String? // in-app deep link
+  severity   String    @default("info") // info | success | warning | danger
+  icon       String? // lucide-react icon name
+  dedupeKey  String? // write null, never "" — an empty string collides on the second row
+  readAt     DateTime?
+  archivedAt DateTime?
+  expiresAt  DateTime?
+  meta       String    @default("{}")
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  user   User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  emails EmailLog[]
+
+  @@index([userId, readAt, createdAt])
+  @@index([userId, category])
+}
+
+// Per-category opt-in with consent provenance. consentAt/consentSource exist
+// because Canada's CASL requires proof of express consent for commercial
+// email; a preferences table without it is not defensible.
+model NotificationPreference {
+  id             String    @id @default(cuid())
+  userId         String
+  category       String // product | billing | security | marketing
+  inApp          Boolean   @default(true)
+  email          Boolean   @default(true)
+  digest         String    @default("instant") // instant | daily | weekly | off
+  consentAt      DateTime?
+  consentSource  String? // signup | settings | import
+  unsubscribedAt DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, category])
+}
+
+// ---------------------------------------------------------------------------
+// Audit & operations
+// ---------------------------------------------------------------------------
+
+// Append-only record of staff and privileged actions. Every console mutation
+// writes one of these AND a customer-visible ActivityEvent — actions taken on
+// a customer's account are never invisible to that customer.
+//
+// actorId is a plain String because the actor is often not a User at all
+// (system, api_key). actorEmail/actorRole are snapshotted so the entry stays
+// readable after a rename or offboarding. prevHash/hash form an optional
+// per-day chain giving tamper EVIDENCE, never prevention.
+//
+// PII accumulates in before/after: the writer must redact, and an erasure
+// request must be able to scrub these columns. Compute the chain over the
+// already-redacted body or scrubbing breaks it.
+model AuditLog {
+  id            String   @id @default(cuid())
+  actorType     String   @default("staff") // staff | user | system | api_key
+  actorId       String?
+  actorEmail    String   @default("") // snapshot
+  actorRole     String   @default("") // snapshot
+  action        String // invoice.void | refund.create | user.impersonate | plan.change | apikey.revoke | customer.credit | export.customers
+  entityType    String // Invoice | Refund | User | Subscription | Coupon | SupportTicket
+  entityId      String
+  summary       String   @default("") // human sentence rendered in the console feed
+  before        String   @default("{}") // JSON, PII-redacted by the writer
+  after         String   @default("{}") // JSON, PII-redacted by the writer
+  changedFields String   @default("[]") // JSON string array
+  reason        String? // required by policy for refunds, voids and impersonation
+  ip            String?
+  userAgent     String?
+  requestId     String?
+  prevHash      String?
+  hash          String?
+  createdAt     DateTime @default(now()) // append-only: no updatedAt
+
+  @@index([entityType, entityId])
+  @@index([actorId, createdAt])
+  @@index([createdAt])
+}
+
+// Asynchronous export jobs. Exports are async because a full archive walks
+// the storage tree; the row is what the UI polls and what expires the link.
+// Staff-initiated exports carry PII — audit-log and rate-limit those.
+model ExportJob {
+  id                 String    @id @default(cuid())
+  userId             String
+  kind               String // applications_csv | full_archive_zip | resume_pdf | analytics_pdf | gdpr_bundle | customers_csv
+  format             String // csv | pdf | zip | json
+  status             String    @default("queued") // queued | running | ready | failed | expired
+  params             String    @default("{}") // JSON — date range, agent filter
+  filePath           String? // relative to the storage root, same convention as Application.folderPath
+  sizeBytes          Int?
+  rowCount           Int?
+  error              String?
+  requestedByStaffId String? // set when staff exported on the customer's behalf
+  expiresAt          DateTime
+  completedAt        DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([status, expiresAt])
+}
+
+// ---------------------------------------------------------------------------
+// B2B — multi-seat
+// ---------------------------------------------------------------------------
+
+// Universities, outplacement firms and career-coaching practices buy seats in
+// blocks. Purely ADDITIVE: a User with no Membership keeps working exactly as
+// today, and org quota pools alongside the existing Subscription rather than
+// replacing it.
+model Organization {
+  id                         String   @id @default(cuid())
+  name                       String
+  slug                       String   @unique
+  planId                     String?
+  seats                      Int      @default(1)
+  applicationsPerMonthPooled Int      @default(0)
+  applicationsUsed           Int      @default(0)
+  perSeatCap                 Int? // so one heavy user cannot drain the block
+  billingEmail               String
+  externalCustomerId         String?
+  status                     String   @default("active") // active | past_due | suspended | canceled
+  createdAt                  DateTime @default(now())
+  updatedAt                  DateTime @updatedAt
+
+  plan        Plan?        @relation(fields: [planId], references: [id], onDelete: SetNull)
+  memberships Membership[]
+  invoices    Invoice[]
+  apiKeys     ApiKey[]
+
+  @@index([status])
+}
+
+// Joins a User to an Organization with a role.
+model Membership {
+  id             String    @id @default(cuid())
+  organizationId String
+  userId         String
+  role           String    @default("member") // owner | admin | member
+  invitedEmail   String?
+  invitedAt      DateTime  @default(now())
+  acceptedAt     DateTime?
+  removedAt      DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId])
+  @@index([userId])
 }
