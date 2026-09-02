@@ -98,8 +98,12 @@ export function AgentForm({ defaultLocation }: { defaultLocation?: string }) {
   const [jobType, setJobType] = useState('full_time');
   const [minSalary, setMinSalary] = useState('');
   const [minMatchScore, setMinMatchScore] = useState(65);
-  const [autoApply, setAutoApply] = useState(false);
-  const [autoApplyThreshold, setAutoApplyThreshold] = useState(85);
+  // Fixed, not state: the auto-apply control is disabled because automatic
+  // submission is not implemented (see the form field below and
+  // docs/adr/ADR-0016-application-automation.md). These are still sent so the
+  // API contract and the Agent model are unchanged — Stage 00 touches no schema.
+  const autoApply = false;
+  const autoApplyThreshold = 85;
   const [scanFrequency, setScanFrequency] = useState('daily');
 
   async function submit(event: React.FormEvent) {
@@ -313,43 +317,51 @@ export function AgentForm({ defaultLocation }: { defaultLocation?: string }) {
           </select>
         </div>
 
-        <div className="rounded-xl border border-line p-4">
-          <label className="flex cursor-pointer items-start gap-3">
+        {/*
+          AUTOMATIC APPLICATION IS NOT IMPLEMENTED, AND THIS CONTROL MUST NOT
+          IMPLY THAT IT IS.
+
+          This block previously rendered an enabled checkbox reading "Apply
+          automatically to strong matches", with the sub-label "Applications are
+          submitted without asking, using quota from your plan." None of that is
+          true. `autoApplyThreshold` is read in exactly one place —
+          src/lib/services/scanner.ts — where it only increments a counter of
+          matches above the threshold. No scheduler exists (the `AgentSchedule`
+          model has no code that reads it), so nothing is ever submitted
+          unattended.
+
+          Applying without a human in the loop is deliberately out of scope until
+          Stage 22, and is gated on lawfulness review and an explicit founder
+          decision — see docs/adr/ADR-0016-application-automation.md.
+
+          The control is therefore disabled and labelled accurately rather than
+          removed: the `autoApply` and `autoApplyThreshold` columns still exist on
+          the Agent model, and Stage 00 does not change the schema.
+        */}
+        <div className="rounded-xl border border-line p-4 opacity-70">
+          <label className="flex items-start gap-3">
             <input
               type="checkbox"
-              checked={autoApply}
-              onChange={(e) => setAutoApply(e.target.checked)}
+              checked={false}
+              disabled
+              readOnly
+              aria-describedby="auto-apply-note"
               className="mt-0.5 h-4 w-4 accent-brand-500"
             />
             <span>
               <span className="block text-sm font-medium text-ink">
                 Apply automatically to strong matches
+                <span className="ml-2 align-middle text-[11px] font-normal uppercase tracking-wide text-muted">
+                  Not available
+                </span>
               </span>
-              <span className="mt-0.5 block text-xs text-muted">
-                Applications are submitted without asking, using quota from your plan. You can
-                review every one afterwards.
+              <span id="auto-apply-note" className="mt-0.5 block text-xs text-muted">
+                JobPilot never submits an application on its own. Every application is
+                prepared for you — tailored resume, cover letter and answers — and you
+                confirm it before it is sent.
               </span>
             </span>
           </label>
-
-          {autoApply && (
-            <div className="mt-4 border-t border-line pt-4">
-              <label className="label" htmlFor="threshold">
-                Auto-apply above{' '}
-                <span className="tabular-nums text-brand-600">{autoApplyThreshold}%</span>
-              </label>
-              <input
-                id="threshold"
-                type="range"
-                min={50}
-                max={100}
-                step={5}
-                value={autoApplyThreshold}
-                onChange={(e) => setAutoApplyThreshold(Number(e.target.value))}
-                className="w-full accent-brand-500"
-              />
-            </div>
-          )}
         </div>
       </Card>
 

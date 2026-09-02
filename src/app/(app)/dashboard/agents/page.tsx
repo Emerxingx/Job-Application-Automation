@@ -72,9 +72,16 @@ export default async function AgentsPage() {
                       <div className="flex flex-wrap items-center gap-2">
                         <h2 className="font-semibold text-ink">{agent.name}</h2>
                         <StatusBadge status={agent.status} />
+                        {/*
+                          Agents created before Stage 00 may still carry
+                          autoApply=true. Nothing acts on it — no scheduler
+                          exists — so the badge states that plainly instead of
+                          claiming applications are being sent automatically.
+                          See docs/adr/ADR-0016-application-automation.md.
+                        */}
                         {agent.autoApply && (
-                          <span className="chip bg-brand-500/10 text-brand-600">
-                            Auto-apply above {agent.autoApplyThreshold}%
+                          <span className="chip bg-line/60 text-muted">
+                            Auto-apply not available — you confirm every application
                           </span>
                         )}
                       </div>

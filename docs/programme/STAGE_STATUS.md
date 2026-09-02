@@ -8,7 +8,7 @@ founder approval; no remediation has begun.
 
 | Stage | Name | Status | Existing coverage | Evidence |
 | --- | --- | --- | --- | --- |
-| 00 | Repository, governance, evidence baseline | NOT STARTED | Clean history; 670 tests; typecheck + build green; docs suite delivered by this audit | Audit branch |
+| 00 | Repository, governance, evidence baseline | **IN PROGRESS** | Clean history; 670 tests; typecheck + build green; architecture baseline merged to main (`da8df5e`) | Branch `claude/stage-00-governance-remediation`; see `LINT_BASELINE.md` and Stage 00 evidence below |
 | 01 | Security, identity, orgs, multi-tenancy | NOT STARTED | bcrypt+JWT, console two-lock gate, API key handling, SSRF guard, rate limiting | — · **blocking gates: authentication decision gate (`ADR-0004`) and pooled-runtime isolation proof (`ADR-0005`)** |
 | 02 | Candidate Digital Twin | NOT STARTED | ~12 flat `User` fields; `Resume` JSON | — |
 | 03 | Career Evidence Vault, question architecture | NOT STARTED | Prompt registry; safe interpolation | — · **required here: `PromptRegistry` → governed admin; per-tenant AI policy enforced in the gateway** |
@@ -33,6 +33,21 @@ founder approval; no remediation has begun.
 | 22 | Controlled autonomous application | **BLOCKED** | Deliberately none | Blocked by design (`ADR-0016`) |
 | 23 | Security / performance / a11y / ops hardening | NOT STARTED | Rate limiting, SSRF guard, secret hygiene | — |
 | 24 | Production deployment & readiness | NOT STARTED | `DEPLOYMENT.md` | — |
+
+## Stage 00 evidence (branch `claude/stage-00-governance-remediation`)
+
+| Item | State |
+| --- | --- |
+| `.gitattributes` + LF policy | Added. `git add --renormalize .` is a **no-op** — every tracked file was already LF, and zero tracked files contain CRLF. The Windows dirty-tree churn was checkout-time conversion, now prevented |
+| Generated-file determinism | CI regenerates `importMap.js` and `payload-types.ts` and fails on drift; also fails if `scripts/payload-cli.mjs` leaves `package.json` modified |
+| CI | `.github/workflows/ci.yml` — lint · typecheck · test · build, plus generated-file and line-ending jobs |
+| Dependency audit | `.github/workflows/dependency-review.yml` — **reporting only**, deliberately: it would fail day one on the known Next advisories that `ADR-0017` schedules for Stage 01 |
+| Dependabot | `.github/dependabot.yml`, grouped monthly; `next`, `payload`, `@payloadcms/*` and `eslint >=10` ignored so automation cannot leave a supported peer range |
+| ESLint | Installed and configured (flat config). **`next lint` is not used** — deprecated in Next 15, removed in Next 16 |
+| Lint baseline | **0 errors, 2 warnings** across 241 files. `npm run lint:ci` locks it with `--max-warnings=2` as a **blocking** gate. Full disposition in `LINT_BASELINE.md` |
+| `npm run verify` | Reproduces the CI gate set locally |
+| CODEOWNERS · PR template · SECURITY.md | Added |
+| UI claim correction | Auto-apply control disabled and labelled "Not available"; the false sub-label removed; agents-list badge corrected; README headline corrected |
 
 ## Measured gate status at `35d3491`
 

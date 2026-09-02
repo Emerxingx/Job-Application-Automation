@@ -1,0 +1,33 @@
+version: 2
+updates:
+  # Grouped and monthly on purpose. A non-technical founder cannot absorb a
+  # stream of individual bumps, and Stage 01 owns the one upgrade that actually
+  # matters (Next 15.4.11 -> 16.2.6+, ADR-0017).
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 5
+    groups:
+      dev-dependencies:
+        dependency-type: development
+        update-types: [minor, patch]
+      production-patches:
+        dependency-type: production
+        update-types: [patch]
+    ignore:
+      # Payload pins the supported Next range. An automated Next bump would
+      # almost certainly leave that range and break the build. ADR-0017 owns it.
+      - dependency-name: next
+      - dependency-name: 'payload'
+      - dependency-name: '@payloadcms/*'
+      # eslint-config-next@15.4.11 declares eslint "^7 || ^8 || ^9". ESLint 10
+      # is published and is OUTSIDE that range — the same shape of constraint as
+      # Next/Payload. Revisit when eslint-config-next widens its peer range.
+      - dependency-name: eslint
+        versions: ['>=10.0.0']
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly

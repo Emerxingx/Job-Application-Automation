@@ -1,0 +1,125 @@
+name: CI
+
+# Stage 00 established this. Before it, no CI existed: nothing ran on push, and
+# every verification in HANDOFF.md §5 had been performed by hand.
+#
+# The four gates below already passed on a clean clone at the time they were
+# added, so making them required costs nothing today and prevents regression
+# from tomorrow. See docs/adr/ADR-0018-ci-quality-gates.md.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # Every gate runs against a throwaway SQLite file. Stage 00 deliberately does
+  # not migrate to PostgreSQL — that is Stage 01 under ADR-0002.
+  DATABASE_URL: file:./ci.db
+  PAYLOAD_DATABASE_URI: file:./ci-payload.db
+  # Non-secret placeholders. Long enough to pass the length check and NOT equal
+  # to the .env.example value, which src/lib/auth.ts rejects by value.
+  AUTH_SECRET: ci-only-not-a-real-secret-0000000000000000
+  PAYLOAD_SECRET: ci-only-not-a-real-payload-secret-00000000
+  NEXT_TELEMETRY_DISABLED: '1'
+
+jobs:
+  verify:
+    name: Verify (lint · typecheck · test · build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install (from the lockfile)
+        run: npm ci
+
+      # --- required gates -------------------------------------------------
+      # Each of these passed on a clean clone before CI existed. They are
+      # required, not advisory.
+
+      - name: Lint
+        run: npm run lint:ci
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Tests
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+  generated-files:
+    name: Generated-file determinism
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install (from the lockfile)
+        run: npm ci
+
+      # importMap.js and payload-types.ts are tracked because a clean clone must
+      # build without running codegen. That only works if they are in sync with
+      # src/payload.config.ts. Regenerating and diffing turns "someone forgot to
+      # regenerate" into a red build rather than a silent runtime mismatch in the
+      # Payload admin. See docs/adr/ADR-0014-generated-files.md.
+      - name: Regenerate the Payload import map
+        run: npm run cms:importmap
+
+      - name: Regenerate Payload types
+        run: npm run cms:types
+
+      - name: Fail if a generated file drifted
+        run: |
+          if ! git diff --exit-code -- 'src/app/(payload)/admin/importMap.js' src/payload-types.ts; then
+            echo "::error::A generated file is out of sync with src/payload.config.ts."
+            echo "Run 'npm run cms:importmap' and 'npm run cms:types', then commit the result."
+            exit 1
+          fi
+          echo "Generated files are in sync."
+
+      # scripts/payload-cli.mjs temporarily flips "type": "module" in
+      # package.json and restores it. If a crash ever left it set, that is a real
+      # defect and CI should say so rather than let it reach main.
+      - name: Fail if package.json was left modified by the Payload CLI
+        run: git diff --exit-code -- package.json
+
+  line-endings:
+    name: Line-ending policy
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      # .gitattributes normalises every text file to LF. This proves the working
+      # tree actually complies, which is what stops the recurring dirty-tree
+      # churn Windows contributors saw on importMap.js before Stage 00.
+      - name: Fail if renormalisation would change anything
+        run: |
+          git add --renormalize .
+          if ! git diff --cached --quiet; then
+            echo "::error::Files do not comply with .gitattributes (LF normalisation)."
+            git diff --cached --name-only
+            exit 1
+          fi
+          echo "All tracked files comply with the line-ending policy."

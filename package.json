@@ -7,7 +7,8 @@
     "dev": "next dev",
     "build": "prisma generate && next build",
     "start": "next start",
-    "lint": "next lint",
+    "lint": "eslint .",
+    "lint:ci": "eslint . --max-warnings=2",
     "test": "node --import tsx --test \"tests/**/*.test.ts\"",
     "test:watch": "node --import tsx --test --watch \"tests/**/*.test.ts\"",
     "check": "tsc --noEmit && npm test",
@@ -16,7 +17,8 @@
     "db:reset": "prisma db push --force-reset && tsx prisma/seed.ts",
     "postinstall": "prisma generate",
     "cms:types": "node scripts/payload-cli.mjs generate:types",
-    "cms:importmap": "node scripts/payload-cli.mjs generate:importmap"
+    "cms:importmap": "node scripts/payload-cli.mjs generate:importmap",
+    "verify": "npm run lint:ci && tsc --noEmit && npm test && npm run build"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
@@ -46,12 +48,15 @@
     "zod": "^3.24.1"
   },
   "devDependencies": {
+    "@eslint/eslintrc": "^3.3.7",
     "@types/bcryptjs": "^2.4.6",
     "@types/node": "^22.10.5",
     "@types/pdfkit": "^0.17.6",
     "@types/react": "^19.0.4",
     "@types/react-dom": "^19.0.2",
     "autoprefixer": "^10.4.20",
+    "eslint": "^9.39.5",
+    "eslint-config-next": "^15.4.11",
     "postcss": "^8.4.49",
     "prisma": "^6.2.1",
     "tailwindcss": "^3.4.17",

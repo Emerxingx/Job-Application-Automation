@@ -1,0 +1,25 @@
+# Default owner for everything.
+*                       @Emerxingx
+
+# Architecture, decisions and governance. Changes here alter the approved
+# baseline and must be reviewed as such, not merged as documentation tidying.
+/docs/adr/              @Emerxingx
+/docs/architecture/     @Emerxingx
+/docs/governance/       @Emerxingx
+/docs/programme/        @Emerxingx
+/CLAUDE.md              @Emerxingx
+
+# Security-critical implementation. ADR-0019 Tier 2: these are code-only and may
+# never be widened by an admin setting.
+/src/lib/auth.ts        @Emerxingx
+/src/lib/crm/auth.ts    @Emerxingx
+/src/lib/integrations/api-keys.ts  @Emerxingx
+/prisma/schema.prisma   @Emerxingx
+
+# Build, CI and dependency surface.
+/.github/               @Emerxingx
+/package.json           @Emerxingx
+/package-lock.json      @Emerxingx
+/next.config.mjs        @Emerxingx
+/eslint.config.mjs      @Emerxingx
+/.gitattributes         @Emerxingx
