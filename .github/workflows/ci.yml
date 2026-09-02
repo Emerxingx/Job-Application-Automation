@@ -45,7 +45,29 @@ jobs:
           cache: npm
 
       - name: Install (from the lockfile)
-        run: npm ci
+        # `npm ci` is retried ONCE, and only for a specific known failure.
+        #
+        # esbuild's postinstall writes its binary and then immediately execs it
+        # to check `--version`. On a busy runner the write handle may not be
+        # closed yet, and the exec fails with ETXTBSY ("text file busy"). It
+        # reached this project through @esbuild-kit/core-utils -> drizzle-kit ->
+        # @payloadcms/db-*, a path no application code touches (drizzle-kit is
+        # Payload's migration CLI and never runs in production).
+        #
+        # This is an installer race, not a lockfile problem: the same lockfile
+        # installs cleanly from scratch locally, and the nested esbuild version
+        # is identical on main. A single clean retry is the standard remedy.
+        #
+        # It is deliberately NOT silent. The retry prints a loud notice, so a
+        # genuine install failure still shows up as a retry in the log rather
+        # than being smoothed away, and a second failure fails the job.
+        run: |
+          if npm ci; then
+            exit 0
+          fi
+          echo "::warning::npm ci failed on the first attempt. Cleaning node_modules and retrying once (see the ETXTBSY note in ci.yml)."
+          rm -rf node_modules
+          npm ci
 
       # --- required gates -------------------------------------------------
       # Each of these passed on a clean clone before CI existed. They are
@@ -76,7 +98,29 @@ jobs:
           cache: npm
 
       - name: Install (from the lockfile)
-        run: npm ci
+        # `npm ci` is retried ONCE, and only for a specific known failure.
+        #
+        # esbuild's postinstall writes its binary and then immediately execs it
+        # to check `--version`. On a busy runner the write handle may not be
+        # closed yet, and the exec fails with ETXTBSY ("text file busy"). It
+        # reached this project through @esbuild-kit/core-utils -> drizzle-kit ->
+        # @payloadcms/db-*, a path no application code touches (drizzle-kit is
+        # Payload's migration CLI and never runs in production).
+        #
+        # This is an installer race, not a lockfile problem: the same lockfile
+        # installs cleanly from scratch locally, and the nested esbuild version
+        # is identical on main. A single clean retry is the standard remedy.
+        #
+        # It is deliberately NOT silent. The retry prints a loud notice, so a
+        # genuine install failure still shows up as a retry in the log rather
+        # than being smoothed away, and a second failure fails the job.
+        run: |
+          if npm ci; then
+            exit 0
+          fi
+          echo "::warning::npm ci failed on the first attempt. Cleaning node_modules and retrying once (see the ETXTBSY note in ci.yml)."
+          rm -rf node_modules
+          npm ci
 
       # importMap.js and payload-types.ts are tracked because a clean clone must
       # build without running codegen. That only works if they are in sync with

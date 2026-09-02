@@ -77,3 +77,25 @@ The config constrained patch/minor grouping but not majors. Now closed:
 `version-update:semver-major` is ignored for every npm dependency and every
 Action, with named entries preserving the reasoning. None of the eight PRs was
 merged. Detail in `../programme/DEPENDENCY_AUDIT.md`.
+
+## R-32 — esbuild ETXTBSY on CI install (mitigated, Stage 01)
+
+CI run 15 failed at `npm ci` with `ETXTBSY` from esbuild's postinstall: it writes
+its binary then immediately execs it to check `--version`, and on a busy runner
+the write handle may not be closed yet.
+
+**Diagnosed, not assumed a flake.** The same lockfile installs cleanly from
+scratch locally (exit 0), and the nested `esbuild@0.18.20` is byte-identical on
+`main` and on the branch — the change did not introduce it. It arrives via
+`@esbuild-kit/core-utils` → `drizzle-kit` → `@payloadcms/db-*`, a path no
+application code touches (`drizzle-kit` is Payload's migration CLI and never runs
+in production). That is the same chain already accepted as **R-23**.
+
+**Mitigation:** one clean retry of `npm ci`, and only after a first failure. It
+prints a `::warning::` so the retry is visible in the log rather than silent, and
+a second failure still fails the job. This does not mask a genuine install
+problem; it absorbs a known installer race.
+
+**Proper fix:** the `@esbuild-kit/*` packages are deprecated upstream ("merged
+into tsx"). They disappear when Payload updates its adapter dependencies —
+tracked with R-23.
