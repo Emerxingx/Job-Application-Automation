@@ -105,9 +105,16 @@ peer range; **Payload was not changed**.
 | Before | 14 | 6 |
 | **After** | **11** | **3** |
 
-**Every deployed high-severity advisory is cleared.** The three remaining highs
-are the dev-only `prisma` / `@prisma/config` / `deepmerge-ts` chain — Step 1,
-still outstanding, and deliberately not bundled with a framework upgrade.
+**Every deployed high-severity advisory known at that moment was cleared.** The
+three remaining highs were the dev-only `prisma` / `@prisma/config` /
+`deepmerge-ts` chain — Step 1, still outstanding, and deliberately not bundled
+with a framework upgrade.
+
+> **Superseded later in the same stage, without anything being installed.** A
+> newly published `fast-uri` advisory made `payload → ajv` a deployed high again.
+> See the Step 1 outcome below. The sentence above was accurate when written and
+> is left standing, dated, as the record of why a dependency posture is a
+> measurement with a timestamp rather than a property.
 
 Regression: lint 0 errors, typecheck exit 0, **689/689 tests**, build exit 0 on
 Turbopack.
@@ -121,6 +128,61 @@ Two required follow-ons, both done in the same change:
 The stricter ruleset surfaced six pre-existing `react-hooks/set-state-in-effect`
 sites. Each was analysed (`LINT_BASELINE.md`); none is a defect, and they are
 recorded as visible warnings rather than disabled.
+
+
+## Outcome — Step 1 performed in Stage 01 (2026-09-02), not as specified
+
+**Step 1 as written was not achievable.** It assumed a Prisma release consuming a
+patched `deepmerge-ts`. Verified against the registry: `@prisma/config` pins
+`deepmerge-ts` **exactly at the vulnerable `7.1.5`** in 6.19.3 *and* in 7.10.0,
+the latest release. `npm audit`'s `fixAvailable: true` reports that a patched
+`deepmerge-ts` exists, not that anything upstream uses it. Upgrading Prisma would
+have cost the `package.json#prisma` block (removed in Prisma 7) and fixed
+nothing.
+
+It was performed as a scoped `overrides` entry instead, together with two
+advisories that had appeared in the interval:
+
+| Override | → | Parent's declared range | Character of the change |
+| --- | --- | --- | --- |
+| `fast-uri` | 3.1.7 | `ajv@8.18.0`: `^3.0.1` | inside the range — **deployed high**, four advisories via `payload → ajv` |
+| `qs` | 6.16.0 | `stripe@17.7.0`: `^6.11.0` | inside the range — deployed moderate |
+| `deepmerge-ts` | 8.0.2 | `@prisma/config`: exactly `7.1.5` | **outside an exact pin**, justified below |
+
+Only the third overrides a pin, and it was verified rather than assumed:
+`@prisma/config` imports one symbol (`deepmerge`), version 8 still exports it,
+and version 8's change *is* the fix — the default `deepmerge` became the
+recursion-safe implementation and the old fast path was renamed
+`deepmergeFastUnsafe`. `prisma validate`, `generate`, `-v` and `db push` were
+then all run against it successfully.
+
+| | Total | high |
+| --- | --- | --- |
+| Before | 13 | 4 |
+| **After** | **8** | **0** |
+
+Regression: lint 0 errors / 8 warnings, typecheck exit 0, **699/699 tests**,
+build exit 0.
+
+**Standing obligation:** remove the `deepmerge-ts` override when `@prisma/config`
+depends on `^8`. An override on someone else's exact pin must not outlive its
+reason. Full working in `../programme/DEPENDENCY_AUDIT.md`.
+
+## Outcome — Step 4 deliberately not taken (2026-09-02)
+
+`dompurify` / `monaco-editor` remain, for a sharper reason than "track, do not
+force". `monaco-editor@0.56.0` — the latest release — pins `dompurify` at exactly
+`3.4.8`, so clearing it needs the same outside-the-pin override used above. The
+difference that decides it: the Payload admin's code-editor field is exercised by
+neither the test suite nor the build, so the override could be applied but **not
+verified** here. An unverified change to a security-sensitive sanitiser is a
+worse position than a tracked moderate on a staff-only surface. Revisit when
+Payload updates `@payloadcms/ui`, or when there is a way to exercise that field.
+
+**`npm audit --audit-level=high` is now clean**, which is what makes it adoptable
+as a blocking CI gate — the consequence recorded above. It is not yet wired in;
+that is a deliberate separate change, because a gate that turns red on someone
+else's publication schedule needs its failure mode designed first.
 
 ## Revisit when
 Every Next release, or whenever a new advisory affects a deployed path. **17.x is

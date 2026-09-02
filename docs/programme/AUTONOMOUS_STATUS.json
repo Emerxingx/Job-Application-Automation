@@ -5,7 +5,8 @@
   "current_stage": "01",
   "last_completed_stage": "00",
   "current_branch": "claude/stage-01-security-identity-tenancy",
-  "current_head": "pending",
+  "current_head": null,
+  "current_head_meaning": "SHA of the last commit whose full gate set was verified locally (lint, typecheck, tests, build). Set by the status-sync commit that immediately follows it, so it names a real, verified commit rather than the one it is written in.",
   "current_pr": 13,
   "main_head": "d6ae8b3a9180b529abe06f23417515432c0a7f0e",
   "run_complete": false,
@@ -37,20 +38,44 @@
     "24": "NOT_STARTED"
   },
   "stage_01_progress": {
-    "webhook_replay_and_ordering": "DONE \u2014 src/lib/billing/webhook-events.ts, wired into the Stripe route, 12 tests",
-    "deny_by_default_middleware": "DONE \u2014 src/middleware.ts, 7 negative tests; segment-aware prefix matching",
-    "auth_decision_gate": "DONE \u2014 docs/programme/AUTH_DECISION_GATE.md; decision = Supabase Auth, NOT ratified (residency unverified)",
-    "rls_mechanism_proof": "PROVEN LOCALLY on PostgreSQL 16.13 \u2014 see next_requirement; not yet a committed test",
-    "postgresql_migration": "NOT_STARTED \u2014 needs the baseline migration and a Supabase project",
-    "rls_policies_on_tables": "NOT_STARTED",
-    "organization_membership_wiring": "NOT_STARTED",
-    "session_revocation": "NOT_STARTED \u2014 blocked on the auth decision being ratified",
-    "mfa_email_verification_recovery_oauth": "NOT_STARTED \u2014 blocked on the auth decision being ratified",
-    "nextjs_16_upgrade": "DONE \u2014 next 16.3.4 + eslint-config-next 16.3.3; advisories 14->11, deployed highs 6->0; middleware migrated to src/proxy.ts; ESLint on native flat config",
-    "consent_and_audit": "NOT_STARTED",
-    "dependabot_major_guard": "DONE \u2014 majors ignored for all npm deps and Actions after 8 unsafe PRs appeared (R-31)"
+    "webhook_replay_and_ordering": "DONE — src/lib/billing/webhook-events.ts, wired into the Stripe route, 12 tests",
+    "deny_by_default_edge_gate": "DONE — src/proxy.ts, 7 negative tests; segment-aware prefix matching",
+    "nextjs_16_upgrade": "DONE — next 16.3.4 + eslint-config-next 16.3.3; middleware migrated to src/proxy.ts; ESLint on native flat config",
+    "dependabot_major_guard": "DONE — majors ignored for all npm deps and Actions after 8 unsafe PRs appeared (R-31)",
+    "auth_decision_gate": "DONE — docs/programme/AUTH_DECISION_GATE.md; decision = Supabase Auth",
+    "auth_decision_ratified": "DONE — 2026-09-02, on the founder attestation that the project is in ca-central-1 and that Supabase Auth records live in the project's own Postgres auth schema. Provenance recorded as attestation, NOT an agent measurement: supabase.com is egress-blocked here. Does NOT clear WorkBC/public-sector legal (L-1, L-3 stay OPEN).",
+    "rls_mechanism_proof": "DONE — tests/rls-isolation.test.ts, 10 assertions against a real PostgreSQL, run in CI via a postgres:16 service. Throws rather than skips when CI=true without a database. Corrected ADR-0005 (its point 4 specified session-scoped context, which is the leak) and produced R-33.",
+    "dependency_remediation_adr_0017": "DONE — Step 1 performed by scoped overrides after verifying no released Prisma consumes a patched deepmerge-ts. Advisories 13 -> 8; high 4 -> 0. Step 4 deliberately not taken and the reason recorded.",
+    "postgresql_migration": "BLOCKED (CREDENTIAL) — needs a reachable Supabase project",
+    "rls_policies_on_real_tables": "BLOCKED (CREDENTIAL) — depends on the PostgreSQL migration",
+    "pooled_runtime_proof_on_real_deployment": "BLOCKED (CREDENTIAL) — the mechanism is proven; the deployment-specific proof ADR-0005 requires needs the real pooler and pool mode",
+    "organization_membership_wiring": "BLOCKED (CREDENTIAL) — depends on the PostgreSQL migration",
+    "session_revocation": "BLOCKED (CREDENTIAL) — decision now ratified, so this is no longer blocked on the decision; it needs the project",
+    "mfa_email_verification_recovery_oauth": "BLOCKED (CREDENTIAL) — same",
+    "consent_and_audit": "BLOCKED (CREDENTIAL) — same"
   },
-  "next_requirement": "Commit the RLS pooled-connection proof as a repeatable CI test against a PostgreSQL service container. Then ADR-0017 Step 1 (dev-only prisma/@prisma/config/deepmerge-ts chain, fixAvailable, 3 remaining highs). Everything else in Stage 01 \u2014 PostgreSQL migration, RLS policies on real tables, tenancy wiring, session revocation, MFA/OAuth \u2014 is BLOCKED on a Supabase project and on ratifying the auth decision.",
+  "stage_01_exit_gate": {
+    "met": [
+      "Deny-by-default route gate with negative tests",
+      "Webhook replay and ordering closed in code and tested",
+      "Authentication decision made, evidenced and ratified",
+      "RLS mechanism proven against a real PostgreSQL, in CI, unskippable",
+      "No high-severity advisory on any deployed path (npm audit: 0 high)",
+      "Full gate set green: lint 0 errors / 8 warnings, typecheck 0, 699/699 tests, build 0"
+    ],
+    "not_met": [
+      "PostgreSQL baseline migration",
+      "RLS policies on real application tables, each FORCEd",
+      "Pooled-runtime isolation proof against the real deployment and pool mode",
+      "Organization / Membership wiring",
+      "Server-side session revocation",
+      "MFA, email verification, account recovery, OAuth",
+      "Consent capture and audit trail",
+      "Region confirmed from the provisioned project itself"
+    ],
+    "verdict": "Stage 01 is NOT PASS. Every unmet item requires the Supabase project."
+  },
+  "next_requirement": "Every remaining Stage 01 requirement needs a reachable Supabase project; see blockers[SUPABASE-PROJECT] for exactly what is missing. No independent Stage 01 work remains: the RLS mechanism proof and ADR-0017 Step 1 were the last two, and both are done. Stage 02 (Candidate Digital Twin) is the next stage whose early work is schema-and-code shaped, but its persistence changes land on the PostgreSQL baseline, so starting it before the migration would create rework and a second schema history. Awaiting the credential rather than manufacturing motion.",
   "blockers": [
     {
       "id": "L-3",
@@ -66,23 +91,34 @@
       "issue": "Supabase Auth data residency for a Canada-Central project could not be verified: supabase.com is blocked by this environment's egress proxy. ADR-0015 requires personal data to stay in Canada, and identity data is personal data.",
       "owner": "Founder (or any network with access to Supabase docs)",
       "latest_blocking_stage": "01",
-      "status": "OPEN",
-      "effect": "The authentication decision (Supabase Auth) is RECORDED but NOT RATIFIED. No auth implementation may start until this clears."
+      "status": "RESOLVED_TECHNICALLY",
+      "effect": "The authentication decision (Supabase Auth) is RECORDED but NOT RATIFIED. No auth implementation may start until this clears.",
+      "resolved_on": "2026-09-02",
+      "resolution": "Founder attestation: project provisioned in Canada (Central), AWS ca-central-1; Supabase Auth records live in the project's own Postgres auth schema, so Auth residency follows the project database. Recorded in docs/governance/COMPLIANCE_REGISTER.md and AUTH_DECISION_GATE.md §6.",
+      "provenance": "Founder attestation, NOT verified by this agent — supabase.com is blocked by the egress proxy. Recorded as an attestation, never as a measurement.",
+      "residual": "Confirm the region from the provisioned project itself before the Stage 01 exit gate (AUTH_DECISION_GATE.md §6.5).",
+      "does_not_resolve": "The WorkBC/public-sector legal question on subprocessors, cross-border processing and contractual requirements. L-1 and L-3 remain OPEN. Product 3 must not be deployed to a public-sector customer on the strength of this."
     },
     {
       "id": "SUPABASE-PROJECT",
       "type": "CREDENTIAL",
-      "issue": "No Supabase project or connection string exists. The PostgreSQL migration, and the Stage 01 isolation proof against the ACTUAL deployment and pool mode, cannot be performed without it.",
+      "issue": "No Supabase project or connection string is reachable from this build environment. Verified 2026-09-02 by name only, without reading any value: no DATABASE_URL / DIRECT_URL / POSTGRES_URL_NON_POOLING / SUPABASE_* variable is present; no environment variable of any name mentions supabase, postgres or database; no secrets mount exists at /run/secrets, /var/run/secrets or ~/.supabase; the only .env is an untracked byte-identical copy of .env.example whose DATABASE_URL is the SQLite \"file:\" placeholder.",
       "owner": "Founder",
       "latest_blocking_stage": "01",
       "status": "OPEN",
-      "note": "The RLS MECHANISM is provable locally and has been proven. What needs the real project is the deployment-specific proof ADR-0005 requires."
+      "note": "The RLS MECHANISM is provable locally and has been proven. What needs the real project is the deployment-specific proof ADR-0005 requires.",
+      "needed": [
+        "pooled connection string (transaction mode)",
+        "direct connection string (session mode, for migrations)",
+        "the project ref or region endpoint, so the region can be confirmed from the project itself"
+      ],
+      "effect": "Blocks every remaining Stage 01 requirement. Does not block the RLS mechanism proof or the dependency work — both are complete."
     }
   ],
   "external_actions": [
     {
       "id": "BRANCH-PROTECTION",
-      "action": "Require the CI checks on main: 'Verify (lint \u00b7 typecheck \u00b7 test \u00b7 build)', 'Generated-file determinism', 'Line-ending policy'; and require a PR before merging.",
+      "action": "Require the CI checks on main: 'Verify (lint · typecheck · test · build)', 'Generated-file determinism', 'Line-ending policy'; and require a PR before merging.",
       "why": "Workflows exist and pass, but nothing enforces them. Verified: the GitHub MCP server exposes no branch-protection tool, so this cannot be done from the agent.",
       "status": "REQUIRED"
     },
@@ -105,6 +141,6 @@
     "Never run npm audit fix --force: it leaves Payload's peer range (ADR-0017).",
     "Never skip, disable or delete a test to obtain a green run.",
     "No integration described above its recorded status in INTEGRATION_REGISTER.md.",
-    "Tenancy context must be set with SET LOCAL inside the query's transaction. A session-level SET leaks across pooled connections \u2014 proven, not assumed."
+    "RLS: set tenancy with set_config(name, value, true) inside the query's transaction; FORCE ROW LEVEL SECURITY on every policied table; never guard on IS NULL alone — a recycled connection reports the empty string. Proven in tests/rls-isolation.test.ts, recorded as R-33."
   ]
 }

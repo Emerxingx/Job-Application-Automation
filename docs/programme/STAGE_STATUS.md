@@ -9,7 +9,7 @@ founder approval; no remediation has begun.
 | Stage | Name | Status | Existing coverage | Evidence |
 | --- | --- | --- | --- | --- |
 | 00 | Repository, governance, evidence baseline | **COMPLETE** | — | Merged to main as `d6ae8b3` (PR #4). CI green on `565012b`; see Stage 00 evidence below |
-| 01 | Security, identity, orgs, multi-tenancy | **IN PROGRESS** | bcrypt+JWT, console two-lock gate, API key handling, SSRF guard, rate limiting | Branch `claude/stage-01-security-identity-tenancy`. Done: webhook replay+ordering, deny-by-default middleware, **authentication decision gate**. See `AUTH_DECISION_GATE.md` and `AUTONOMOUS_STATUS.json` |
+| 01 | Security, identity, orgs, multi-tenancy | **IN PROGRESS** | bcrypt+JWT, console two-lock gate, API key handling, SSRF guard, rate limiting | Branch `claude/stage-01-security-identity-tenancy`. Done: webhook replay+ordering, deny-by-default edge gate, Next 16 upgrade, **authentication decision gate — now RATIFIED**, **RLS mechanism proof in CI**. Blocked: everything needing a reachable Supabase project. See `AUTH_DECISION_GATE.md` and `AUTONOMOUS_STATUS.json` |
 | 02 | Candidate Digital Twin | NOT STARTED | ~12 flat `User` fields; `Resume` JSON | — |
 | 03 | Career Evidence Vault, question architecture | NOT STARTED | Prompt registry; safe interpolation | — · **required here: `PromptRegistry` → governed admin; per-tenant AI policy enforced in the gateway** |
 | 04 | Canada occupation / skills / LMI | NOT STARTED | 9-entry NOC regex in the Adzuna adapter | — |
@@ -90,12 +90,18 @@ This is a real, observed run, not an inference from local results.
 | `FieldMappings` → governed platform administration | **12** | `../adr/ADR-0003-headless-cms.md` |
 
 ## Immediate blockers to any production deployment
-1. Next.js advisories — upgrade to 16.2.6+ (`ADR-0017`).
-2. SQLite + no migrations (`ADR-0002`).
-3. No RLS; isolation by hand-written filters alone (`ADR-0005`).
-4. Stripe unvalidated and non-idempotent.
-5. No CI.
-6. Auto-apply UI promising unimplemented behaviour.
+
+Updated 2026-09-02. Three of the original six are closed; the wording of the
+remaining three is tightened to what is actually still true.
+
+| # | Blocker | State |
+| --- | --- | --- |
+| 1 | Next.js advisories (`ADR-0017`) | **CLOSED** — on `next@16.3.4`; no deployed high-severity advisory remains |
+| 2 | SQLite + no migrations (`ADR-0002`) | **OPEN** — blocked on a reachable Supabase project |
+| 3 | No RLS on any real table (`ADR-0005`) | **OPEN** — the mechanism is proven in CI; no policy exists on an application table |
+| 4 | Stripe unvalidated and non-idempotent | **HALF CLOSED** — replay *and* ordering are closed in code and tested; live validation still outstanding (Stage 15) |
+| 5 | No CI | **CLOSED** in Stage 00 — three jobs, all required |
+| 6 | Auto-apply UI promising unimplemented behaviour | **CLOSED** in Stage 00 — control disabled and labelled |
 
 ## Open legal / compliance decisions gating stage exits
 
@@ -123,10 +129,11 @@ file is authoritative over any chat transcript.
 | Item | State |
 | --- | --- |
 | Webhook replay **and ordering** | **DONE** — `src/lib/billing/webhook-events.ts`, wired into the Stripe route, 12 tests. Closes S-03/R-06 |
-| Deny-by-default route gate | **DONE** — `src/middleware.ts`, 7 negative tests. Closes S-02/R-08 |
-| Authentication decision gate | **DONE** — [`AUTH_DECISION_GATE.md`](AUTH_DECISION_GATE.md). Decision: **Supabase Auth**, **not ratified** pending residency verification |
-| RLS mechanism proof | **PROVEN LOCALLY** on PostgreSQL 16.13 — see below. Not yet a committed CI test |
-| PostgreSQL migration · RLS policies · tenancy wiring · session revocation · MFA/OAuth · Next 16 | **NOT STARTED** |
+| Deny-by-default route gate | **DONE** — `src/proxy.ts`, 7 negative tests. Closes S-02/R-08 |
+| Next 16 upgrade (`ADR-0017`) | **DONE** — `next@16.3.4`, inside Payload's peer range. Every **deployed** high-severity advisory cleared (14→11 total, high 6→3, remaining three dev-only). Closes R-03 |
+| Authentication decision gate | **DONE** — [`AUTH_DECISION_GATE.md`](AUTH_DECISION_GATE.md). Decision: **Supabase Auth**, **RATIFIED 2026-09-02** on founder attestation that the project is in `ca-central-1`. Provenance recorded: attestation, not an agent measurement |
+| RLS mechanism proof | **DONE** — `tests/rls-isolation.test.ts`, 10 assertions against a real PostgreSQL in CI (`postgres:16` service). Corrected `ADR-0005` and produced R-33. See below |
+| PostgreSQL migration · RLS policies on real tables · `Organization`/`Membership` wiring · session revocation · MFA / email verification / recovery / OAuth · consent + audit | **BLOCKED (CREDENTIAL)** — no Supabase project or connection string is reachable from the build environment. See `AUTONOMOUS_STATUS.json` → `blockers[SUPABASE-PROJECT]` |
 
 ### RLS pooled-connection proof — measured, not asserted
 
@@ -155,3 +162,29 @@ leak on any pooled deployment.
 
 The deployment-specific half of the `ADR-0005` gate — the *actual* Supabase
 project and pool mode — remains **BLOCKED** on a Supabase project existing.
+
+### The proof is now a committed test, and it found three more defects
+
+The table above was a one-off local run. It is now
+[`tests/rls-isolation.test.ts`](../../tests/rls-isolation.test.ts): 10 assertions
+run on every CI job against a `postgres:16` service container. Connection reuse is
+asserted via `pg_backend_pid()`, so a green run cannot mean the leak scenario
+silently did not occur, and the file **throws** rather than skipping when
+`CI=true` without a database — a conditional test must not become an optional one.
+
+Writing it surfaced three failure modes the one-off run had not, all recorded as
+**R-33** in `../governance/RISK_REGISTER.md` and folded into `ADR-0005` as an
+amendment:
+
+1. **`ENABLE ROW LEVEL SECURITY` does not bind the table's owner** — and on a
+   managed PostgreSQL the application's migration role usually *is* the owner.
+   Every policied table must also be `FORCE`d. Test 8 reproduces a total bypass
+   with a correct policy enabled.
+2. **"No tenant context" is not always `NULL`** — it is the empty string on any
+   recycled connection, so an `IS NULL` guard fires once per connection lifetime
+   and never again.
+3. **`SET`/`SET LOCAL` take no bind parameters**, so writing them literally means
+   interpolating the tenant id into SQL. `set_config($1, $2, true)` is required.
+
+`ADR-0005` point 4 was itself wrong — it specified session-scoped context "per
+connection", which is the leak. It is amended and dated.

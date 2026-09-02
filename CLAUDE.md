@@ -26,11 +26,17 @@ remediation has begun.**
 npm ci                # install from the lockfile
 npm run dev           # http://localhost:3000
 npx tsc --noEmit      # typecheck  — PASSES
-npm test              # 670 tests  — PASSES
+npm test              # 689 tests  — PASSES (699 with RLS_TEST_DATABASE_URL set)
 npm run build         # production — PASSES
 npm run lint          # eslint directly — 0 errors, 8 warnings (baseline)
 npm run lint:ci       # blocking variant: --max-warnings=8
 npm run verify        # lint:ci + typecheck + test + build (the CI gate set)
+
+# tests/rls-isolation.test.ts needs a real PostgreSQL (SQLite has no RLS). It
+# skips with a reason when this is unset, and THROWS when CI=true and it is
+# unset, so CI cannot pass by skipping it.
+RLS_TEST_DATABASE_URL=postgresql://postgres@127.0.0.1:5432/postgres npm test
+
 npm run db:push       # schema sync (NOT migrations — none exist)
 npm run db:seed       # plans + demo account
 npm run cms:importmap # regenerate the tracked Payload import map
@@ -48,7 +54,7 @@ npm run cms:types     # regenerate payload-types.ts
    `eslint: { ignoreDuringBuilds: true }` — a leftover that is now redundant,
    since CI lints separately. Lint is configured as **flat config invoking
    `eslint` directly**, never `next lint` (deprecated in Next 15, removed in
-   16). Baseline is **0 errors, 2 warnings**, locked by `--max-warnings=2`. The
+   16). Baseline is **0 errors, 8 warnings**, locked by `--max-warnings=8`. The
    one rule exemption — `no-require-imports` for `src/lib/providers/**` — is the
    deliberate lazy-`require` pattern, not debt. The baseline rose from 2 to 8
    when Next 16 brought a stricter ruleset that surfaced six **pre-existing**
@@ -73,9 +79,12 @@ npm run cms:types     # regenerate payload-types.ts
    content, in its **own** database (`PAYLOAD_DATABASE_URI`). Deliberate.
    Nothing in the CMS reads or writes a Prisma table. Keep it that way.
 
-6. **Tenant isolation is 63 hand-written `where: { userId }` clauses.** No RLS,
-   no test. Omitting one is a cross-account leak. Until `ADR-0005` lands,
-   **check the filter on every query you write.**
+6. **Tenant isolation is 63 hand-written `where: { userId }` clauses.** No RLS
+   policy exists on any real table. Omitting one is a cross-account leak. Until
+   `ADR-0005` lands, **check the filter on every query you write.**
+   `tests/rls-isolation.test.ts` proves the RLS *mechanism* against a real
+   PostgreSQL — it does not protect a single application table yet, and must not
+   be read as though it does.
 
 7. **`npm run cms:*` temporarily rewrites `package.json`.** `scripts/payload-cli.mjs`
    flips `"type": "module"` for the duration of the call and restores it, including

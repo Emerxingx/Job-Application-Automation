@@ -36,6 +36,36 @@ jobs:
     name: Verify (lint · typecheck · test · build)
     runs-on: ubuntu-latest
     timeout-minutes: 20
+
+    # tests/rls-isolation.test.ts is the ADR-0005 tenancy proof and needs a real
+    # PostgreSQL: SQLite has no row-level security, so the isolation guarantee
+    # cannot be exercised against the SQLite file the rest of the suite uses.
+    #
+    # The service exists so the proof RUNS here rather than being skipped. The
+    # test throws when CI=true and RLS_TEST_DATABASE_URL is unset, so deleting
+    # this block fails the job instead of quietly turning the proof off.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          # Throwaway credentials for a container that exists for the length of
+          # one job, is reachable only from this runner, and holds no data. Same
+          # posture as the placeholder AUTH_SECRET above: not a secret, and
+          # deliberately not written to look like one.
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: rls_proof
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      RLS_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/rls_proof
+
     steps:
       - uses: actions/checkout@v4
 
@@ -79,7 +109,7 @@ jobs:
       - name: Typecheck
         run: npx tsc --noEmit
 
-      - name: Tests
+      - name: Tests (includes the ADR-0005 RLS isolation proof against PostgreSQL)
         run: npm test
 
       - name: Build

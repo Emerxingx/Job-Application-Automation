@@ -1,12 +1,26 @@
 # Test Strategy
 
 ## Current state (measured)
-- **670 tests, 0 failures, 158 suites**, 16 files, 7,668 lines. Runner:
-  `node --test` with `tsx`.
-- Coverage is concentrated in **billing, analytics, integrations and CRM** —
+
+Re-measured 2026-09-02, mid-Stage 01. The baseline this document was written
+against — 670 tests, no CI, lint never run — is superseded.
+
+| | At the audit | Now |
+| --- | --- | --- |
+| Tests | 670 | **699** with PostgreSQL available, 689 without |
+| Suites | 158 | 164 |
+| Files / lines | 16 / 7,668 | 19 / 8,533 |
+| CI | none | 3 jobs, all required (`.github/workflows/ci.yml`) |
+| Lint | never run | 0 errors, 8 warnings, blocking at `--max-warnings=8` |
+
+Runner: `node --test` with `tsx`. Added since the audit: webhook replay and
+ordering (12), the deny-by-default edge gate (7), and the `ADR-0005` RLS
+isolation proof (10, below).
+
+- Coverage is still concentrated in **billing, analytics, integrations and CRM** —
   matching where the code is, not where the product is.
 - Thin or absent: auth, matching, applications, jobs, storage.
-- **No E2E tests.** **No CI.** **Lint has never run.**
+- **No E2E tests.**
 
 The suite is a genuine asset and the regression guard for the PostgreSQL
 migration. It is not evidence that the product works — most of it tests the
@@ -43,6 +57,10 @@ user A cannot read user B's row — **with application filters removed in the
 harness**, so the test exercises RLS specifically. Without this, tenant isolation
 is an assertion rather than a property.
 
+*Progress:* the **mechanism** half is done — `tests/rls-isolation.test.ts`, 10
+assertions against a real PostgreSQL in CI. The **per-table** half is not, and
+cannot be until the tables exist in PostgreSQL. See below.
+
 **2. AI truthfulness (Stage 03).** Given a fixed profile and evidence vault,
 assert that no generated document contains an employer, technology, date,
 credential or metric absent from the vault. Runs against both the deterministic
@@ -52,14 +70,47 @@ identical inputs produce identical scores; and an injection attempt in a job
 description cannot redirect a system prompt.
 
 ## Lint: measure, then ratchet
-ESLint is neither installed nor configured, so `npm run lint` prompts
-interactively and exits 1. The path is:
 
-1. Install ESLint; configure `next/core-web-vitals`.
-2. Run in CI with `continue-on-error` and **publish the violation count**.
-3. Plan remediation by rule class against that measured number.
-4. Flip each cleaned rule to `error`. **Never a blanket enable.**
-5. Remove `eslint: { ignoreDuringBuilds: true }` once the backlog is clear.
+Done in Stage 00 and re-baselined in Stage 01. ESLint is installed, configured as
+native flat config, and blocking in CI at `--max-warnings=8`; the count and the
+justification for every warning are in `LINT_BASELINE.md`. What remains of the
+original plan: `eslint: { ignoreDuringBuilds: true }` is still set in
+`next.config.mjs` and is now redundant, since CI lints separately.
+
+## The RLS isolation proof (`tests/rls-isolation.test.ts`)
+
+The only test in the suite that requires a real database. SQLite has no
+row-level security, so the guarantee simply cannot be exercised against the file
+the rest of the suite uses.
+
+**Running it.** Set `RLS_TEST_DATABASE_URL` to any PostgreSQL 14+ the test may
+create and drop a schema and a role in:
+
+```bash
+RLS_TEST_DATABASE_URL=postgresql://postgres@127.0.0.1:5432/postgres npm test
+```
+
+Without it, the suite skips this file with an explicit reason and the other 689
+tests run normally — a developer without PostgreSQL is not blocked.
+
+**It cannot be skipped where it matters.** The file throws when
+`RLS_TEST_DATABASE_URL` is absent and `CI=true` (or `RLS_TEST_REQUIRED=1`). CI
+supplies a `postgres:16` service container, so deleting that service fails the
+job rather than quietly turning the proof off. This is rule 1 below applied to a
+test that is *conditional* by nature: conditional must not become optional.
+
+**What it proves, and what it does not.** It proves the mechanism on a stock
+PostgreSQL: transaction-scoped context, fail-closed behaviour, write containment,
+`FORCE ROW LEVEL SECURITY`, and three specific ways RLS can be present and inert
+(`../governance/RISK_REGISTER.md` R-33). It does **not** prove the deployed
+configuration — the same assertions through the real connection pooler in its
+configured pool mode are a separate, still-outstanding Stage 01 exit condition.
+Nor does it prove any application table is protected: no policy exists on any
+real table yet.
+
+Connection reuse is asserted rather than assumed — the pooled tests compare
+`pg_backend_pid()` across checkouts — so a green run cannot mean the scenario
+never occurred.
 
 ## Rules
 1. **No test may be skipped, disabled or deleted to obtain a green run.** A

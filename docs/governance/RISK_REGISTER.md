@@ -6,7 +6,7 @@ Scored **Likelihood × Impact** (1–5). Owner is the stage that closes it.
 
 | ID | Risk | L | I | S | Mitigation | Stage |
 | --- | --- | --- | --- | --- | --- | --- |
-| R-01 | **Cross-tenant data leak.** Isolation is 63 hand-written filters; no RLS, no isolation test. One omission exposes another org's candidates, case notes or placements | 4 | 5 | 20 | RLS backstop + permanent negative-authorization suite | 01 |
+| R-01 | **Cross-tenant data leak.** Isolation is 63 hand-written filters. One omission exposes another org's candidates, case notes or placements. **Still open** — but the backstop's mechanism is no longer unproven: `tests/rls-isolation.test.ts` runs 10 assertions against a real PostgreSQL in CI (see R-33) | 4 | 5 | 20 | RLS backstop + permanent negative-authorization suite. Mechanism proven; policies on real tables and the deployment-specific proof still outstanding | 01 |
 | R-02 | **AI fabricates candidate facts.** No evidence grounding exists. A fabricated claim on a submitted résumé is a career-damaging, trust-destroying failure | 4 | 5 | 20 | Career Evidence Vault; generation accepts evidence refs only; truthfulness suite | 03 |
 | R-03 | **Deployed Next.js advisories.** Proxy/middleware bypass, SSRF, cache poisoning, XSS, DoS on a version with no in-band patch | 4 | 5 | 20 | Upgrade to 16.2.6+, inside Payload's peer range. **Never `audit fix --force`** | 01 |
 | R-04 | **No migrations + SQLite.** No reproducible schema, no recovery path, no RLS capability | 5 | 4 | 20 | PostgreSQL + baseline migration `0001` + the `ADR-0002` production migration standard (restore points and recovery plans; Prisma emits no down migrations) | 01 |
@@ -99,3 +99,46 @@ problem; it absorbs a known installer race.
 **Proper fix:** the `@esbuild-kit/*` packages are deprecated upstream ("merged
 into tsx"). They disappear when Payload updates its adapter dependencies —
 tracked with R-23.
+
+## R-33 — three ways RLS looks enabled and is not (found in Stage 01, encoded as tests)
+
+Building the `ADR-0005` mechanism proof against a real PostgreSQL 16.13 surfaced
+three failure modes that a schema review passes and a running system does not.
+None is a defect in this repository yet, because no RLS policy exists yet. All
+three are the reason the proof is a committed test rather than a paragraph.
+
+**1. Session-level `SET` leaks tenant context across pooled requests.** The
+obvious way to establish tenancy — `SET app.user_id = …` at the start of a
+request — outlives the request. Test 2 reproduces a cross-tenant read on a
+request that sets no context at all, caused by nothing but connection reuse; it
+asserts `pg_backend_pid()` is unchanged, so the scenario cannot silently not
+occur. The requirement is therefore not "set a GUC" but **set it with
+`is_local = true`, inside the same transaction as the query** (tests 3 and 10).
+
+**2. `ENABLE ROW LEVEL SECURITY` does not bind the table's owner.** For the
+owner, policies exist, are attached, and are not applied. On a managed Postgres
+the application's migration role typically *is* the owner, so this is the
+realistic configuration, not an exotic one. Test 8 reproduces a complete bypass
+with a correct policy enabled, then shows `FORCE ROW LEVEL SECURITY` closing it.
+**Every policied table must be `FORCE`d**, and Stage 01's migration standard now
+says so.
+
+**3. "No tenant context" is not always `NULL`.** `current_setting(name, true)`
+returns `NULL` on a connection that has never seen the setting and the **empty
+string** on one where it has been set and cleared — which is every recycled
+connection. A guard written as `IS NULL` fires on the first request a connection
+ever serves and never again. Test 4 asserts both states and that both fail
+closed. Policies must be equality against a real tenant id, never a `NULL` test.
+
+A fourth, milder finding is recorded in the test rather than here: `SET` and
+`SET LOCAL` take no bind parameters, so the only literal way to write them is to
+interpolate the tenant id into SQL text. `set_config($1, $2, true)` is the
+parameterised equivalent and is what the application must use — an injection site
+in the statement that decides who can see what would be the worst possible place
+for one.
+
+**Residual, unchanged:** this proves the mechanism on a stock PostgreSQL. The
+deployment-specific proof `ADR-0005` also requires — the same assertions through
+the real connection pooler in its configured pool mode — needs the provisioned
+project and is tracked as `SUPABASE-PROJECT` in
+`../programme/AUTONOMOUS_STATUS.json`.
