@@ -8,6 +8,23 @@ complete, auditable folder for every application it sends.
 
 ---
 
+## Architecture baseline and production programme
+
+A full evidence-based architecture audit lives in [`docs/`](docs/). Start with
+[`docs/programme/CURRENT_BASELINE.md`](docs/programme/CURRENT_BASELINE.md) for the
+measured state of this repository, and [`docs/adr/`](docs/adr/) for the decisions
+behind the target architecture. `HANDOFF.md` remains the prior engineering handoff.
+
+> **Accuracy note.** The summary above says JobPilot "applies on your behalf".
+> In the current implementation this holds only where an employer has authorized
+> an ATS API; everywhere else the application is **prepared in full and submitted
+> by the applicant** — a deliberate decision recorded in
+> [`docs/adr/ADR-0016-application-automation.md`](docs/adr/ADR-0016-application-automation.md).
+> The dashboard's "Auto-apply above N%" toggle is likewise **not implemented**.
+> Both are tracked for correction in Stage 00.
+
+---
+
 ## Quick start
 
 ```bash
