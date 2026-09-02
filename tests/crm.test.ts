@@ -581,6 +581,12 @@ describe('role ladder', () => {
 
 describe('authorizeStaff — default deny', () => {
   it('REFUSES EVERYONE when STAFF_EMAILS is unset, including an admin', () => {
+    // Passing `undefined` does not bypass the parameter default — it triggers
+    // it — so the ambient environment has to be cleared for this to test what
+    // its name says. Without this the case silently inverts on any machine
+    // whose .env sets STAFF_EMAILS, asserting 'allowlist_unset' against a
+    // configured allowlist and passing only by accident. afterEach restores it.
+    delete process.env.STAFF_EMAILS;
     for (const candidate of [customer, supportStaff, admin]) {
       const decision = authorizeStaff(candidate, 'support', undefined);
       assert.equal(decision.ok, false, candidate.email);
