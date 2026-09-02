@@ -48,9 +48,9 @@ The brief is explicit: *never rely only on hidden UI controls.*
 - **A permanent negative-authorisation suite is mandatory**: for every
   tenant-scoped table, prove user A cannot read user B's row — with application
   filters removed in the harness, so the test exercises RLS specifically.
-- Connection pooling must not leak session GUCs between checkouts. Verify against
-  the chosen pooler (Supabase transaction mode requires `SET LOCAL` inside the
-  transaction).
+- Connection pooling must not leak session GUCs between checkouts. This is
+  verified by the Stage 01 pooled-runtime isolation proof above, against the real
+  deployment — not by inspection.
 
 ## Revisit when
 A tenant needs physical isolation for contractual or public-sector reasons —

@@ -48,10 +48,15 @@ apply-mode ceiling (`ADR-0016`), source-lawfulness rules (`ADR-0008`), residency
    pattern for every admin surface.
 
 ## Consequences
-- `PromptRegistry`, `AtsRulesets` and `FieldMappings` move from the content CMS to
-  the platform admin (`ADR-0003` Option C). Prompts are AI-operator
-  configuration, not editorial content, and their permissions should not be a
-  marketing editor's.
+- `PromptRegistry`, `AtsRulesets` and `FieldMappings` move from the content CMS
+  to the platform admin (`ADR-0003`) **as each becomes production-active, not at
+  Stage 20**: `PromptRegistry` before or during **Stage 03**, `AtsRulesets` and
+  job-source configuration before or during **Stage 05**, `FieldMappings` before
+  production use of **Stage 12**. Prompts are AI-operator configuration, not
+  editorial content, and their permissions must not be a marketing editor's.
+  Each migration ships with versioning, audit history, role-restricted
+  administration, step-up authentication where appropriate, rollback to a prior
+  version, and a record of the exact version used for each affected output.
 - Prompts gain approval and evaluation status before a version can be marked
   default.
 - Every stage adds its admin surface as part of that stage, not afterwards.

@@ -66,8 +66,8 @@ learning path · certifications · progress.
 | Staff console — customers, invoices, revenue, tickets (`/console`) | **BUILT** |
 | Users · organisations · roles · permissions | PLANNED |
 | Plans · pricing · subscriptions · entitlements | PARTIAL |
-| Job sources · connectors · health | PLANNED |
-| AI models · **prompt registry** | PARTIAL — in CMS, moves to admin (`ADR-0019`) |
+| Job sources · connectors · health | PLANNED — `AtsRulesets` moves to governed admin by **Stage 05** |
+| AI models · **prompt registry** | PARTIAL — in CMS; moves to governed admin by **Stage 03** (`ADR-0003`, `ADR-0019`) |
 | Matching weights | PLANNED |
 | Taxonomies (NOC, skills, industries) | PLANNED |
 | Career data · learning catalog | PLANNED |

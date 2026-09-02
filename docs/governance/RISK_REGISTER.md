@@ -9,7 +9,7 @@ Scored **Likelihood × Impact** (1–5). Owner is the stage that closes it.
 | R-01 | **Cross-tenant data leak.** Isolation is 63 hand-written filters; no RLS, no isolation test. One omission exposes another org's candidates, case notes or placements | 4 | 5 | 20 | RLS backstop + permanent negative-authorization suite | 01 |
 | R-02 | **AI fabricates candidate facts.** No evidence grounding exists. A fabricated claim on a submitted résumé is a career-damaging, trust-destroying failure | 4 | 5 | 20 | Career Evidence Vault; generation accepts evidence refs only; truthfulness suite | 03 |
 | R-03 | **Deployed Next.js advisories.** Proxy/middleware bypass, SSRF, cache poisoning, XSS, DoS on a version with no in-band patch | 4 | 5 | 20 | Upgrade to 16.2.6+, inside Payload's peer range. **Never `audit fix --force`** | 01 |
-| R-04 | **No migrations + SQLite.** No reproducible schema, no rollback, no RLS capability | 5 | 4 | 20 | PostgreSQL + baseline migration `0001` | 01 |
+| R-04 | **No migrations + SQLite.** No reproducible schema, no recovery path, no RLS capability | 5 | 4 | 20 | PostgreSQL + baseline migration `0001` + the `ADR-0002` production migration standard (restore points and recovery plans; Prisma emits no down migrations) | 01 |
 
 ## High (10–15)
 

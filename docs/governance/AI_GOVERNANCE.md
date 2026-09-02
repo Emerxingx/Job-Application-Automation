@@ -66,8 +66,26 @@ report AI cost per tenant and per task.
 - Any AI-influenced decision affecting a person is reversible by a human, and the
   override is recorded.
 
+## Per-tenant AI processing policy
+Every organisation carries a governed policy state — `EXTERNAL_AI_ALLOWED`,
+`EXTERNAL_AI_RESTRICTED` or `EXTERNAL_AI_PROHIBITED` (`ADR-0015`). Public-sector,
+WorkBC and other restricted tenants must be able to prohibit external AI
+processing outright while keeping the platform usable.
+
+The gateway enforces it before dispatch; a missing policy **fails closed** to
+prohibited. Under `EXTERNAL_AI_PROHIBITED` no candidate evidence, case note,
+mailbox content or `RESTRICTED` tenant data leaves the permitted boundary — in any
+form, embeddings and derived classifications included. Where no compliant
+processor exists the feature is **explicitly degraded and says so**; it never
+silently uses a non-compliant route.
+
+**Cross-border AI processing is never assumed universally permissible.** L-3 in
+`COMPLIANCE_REGISTER.md` stays OPEN until legal review resolves real customer
+requirements.
+
 ## Data boundaries
 - Never send `RESTRICTED` data to a provider. The gateway rejects such payloads.
+- Never route a tenant's data to a provider its policy does not permit.
 - Never send mailbox content without explicit consent.
 - Send the minimum necessary — evidence references, not whole profiles.
 - Never place one tenant's data in another's context.

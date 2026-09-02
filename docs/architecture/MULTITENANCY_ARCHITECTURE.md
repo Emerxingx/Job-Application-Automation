@@ -61,3 +61,7 @@ is preserved and becomes the standard for every admin surface.
 - **A permanent negative-authorisation suite is mandatory**: per tenant-scoped
   table, prove user A cannot read user B's row — with application filters
   removed in the harness, so the test exercises RLS specifically.
+- **It must run against the actual deployed Supabase instance, pooling mode and
+  Prisma runtime**, with concurrent cross-tenant requests and connection reuse,
+  and missing or invalid context must **fail closed**. This is a blocking Stage 01
+  acceptance criterion (`ADR-0005`).

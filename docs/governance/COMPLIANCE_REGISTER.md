@@ -33,7 +33,7 @@ policy is an architectural requirement rather than a feature.
 
 | Processor | Data | Purpose | Safeguard |
 | --- | --- | --- | --- |
-| Anthropic | Prompt content — evidence references, minimal necessary; **never `RESTRICTED`** | AI generation and analysis | Disclosed in privacy policy; consented; minimised; gateway rejects restricted payloads |
+| Anthropic | Prompt content — evidence references, minimal necessary; **never `RESTRICTED`** | AI generation and analysis | Disclosed in privacy policy; consented; minimised; gateway rejects restricted payloads; **gated by the tenant's AI processing policy — unavailable at `EXTERNAL_AI_PROHIBITED`** (`ADR-0015`) |
 | OpenAI (planned) | As above | As above | As above |
 | Stripe | Email, amounts, metadata. **No card data stored** | Payment processing | Industry-standard; PCI handled by Stripe |
 | PayPal | Payment data | Alternative gateway | As above |

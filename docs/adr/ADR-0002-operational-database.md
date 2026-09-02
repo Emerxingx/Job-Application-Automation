@@ -43,9 +43,42 @@ deliberately.
 - pgvector becomes available, unblocking semantic retrieval (`ADR-0006`) without
   a separate vector database.
 - RLS becomes available, unblocking `ADR-0005`.
-- Every future schema change ships as a reviewable, reversible migration.
+- Every future schema change ships as a **versioned, reviewed migration with a
+  deterministic history**. That is not the same as a reversible one — see the
+  standard below.
 - **Do not create multiple physical databases prematurely.** Logical schemas
   inside one PostgreSQL instance are the boundary mechanism.
+
+## Production migration standard — versioned is not the same as reversible
+
+**Prisma does not generate down migrations, and a forward migration is not
+automatically reversible.** A migration that drops a column or transforms data
+cannot be undone by re-running anything; the data is gone. Any wording that
+implies otherwise is wrong and must not appear in this repository.
+
+Two distinct properties, never conflated:
+
+| Property | What it means | How it is obtained |
+| --- | --- | --- |
+| **Versioned / reproducible** | The schema at any commit can be rebuilt deterministically from an ordered, immutable migration history | Prisma migration files, committed and reviewed |
+| **Rollback / recovery** | Production can be returned to its prior state after a bad migration | Backup + restore point, tested restore, and a written recovery plan — **never** an assumed down migration |
+
+Every production migration requires:
+
+1. A **versioned** migration file in a deterministic history.
+2. **Reviewed migration SQL** — the generated SQL is read by a human, not just the schema diff.
+3. A **pre-migration backup or restore point**, taken and verified immediately before execution.
+4. A **tested restore procedure** — restore is rehearsed, not assumed (Stage 23).
+5. A **forward-fix strategy** as the default remediation path.
+6. An **explicit rollback runbook for high-risk migrations**, written before execution.
+7. **Data-migration verification** — row counts and integrity checks before and after.
+8. **Migration observability** — duration, lock behaviour, and failure surfaced.
+9. **Staging rehearsal** for any destructive or high-risk migration, against production-shaped data.
+
+**A migration that destroys or transforms data may not run in production until its
+specific recovery strategy is written and its restore path tested.** Expand-and-
+contract (add, backfill, verify, then drop in a later migration) is the preferred
+pattern precisely because it keeps a recovery window open.
 
 ## Revisit when
 Write throughput or dataset size exceeds a single managed instance — expected

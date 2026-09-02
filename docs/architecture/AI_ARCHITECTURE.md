@@ -68,9 +68,9 @@ Existing fields — task/slug, prompt, version, provider, model, parameters,
 declared variables, default flag — plus **structured schema**, **deployment
 status**, **evaluation status**, `created_by`, `approved_by`.
 
-A version cannot be marked default until it has passed evaluation. Prompts move
-from the content CMS to the platform admin (`ADR-0003` Option C) because they are
-AI-operator configuration, not editorial content.
+A version cannot be marked default until it has passed evaluation. Prompts move from the content CMS to the platform
+admin (`ADR-0003`) by Stage 03 because they are AI-operator configuration, not
+editorial content.
 
 ## Boundaries
 1. No product module imports a provider SDK directly.

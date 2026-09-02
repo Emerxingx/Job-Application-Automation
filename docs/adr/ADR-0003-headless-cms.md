@@ -84,7 +84,25 @@ prompts). Governing them through the CMS's editor permissions model conflates
 ## Decision
 
 **Keep Payload as the canonical CMS (Option A), and adopt the configuration
-split from Option C as a Stage 20 refinement.**
+split from Option C — migrated per collection as each one's runtime capability
+becomes production-active, NOT deferred to Stage 20.**
+
+Deferring the split to Stage 20 would leave security-relevant runtime
+configuration governed by editorial CMS permissions for the entire period in
+which it is actually driving production behaviour. The migration schedule is
+therefore tied to when each collection goes live:
+
+| Collection | Must move to governed platform administration | Because |
+| --- | --- | --- |
+| **`PromptRegistry`** | **before or during Stage 03** | Evidence-grounded AI becomes production-active in Stage 03. System prompts are security-relevant configuration and must not be governed by a marketing editor's permissions |
+| **`AtsRulesets`** and job-source operational configuration | **before or during Stage 05** | Connector rules become production-active when lawful sources are enabled |
+| **`FieldMappings`** and application-automation configuration | **before production use of Stage 12** | These drive what is placed into an employer's application form |
+
+Each migrated collection must carry: versioning; audit history; role-restricted
+administration; step-up authentication where appropriate; **prompt approval and
+prompt evaluation status**; rollback to a prior configuration version; and a
+record of the **exact configuration version used for every affected AI or
+application output**, so any output remains explicable after a change.
 
 Reasoning, in order of weight:
 
@@ -114,9 +132,10 @@ Reasoning, in order of weight:
 - Payload's database moves from SQLite to PostgreSQL alongside the main store
   (`ADR-0002`), remaining a **separate logical database**.
 - Payload's admin permissions govern **content only**. `PromptRegistry`,
-  `AtsRulesets` and `FieldMappings` migrate to the platform admin in Stage 20
-  under `ADR-0019`, with prompt changes subject to approval and evaluation
-  status.
+  `AtsRulesets` and `FieldMappings` migrate to the platform admin under
+  `ADR-0019` on the schedule above — Stage 03, Stage 05 and Stage 12
+  respectively — not at Stage 20. Stage 20 consolidates the remaining admin
+  surface; it does not own these three migrations.
 - The CMS boundary in `docs/architecture/CMS_ARCHITECTURE.md` is normative: no
   candidate profile, application, case note, pipeline, placement or invoice may
   ever live in the CMS.

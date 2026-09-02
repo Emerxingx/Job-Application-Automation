@@ -50,17 +50,46 @@ provider, model, prompt version, parameters, output reference, confidence, human
 override, timestamp, and cost. Without this, `AI_GOVERNANCE.md` cannot be
 enforced and AI cost reporting is impossible.
 
+## Per-tenant processing policy — enforced in the gateway
+
+Cross-border AI processing is **not universally permissible** and must never be
+treated as a platform-wide constant. The gateway resolves the calling tenant's AI
+processing policy — `EXTERNAL_AI_ALLOWED`, `EXTERNAL_AI_RESTRICTED` or
+`EXTERNAL_AI_PROHIBITED` (`ADR-0015`) — **before** selecting a route, and refuses
+any non-compliant one. A missing or unreadable policy **fails closed** to
+`EXTERNAL_AI_PROHIBITED`.
+
+Each task therefore has four possible destinations, chosen per tenant:
+
+1. an approved external provider;
+2. a Canadian-resident or approved on-shore provider;
+3. the **deterministic local engine**;
+4. **explicit feature degradation** — the capability is disabled and says so.
+
+Silently falling back to a non-compliant provider is a defect, not a degradation.
+Every `ai_runs` record stores the policy state and the route actually taken, so
+compliance is auditable after the fact.
+
+This is the second reason the deterministic engine is retained permanently: it is
+the compliant local path for tenants that prohibit external processing. Enforcement
+is a **Stage 03 exit condition**; the policy itself is a Stage 01 schema obligation.
+
 ## Consequences
 - Embeddings land in **pgvector** on the existing PostgreSQL instance
   (`ADR-0002`) — no separate vector database.
 - The prompt registry gains `deployment status`, `evaluation status`,
-  `created_by` and `approved_by`, and moves out of the content CMS into the
-  platform admin in Stage 20 (`ADR-0003` Option C).
+  `created_by` and `approved_by`, and moves out of the content CMS into governed
+  platform administration **before or during Stage 03** — before evidence-grounded
+  AI becomes production-active — not at Stage 20 (`ADR-0003`, `ADR-0019`).
 - The deterministic engine is **retained permanently** as the grounding input,
   the fallback path, and the scoring-consistency reference.
 - Provider adapters stay lazy-loaded so a deployment without credentials never
   loads an SDK — the existing pattern, preserved.
 - No product code may import a provider SDK directly. Enforced by review.
+- Provider availability is **per tenant**, never assumed platform-wide. No AI
+  provider may be described as universally permissible.
+- Sensitive attributes never enter a prompt (`ADR-0007`); mailbox content never
+  without explicit consent; one tenant's data never in another's context.
 
 ## Revisit when
 A task's cost or latency profile justifies a self-hosted or fine-tuned model.

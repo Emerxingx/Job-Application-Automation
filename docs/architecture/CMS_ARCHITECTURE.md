@@ -28,11 +28,24 @@ notes · placements · invoices · entitlements · evidence · audit.
 writes a Prisma table, and no business logic depends on Payload being configured.
 It is recorded here as normative so it is not eroded later.
 
-## Planned refinement (Stage 20)
+## Planned refinement — staged by production-activation, not deferred to Stage 20
 Three current collections are **operational configuration, not editorial content**:
 `AtsRulesets`, `PromptRegistry`, `FieldMappings`.
 
-They move to the platform admin (`ADR-0019`) because:
+They move to the platform admin (`ADR-0019`) **as each becomes production-active**:
+
+| Collection | Moves by |
+| --- | --- |
+| `PromptRegistry` | before or during **Stage 03** |
+| `AtsRulesets` / job-source config | before or during **Stage 05** |
+| `FieldMappings` / automation config | before production use of **Stage 12** |
+
+Each arrives with versioning, audit history, role-restricted administration,
+step-up authentication where appropriate, prompt approval and evaluation status,
+rollback to a prior version, and a record of the exact version used for every
+affected AI or application output.
+
+They move because:
 - `PromptRegistry` defines **system prompts** — security-relevant configuration
   whose permissions should not sit with a marketing editor.
 - All three are read by the engine on hot paths and belong with runtime config,

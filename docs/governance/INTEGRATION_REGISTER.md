@@ -27,8 +27,9 @@ promoted on the strength of an observed run against the real service.
 
 | System | Status | Data sent | Residency | Evidence |
 | --- | --- | --- | --- | --- |
-| Anthropic | IMPLEMENTED-NOT-VALIDATED | Prompt content (evidence refs, never sensitive attributes) | **Cross-border** | Real SDK, JSON-schema output, refusal handling, deterministic fallback. Never run with a live key |
-| OpenAI | PLANNED | As above | Cross-border | — |
+| Anthropic | IMPLEMENTED-NOT-VALIDATED | Prompt content (evidence refs, never sensitive attributes) | **Cross-border — permitted only for tenants at `EXTERNAL_AI_ALLOWED`/`RESTRICTED`** | Real SDK, JSON-schema output, refusal handling, deterministic fallback. Never run with a live key |
+| OpenAI | PLANNED | As above | **Cross-border — same per-tenant gating** | — |
+| Canadian-resident / approved on-shore AI provider | PLANNED | As above | CA | Required to serve tenants at `EXTERNAL_AI_PROHIBITED` with AI features; absent one, those features degrade explicitly (`ADR-0015`) |
 | Stripe | IMPLEMENTED-NOT-VALIDATED | Customer email, amounts, metadata. **No card data stored** | Cross-border | Real Checkout + verified webhook. Never run live. **Not idempotent** (Stage 01) |
 | PayPal | IMPLEMENTED-NOT-VALIDATED | Payment data | Cross-border | 816 lines, unexercised |
 | Manual payments | IMPLEMENTED-NOT-VALIDATED | Internal | CA | Unit-tested only |

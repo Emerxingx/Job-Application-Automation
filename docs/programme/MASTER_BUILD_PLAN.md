@@ -6,7 +6,10 @@ Every stage carries the same ten headings. Existing coverage is stated from
 measured evidence so no completed work is rebuilt.
 
 **Universal exit gate.** No stage is complete until: CI green (typecheck, lint,
-unit, integration, build); migrations present and reversible; RLS policies and
+unit, integration, build); migrations versioned, reviewed and reproducible, with
+a pre-migration restore point and — for any destructive or high-risk change — a
+written recovery plan rehearsed in staging (`ADR-0002`; versioned is **not** the
+same as reversible); RLS policies and
 authorisation tests for every new table; no new `high`/`critical` advisory; docs
 and ADRs updated; evidence recorded in `STAGE_STATUS.md`.
 
@@ -43,10 +46,15 @@ and ADRs updated; evidence recorded in `STAGE_STATUS.md`.
 7. **Webhook idempotency.** Use `WebhookEvent`: record `event.id`, ignore replays (G-08).
 8. **Consent and audit.** Consent records; extend `AuditLog` to every privileged action.
 **Security.** Threat-model the tenancy boundary. Add negative authorisation tests as a permanent suite: *user A must never read user B's row*, per table.
-**Testing.** RLS tests executed as distinct database roles. Session-revocation test. Replayed-webhook test. Upgrade regression: all 670 tests plus the build.
-**Acceptance.** Cross-tenant read is impossible with RLS **and** with application filters removed in a test harness. No high advisory in deployed dependencies. Revoked session is dead immediately.
-**Evidence.** Migration files; RLS policy DDL; passing isolation suite; `npm audit` before/after; Next upgrade regression report.
-**Exit gate.** PostgreSQL in use with migrations; RLS on every tenant table; zero high advisories deployed; MFA available.
+**Testing.** RLS tests executed as distinct database roles. **Pooled-runtime isolation proof** (below). Session-revocation test. Replayed-webhook test. Upgrade regression: all 670 tests plus the build.
+**Acceptance.**
+1. **Pooled-runtime tenant isolation is proven** against the actual selected Supabase deployment, the actual pooling mode on the port the app uses, the actual Prisma runtime, transaction-scoped context, and concurrent cross-tenant requests. All eight cases in `ADR-0005` pass — including **connection reuse** (B's request served by the connection that just served A) and **missing/invalid context failing closed to zero rows**. Isolated SQL-policy tests alone do not satisfy this.
+2. The **authentication decision gate** is recorded with its written comparison.
+3. Cross-tenant read is impossible with RLS **and** with application filters removed in the harness.
+4. No high advisory in deployed dependencies. Revoked session is dead immediately.
+5. The selected pooling mode and its tenancy implications are recorded in `DEPLOYMENT_ARCHITECTURE.md`.
+**Evidence.** Migration files and reviewed SQL; verified pre-migration restore point; RLS policy DDL; **pooled-runtime isolation proof (below)**; passing isolation suite; `npm audit` before/after; Next upgrade regression report; the written **authentication decision-gate comparison**.
+**Exit gate.** PostgreSQL in use with versioned migrations and a tested restore path; RLS on every tenant table **proven against the deployed pooled runtime**; authentication decision gate recorded; per-tenant AI policy in the schema; zero high advisories deployed; MFA available.
 
 ---
 
@@ -56,7 +64,7 @@ and ADRs updated; evidence recorded in `STAGE_STATUS.md`.
 **Existing coverage.** ~12 `User` fields; `Resume` as JSON text; onboarding flow.
 **Gaps.** G-10.
 **Dependencies.** Stage 01.
-**Implementation.** First-class entities: `employment_history`, `education`, `skills` + `candidate_skills`, `certifications`, `projects`, `achievements`, `languages`, `career_preferences` (target/adjacent titles, salary, work mode, employment type, geography, travel, relocation, autonomy, recruiter visibility), `work_authorization`. Migrate existing `Resume` JSON into structured rows with a reversible backfill. **Sensitive-attribute segregation from day one** (`ADR-0007`): demographic self-identification lives in a separate schema with its own access path and is structurally unavailable to matching.
+**Implementation.** First-class entities: `employment_history`, `education`, `skills` + `candidate_skills`, `certifications`, `projects`, `achievements`, `languages`, `career_preferences` (target/adjacent titles, salary, work mode, employment type, geography, travel, relocation, autonomy, recruiter visibility), `work_authorization`. Migrate existing `Resume` JSON into structured rows using expand-and-backfill (add, backfill, verify, drop later), with a pre-migration restore point and verified row counts — the original column is not dropped in the same migration. **Sensitive-attribute segregation from day one** (`ADR-0007`): demographic self-identification lives in a separate schema with its own access path and is structurally unavailable to matching.
 **Security.** Field-level classification (`DATA_CLASSIFICATION.md`); RLS on every new table; sensitive schema readable only by an explicitly authorised path.
 **Testing.** Backfill idempotency; a matching-engine test proving sensitive attributes are unreachable from the scoring code path.
 **Acceptance.** A candidate profile is fully expressible as relations; no scoring input can reach the sensitive schema.
@@ -73,10 +81,12 @@ and ADRs updated; evidence recorded in `STAGE_STATUS.md`.
 **Dependencies.** Stage 02.
 **Implementation.** `career_evidence` — atomic, candidate-approved, timestamped claims, each linked to its source (employment record, education, project, upload). Generation accepts **evidence IDs, never free text**. Every material generated claim carries an evidence reference; unreferenced claims are rejected before render. `application_answers` question bank with risk classification and policy states `AUTO_FILL` / `ASK_IF_CHANGED` / `REQUIRE_REVIEW` / `NEVER_AUTOMATE`.
 **Security.** Evidence is immutable once approved; edits create versions. Sensitive answers default to `NEVER_AUTOMATE`.
+**Configuration migration (required in this stage).** `PromptRegistry` moves out of the editorial CMS into governed platform administration **before evidence-grounded AI becomes production-active** (`ADR-0003`, `ADR-0019`), carrying versioning, audit history, role-restricted administration, step-up authentication for prompt changes, approval and evaluation status, rollback to a prior version, and a record of the **exact prompt version used for every affected output**.
+**Per-tenant AI policy enforcement (required in this stage).** The AI gateway resolves each tenant's processing policy before dispatch and refuses non-compliant routes, failing closed to `EXTERNAL_AI_PROHIBITED` when the policy is missing (`ADR-0015`, `ADR-0006`).
 **Testing.** **Truthfulness suite** (`AI_GOVERNANCE.md`): given a fixed profile, assert generated documents contain no employer, technology, date, credential or metric absent from the vault. Runs against both the deterministic and live-model paths.
-**Acceptance.** A tailored resume cannot include an unevidenced material claim.
-**Evidence.** Truthfulness suite results, including adversarial prompts.
-**Exit gate.** Grounding enforced in code, not prompt text.
+**Acceptance.** A tailored resume cannot include an unevidenced material claim. `PromptRegistry` is under governed administration with approval, evaluation status and rollback. A tenant at `EXTERNAL_AI_PROHIBITED` can complete this stage's flows with no data leaving the permitted boundary, or the feature degrades explicitly.
+**Evidence.** Truthfulness suite results, including adversarial prompts; prompt-registry migration with an audit trail; a policy-enforcement test proving a prohibited tenant is never routed externally.
+**Exit gate.** Grounding enforced in code, not prompt text; prompt registry governed; per-tenant AI policy enforced in the gateway.
 
 ---
 
@@ -106,7 +116,7 @@ and ADRs updated; evidence recorded in `STAGE_STATUS.md`.
 **Testing.** Connector contract suite every adapter must pass; recorded-fixture replay; live smoke test per credentialed source.
 **Acceptance.** A new lawful source is added without touching application code.
 **Evidence.** Contract-suite results; live Adzuna run; ToS record per source.
-**Exit gate.** ≥2 lawful sources live; Adzuna reclassified `PRODUCTION-VALIDATED`.
+**Exit gate.** ≥2 lawful sources live; Adzuna reclassified `PRODUCTION-VALIDATED`; `AtsRulesets` under governed administration.
 
 ---
 
@@ -208,10 +218,11 @@ and ADRs updated; evidence recorded in `STAGE_STATUS.md`.
 **Dependencies.** Stages 03, 09, 10.
 **Implementation.** Wire the question bank with its policy states. Validate authorized ATS submission with a consenting employer credential. Optional browser extension consuming `PreparedField`. The four modes — Recommend Only / Prepare / Review & Submit / Approved Auto-Apply — are modelled, with **Auto-Apply disabled and unreachable** until Stage 22.
 **Security.** No CAPTCHA bypass, no ToS circumvention, no fingerprint evasion. `NEVER_AUTOMATE` questions always require a human.
+**Configuration migration (required before production use).** `FieldMappings` and application-automation configuration move out of the editorial CMS into governed platform administration (`ADR-0003`, `ADR-0019`), with versioning, audit history, role-restricted administration, step-up authentication, rollback, and a record of the **exact mapping version used for every submitted application** — these rules decide what is placed into an employer's form.
 **Testing.** Mode-enforcement tests proving Auto-Apply cannot execute; ATS submission against a sandbox board.
 **Acceptance.** Assisted apply completes in one click after review; autonomous submission is impossible.
 **Evidence.** Sandbox ATS confirmation; mode-enforcement results.
-**Exit gate.** Assisted path validated end-to-end; ATS reclassified `SANDBOX-VALIDATED`.
+**Exit gate.** Assisted path validated end-to-end; ATS reclassified `SANDBOX-VALIDATED`; `FieldMappings` under governed administration.
 
 ---
 
@@ -323,7 +334,7 @@ and ADRs updated; evidence recorded in `STAGE_STATUS.md`.
 ## Stage 20 — Enterprise tenant controls, SSO and public-sector readiness
 
 **Objective.** Make the founder able to run the business; make the platform sellable to enterprise and government.
-**Existing coverage.** Payload admin; `/console` CRM; feature-flag and audit models (unused).
+**Existing coverage.** Payload admin; `/console` CRM; feature-flag and audit models (unused). `PromptRegistry`, `AtsRulesets` and `FieldMappings` already migrated to governed administration in Stages 03, 05 and 12 respectively — **this stage does not own those migrations**, it consolidates the remaining admin surface around them.
 **Gaps.** G-26.
 **Dependencies.** Stages 15, 17, 18.
 **Implementation.** Platform admin covering users, organisations, roles, permissions, plans, pricing, entitlements, job sources, connectors, AI models, prompt versions, matching weights, taxonomies, templates, career pathways, learning catalog, feature flags, notifications, email templates, CMS, retention, privacy, audit, reports, integration health, system health. Enterprise SAML/OIDC SSO, SCIM, tenant-level policy. **`ADR-0019`: business configuration is admin-editable; security-critical implementation is not.**

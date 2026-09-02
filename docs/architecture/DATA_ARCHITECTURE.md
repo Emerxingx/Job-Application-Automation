@@ -3,7 +3,10 @@
 ## Decisions
 - **One PostgreSQL instance** as the transactional system of record (`ADR-0002`).
 - **Logical schemas, not physical databases.** Do not split prematurely.
-- **Versioned Prisma migrations.** `db push` is development-only.
+- **Versioned Prisma migrations.** `db push` is development-only. Versioned and
+  reproducible is **not** the same as reversible — Prisma emits no down
+  migrations, so recovery comes from backups, restore points and written recovery
+  plans, per the production migration standard in `ADR-0002`.
 - **pgvector** on the same instance for embeddings — no separate vector store.
 - **Payload keeps its own logical database** on the same instance (`ADR-0003`).
 
@@ -67,7 +70,8 @@ analytics.*         marts and materialized views only — never written by produ
 3. **Rehome by schema.** Existing models move into logical schemas without
    structural change where possible.
 4. **Decompose `User`** into `identity.users` + `candidate.profiles` +
-   `sensitive.*` (Stage 02), with a reversible backfill.
+   `sensitive.*` (Stage 02) using expand-and-backfill: add, backfill, verify, and
+   drop the old columns only in a later migration, so a recovery window stays open.
 5. **Resolve the 34 unreferenced models**, each explicitly:
    - **Wire** — `Organization`, `Membership`, `AgentSchedule`, `WebhookEvent`,
      `ImpersonationSession`, `DeletionRequest`, `EmailToken`, `Notification`,
@@ -82,7 +86,13 @@ analytics.*         marts and materialized views only — never written by produ
 ## Conventions
 - Surrogate `cuid()`/`uuid` primary keys; natural keys as unique constraints.
 - Every tenant-scoped table carries `organization_id` (nullable only for
-  candidate-owned rows) and an RLS policy.
+  candidate-owned rows) and an RLS policy keyed on **transaction-scoped** session
+  context, written so unset or invalid context matches **no rows** (`ADR-0005`).
+- The **connection-pooling mode is part of the data architecture**, not an ops
+  detail: it determines whether tenancy context can leak between requests. The
+  selected mode and its implications are recorded in
+  `DEPLOYMENT_ARCHITECTURE.md` and proven by the Stage 01 pooled-runtime
+  isolation gate.
 - Timestamps `created_at` / `updated_at` on every table; `deleted_at` only where
   soft delete is genuinely required.
 - Money as integer minor units plus an explicit currency. **Never floats.**

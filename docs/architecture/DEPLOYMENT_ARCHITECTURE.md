@@ -33,6 +33,28 @@ application builds cleanly (exit 0, ~79 routes) and boots with zero configuratio
 Deliberately **not** in scope: Kubernetes, service mesh, multi-region active-active,
 per-product databases.
 
+## Connection pooling — recorded decision, with tenancy implications
+
+The pooling mode is an architectural decision because it determines whether RLS
+tenancy context can leak between requests (`ADR-0005`).
+
+| Mode | Tenancy-context semantics | Position |
+| --- | --- | --- |
+| **Direct connection** | Session-level `SET` is safe; connection count does not scale | Migrations and workers only |
+| **Session-mode pooler** | A connection is held for the client's session; a session-level `SET` persists and **can bind to a later user** if the client is reused | Not used for request traffic without transaction-scoped context |
+| **Transaction-mode pooler** | A connection is returned to the pool per transaction; only `SET LOCAL` **inside the transaction** is safe | **Intended default for request traffic**, with transaction-scoped context mandatory |
+
+**Selection is confirmed in Stage 01 and recorded here with its evidence.** Until
+then this table states intent, not a settled configuration.
+
+Consequences carried into implementation:
+- Every request path sets tenancy context with `SET LOCAL` inside the transaction
+  that runs the query, via a Prisma interactive transaction.
+- Workers and migrations use a direct connection under a narrow, audited
+  RLS-bypassing role, unreachable from any request path.
+- Changing the pool mode, the pooler, or the Prisma major version **re-runs the
+  Stage 01 pooled-runtime isolation proof** before deployment.
+
 ## Environments
 `local` (SQLite acceptable, mocks) → `preview` (per-PR, seeded) → `staging`
 (production-like, real sandbox credentials) → `production`.

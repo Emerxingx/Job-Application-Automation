@@ -24,6 +24,7 @@ Every gate needs **evidence**, not an assertion. Status: `PASS` · `PARTIAL` ·
 | No high/critical advisories in deployed deps | 0 | **6 high** | **FAIL** |
 | Global authentication gate | middleware, deny by default | absent | **FAIL** |
 | Tenant isolation | RLS + filters + tests | filters only, untested | **FAIL** |
+| Tenant isolation proven on the **deployed pooled runtime** (connection reuse; missing context fails closed) | proven | not proven | **FAIL** |
 | Session revocation | immediate | 30-day stateless JWT | **FAIL** |
 | MFA | available; required for staff | absent | FAIL |
 | Webhook idempotency | enforced | absent | **FAIL** |
@@ -42,13 +43,15 @@ Every gate needs **evidence**, not an assertion. Status: `PASS` · `PARTIAL` ·
 | Gate | Required | Current | Status |
 | --- | --- | --- | --- |
 | Production-grade database | PostgreSQL managed | **SQLite** | **FAIL** |
-| Versioned migrations | present, reversible | **none** | **FAIL** |
+| Versioned migrations | present, reviewed, reproducible history | **none** | **FAIL** |
+| Migration recovery | restore point per migration; recovery plan for destructive changes; staging rehearsal | **none** | **FAIL** |
 | Backups | automated + PITR | none | **FAIL** |
 | **Restore rehearsal** | performed and documented | none | **FAIL** |
 | Data classification | applied per table | defined, not applied | PARTIAL |
 | Retention enforcement | automated | none | FAIL |
 | Erasure | working, statutory-safe | scrub-in-place designed; `DeletionRequest` unused | PARTIAL |
 | Residency | Canada for personal data | not deployed | NOT VERIFIED |
+| **Per-tenant AI processing policy** enforced in the gateway, failing closed | enforced | absent | **FAIL** |
 
 ## G4 — Reliability
 
@@ -93,6 +96,7 @@ Every gate needs **evidence**, not an assertion. Status: `PASS` · `PARTIAL` ·
 | Founder can run routine business changes | no deploy needed | CMS + console only | PARTIAL |
 | Platform admin | users, orgs, plans, sources, AI, flags | absent | FAIL |
 | Impersonation read-only, audited | enforced | model exists, unused | FAIL |
+| Runtime config (`PromptRegistry`, `AtsRulesets`, `FieldMappings`) under governed admin with versioning, approval and rollback | governed | in editorial CMS | **FAIL** |
 | Audit coverage | every privileged action | partial | PARTIAL |
 | Runbooks & on-call | present | none | FAIL |
 | Accessibility WCAG 2.2 AA | tested | untested | NOT VERIFIED |

@@ -35,6 +35,51 @@ data category, purpose, safeguard and the consent that covers it:
   stored by the platform.
 - **Job sources.** Outbound queries carry search criteria, not candidate identity.
 
+## Per-tenant AI processing policy
+
+Cross-border AI processing is **not universally permissible** and must not be
+treated as a platform-wide constant. Each organisation carries an explicit,
+governed AI processing policy:
+
+| State | Meaning |
+| --- | --- |
+| `EXTERNAL_AI_ALLOWED` | Approved cross-border providers may process this tenant's data, under the applicable consent, contract and privacy controls |
+| `EXTERNAL_AI_RESTRICTED` | External processing permitted only for named data categories and named tasks; everything else stays inside the permitted boundary |
+| `EXTERNAL_AI_PROHIBITED` | **No** tenant data may leave the permitted processing boundary |
+
+Commercial tenants may sit at `EXTERNAL_AI_ALLOWED`. **Public-sector, WorkBC and
+other restricted tenants must be able to select `EXTERNAL_AI_PROHIBITED`, and the
+platform must remain usable for them.**
+
+Under `EXTERNAL_AI_PROHIBITED`, none of the following may leave the permitted
+processing boundary, in any form, including embeddings and derived
+classifications:
+
+- candidate career evidence
+- case notes, assessments or employment plans
+- mailbox or calendar content
+- any `RESTRICTED` tenant data
+
+The provider abstraction must therefore support, per tenant and per task:
+
+1. **deterministic / local processing** — the existing deterministic engine, which
+   is why it is retained permanently;
+2. a **future Canadian-resident provider**;
+3. an **approved private or on-shore provider**;
+4. **explicit feature degradation** where no compliant processor exists — the
+   feature is disabled and says so, rather than silently falling back to a
+   non-compliant path.
+
+**Enforcement is in the AI gateway, not in calling code.** The gateway resolves
+the tenant's policy before dispatch and refuses a non-compliant route. A missing
+or unreadable policy **fails closed** to `EXTERNAL_AI_PROHIBITED`. Every `ai_runs`
+record stores the policy state and the route actually taken, so compliance is
+auditable after the fact.
+
+**L-3 remains OPEN** (`COMPLIANCE_REGISTER.md`) until legal and privacy review
+establishes actual customer requirements. This policy mechanism is what makes the
+architecture safe while that question is unresolved — it does not answer it.
+
 **The WorkBC product may require stricter handling than the commercial default.**
 Design for a per-organisation residency and retention policy rather than assuming
 one global setting, and treat a service-provider contract as capable of
@@ -46,7 +91,11 @@ overriding platform defaults.
 - Every third-party processor is inventoried in `INTEGRATION_REGISTER.md` with
   its data categories and residency.
 - An AI provider without a Canadian processing option is a considered exception,
-  not an oversight — recorded as such.
+  not an oversight — recorded as such, and unavailable to any tenant at
+  `EXTERNAL_AI_PROHIBITED`.
+- The per-tenant AI processing policy is a **Stage 01 schema obligation** (it is
+  an organisation attribute) and a **Stage 03 enforcement obligation** (the
+  gateway must honour it before evidence-grounded generation goes live).
 - Enterprise or public-sector tenants may require physical isolation; `ADR-0005`
   anticipates this.
 
