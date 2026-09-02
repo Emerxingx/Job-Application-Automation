@@ -40,7 +40,7 @@ founder approval; no remediation has begun.
 | --- | --- |
 | `.gitattributes` + LF policy | Added. `git add --renormalize .` is a **no-op** — every tracked file was already LF, and zero tracked files contain CRLF. The Windows dirty-tree churn was checkout-time conversion, now prevented |
 | Generated-file determinism | CI regenerates `importMap.js` and `payload-types.ts` and fails on drift; also fails if `scripts/payload-cli.mjs` leaves `package.json` modified |
-| CI | `.github/workflows/ci.yml` — lint · typecheck · test · build, plus generated-file and line-ending jobs |
+| CI | `.github/workflows/ci.yml` — lint · typecheck · test · build, plus generated-file and line-ending jobs. **First run executed and fully green** (see below) |
 | Dependency audit | `.github/workflows/dependency-review.yml` — **reporting only**, deliberately: it would fail day one on the known Next advisories that `ADR-0017` schedules for Stage 01 |
 | Dependabot | `.github/dependabot.yml`, grouped monthly; `next`, `payload`, `@payloadcms/*` and `eslint >=10` ignored so automation cannot leave a supported peer range |
 | ESLint | Installed and configured (flat config). **`next lint` is not used** — deprecated in Next 15, removed in Next 16 |
@@ -48,6 +48,25 @@ founder approval; no remediation has begun.
 | `npm run verify` | Reproduces the CI gate set locally |
 | CODEOWNERS · PR template · SECURITY.md | Added |
 | UI claim correction | Auto-apply control disabled and labelled "Not available"; the false sub-label removed; agents-list badge corrected; README headline corrected |
+
+### Actual GitHub Actions run — Stage 00, commit `572d6ee`
+
+Run [`33640134568`](https://github.com/Emerxingx/Job-Application-Automation/actions/runs/33640134568) (workflow `CI`, event `pull_request`, PR #4) — **all jobs success**:
+
+| Job | Step | Result |
+| --- | --- | --- |
+| Verify | Install (from the lockfile) | success (37s) |
+| Verify | **Lint** | **success** (6s) — the interactive-prompt defect is fixed and proven on a real runner |
+| Verify | **Typecheck** | **success** (17s) |
+| Verify | **Tests** | **success** (4s) |
+| Verify | **Build** | **success** (91s) |
+| Generated-file determinism | Regenerate import map + types, fail on drift | **success — no drift** |
+| Generated-file determinism | Fail if `package.json` left modified by the Payload CLI | **success** |
+| Line-ending policy | Fail if renormalisation would change anything | **success** |
+
+Run [`33640134601`](https://github.com/Emerxingx/Job-Application-Automation/actions/runs/33640134601) (workflow `Dependency audit`) — **success**, reporting-only as designed.
+
+This is a real, observed run, not an inference from local results.
 
 ## Measured gate status at `35d3491`
 
