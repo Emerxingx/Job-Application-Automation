@@ -44,3 +44,22 @@ Scored **Likelihood × Impact** (1–5). Owner is the stage that closes it.
 | --- | --- | --- |
 | R-23 | `esbuild`/`drizzle-kit` moderate advisory, no fix available | Affects the esbuild **dev server** only; reaches us via Payload's migration CLI, never run in production. Development-machine exposure only. Revisit when Payload updates its adapter deps |
 | R-24 | Webhook SSRF residual DNS-rebinding gap | Literal private addresses blocked and redirects refused; closing fully needs a custom agent that re-checks the resolved address at connect time. Documented honestly in-source. Revisit in Stage 23 |
+
+## Open legal / compliance decisions (R-25 … R-29)
+
+These are **not engineering risks to be mitigated by engineering**. They are open
+decisions owned by the founder and counsel. Full detail, including why none
+blocks the architecture baseline, is in
+[`COMPLIANCE_REGISTER.md`](COMPLIANCE_REGISTER.md).
+
+| ID | Open question | Status | Decision owner | Must be resolved by |
+| --- | --- | --- | --- | --- |
+| R-25 (L-1) | Does the WorkBC engagement make the platform a service provider to a public body, and which regime applies? | **OPEN** | Founder + BC public-sector privacy counsel | **Stage 17** (input needed by Stage 01) |
+| R-26 (L-2) | Which Canadian taxonomy datasets may be redistributed commercially, and on what attribution terms? | **OPEN** | Founder + IP / data-licensing counsel | **Stage 04**, before ingestion |
+| R-27 (L-3) | Are cross-border AI transfers acceptable under intended customer contracts, especially public-sector? | **OPEN** | Founder + privacy counsel | **Stage 03**; re-confirmed at Stages 11 and 17 |
+| R-28 (L-4) | What recruiter / staffing licensing applies in BC and each target jurisdiction? | **OPEN** | Founder + employment / regulatory counsel | **Stage 19** |
+| R-29 (L-5) | What consent language is required for agency representation and employer disclosure? | **OPEN** | Founder + employment / privacy counsel | **Stage 18** (disclosure); **Stage 19** (representation) |
+
+**Handling rule.** An unresolved question is never converted into an engineering
+assumption. A stage reaching its exit gate with its question still open is
+**BLOCKED** at that gate.

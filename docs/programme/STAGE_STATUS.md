@@ -52,3 +52,21 @@ founder approval; no remediation has begun.
 4. Stripe unvalidated and non-idempotent.
 5. No CI.
 6. Auto-apply UI promising unimplemented behaviour.
+
+## Open legal / compliance decisions gating stage exits
+
+Five questions are **OPEN** and owned by the founder and counsel, not by
+engineering — see `../governance/COMPLIANCE_REGISTER.md` (L-1…L-5) and
+`../governance/RISK_REGISTER.md` (R-25…R-29).
+
+| Ref | Gates the exit of | Decision owner |
+| --- | --- | --- |
+| L-3 / R-27 | **Stage 03** (re-confirmed at 11 and 17) | Founder + privacy counsel |
+| L-2 / R-26 | **Stage 04** | Founder + IP / data-licensing counsel |
+| L-1 / R-25 | **Stage 17** (input needed by Stage 01) | Founder + BC public-sector privacy counsel |
+| L-5 / R-29 | **Stage 18**, and Stage 19 for representation | Founder + employment / privacy counsel |
+| L-4 / R-28 | **Stage 19** | Founder + employment / regulatory counsel |
+
+None of the five blocks completion of the architecture baseline. A stage that
+reaches its exit gate with its question still open is **BLOCKED** at that gate
+rather than proceeding on an assumption.
