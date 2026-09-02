@@ -8,8 +8,8 @@ founder approval; no remediation has begun.
 
 | Stage | Name | Status | Existing coverage | Evidence |
 | --- | --- | --- | --- | --- |
-| 00 | Repository, governance, evidence baseline | **IN PROGRESS** | Clean history; 670 tests; typecheck + build green; architecture baseline merged to main (`da8df5e`) | Branch `claude/stage-00-governance-remediation`; see `LINT_BASELINE.md` and Stage 00 evidence below |
-| 01 | Security, identity, orgs, multi-tenancy | NOT STARTED | bcrypt+JWT, console two-lock gate, API key handling, SSRF guard, rate limiting | — · **blocking gates: authentication decision gate (`ADR-0004`) and pooled-runtime isolation proof (`ADR-0005`)** |
+| 00 | Repository, governance, evidence baseline | **COMPLETE** | — | Merged to main as `d6ae8b3` (PR #4). CI green on `565012b`; see Stage 00 evidence below |
+| 01 | Security, identity, orgs, multi-tenancy | **IN PROGRESS** | bcrypt+JWT, console two-lock gate, API key handling, SSRF guard, rate limiting | Branch `claude/stage-01-security-identity-tenancy`. Done: webhook replay+ordering, deny-by-default middleware, **authentication decision gate**. See `AUTH_DECISION_GATE.md` and `AUTONOMOUS_STATUS.json` |
 | 02 | Candidate Digital Twin | NOT STARTED | ~12 flat `User` fields; `Resume` JSON | — |
 | 03 | Career Evidence Vault, question architecture | NOT STARTED | Prompt registry; safe interpolation | — · **required here: `PromptRegistry` → governed admin; per-tenant AI policy enforced in the gateway** |
 | 04 | Canada occupation / skills / LMI | NOT STARTED | 9-entry NOC regex in the Adzuna adapter | — |
@@ -114,3 +114,44 @@ engineering — see `../governance/COMPLIANCE_REGISTER.md` (L-1…L-5) and
 None of the five blocks completion of the architecture baseline. A stage that
 reaches its exit gate with its question still open is **BLOCKED** at that gate
 rather than proceeding on an assumption.
+
+## Stage 01 — in progress
+
+Machine-readable state: [`AUTONOMOUS_STATUS.json`](AUTONOMOUS_STATUS.json). That
+file is authoritative over any chat transcript.
+
+| Item | State |
+| --- | --- |
+| Webhook replay **and ordering** | **DONE** — `src/lib/billing/webhook-events.ts`, wired into the Stripe route, 12 tests. Closes S-03/R-06 |
+| Deny-by-default route gate | **DONE** — `src/middleware.ts`, 7 negative tests. Closes S-02/R-08 |
+| Authentication decision gate | **DONE** — [`AUTH_DECISION_GATE.md`](AUTH_DECISION_GATE.md). Decision: **Supabase Auth**, **not ratified** pending residency verification |
+| RLS mechanism proof | **PROVEN LOCALLY** on PostgreSQL 16.13 — see below. Not yet a committed CI test |
+| PostgreSQL migration · RLS policies · tenancy wiring · session revocation · MFA/OAuth · Next 16 | **NOT STARTED** |
+
+### RLS pooled-connection proof — measured, not asserted
+
+Run against a real PostgreSQL 16.13 with a non-owner role and
+`FORCE ROW LEVEL SECURITY`. Policy:
+`USING (organization_id = current_setting('app.current_organization_id', true))`.
+
+| Case | Expected | Observed |
+| --- | --- | --- |
+| Org A reads own rows | own only | own only |
+| Org B reads own rows | own only | own only |
+| Org A reads Org B row by id | 0 | 0 |
+| **Missing** tenant context | 0 (fail closed) | **0** |
+| **Invalid** tenant context | 0 (fail closed) | **0** |
+| **Session-level `SET`, connection reused, next request has no context** | — | **read the previous tenant's row** |
+| **`SET LOCAL` in transaction, same reuse** | 0 | **0** |
+
+The sixth row is the finding `ADR-0005` demanded be proven: with a session-level
+`SET`, a request carrying **no tenant context at all** read another tenant's data
+on a reused connection, and every isolated policy test still passed. The seventh
+shows transaction-scoped `SET LOCAL` closes it.
+
+**Implementation consequence:** tenancy context must be set with `SET LOCAL`
+inside the same transaction as the query. A session-level `SET` is a cross-tenant
+leak on any pooled deployment.
+
+The deployment-specific half of the `ADR-0005` gate — the *actual* Supabase
+project and pool mode — remains **BLOCKED** on a Supabase project existing.

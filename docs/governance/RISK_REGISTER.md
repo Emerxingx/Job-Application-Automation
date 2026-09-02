@@ -16,9 +16,9 @@ Scored **Likelihood × Impact** (1–5). Owner is the stage that closes it.
 | ID | Risk | L | I | S | Mitigation | Stage |
 | --- | --- | --- | --- | --- | --- | --- |
 | R-05 | **Sensitive demographics influence outcomes.** No fields yet, so no defect — but nothing prevents someone adding `gender` to `User`, after which every `SELECT *` and profile serialisation carries it into scoring and prompts | 3 | 5 | 15 | Separate schema and grants **before** any such field exists | 02 |
-| R-06 | **Stripe unvalidated and non-idempotent.** Revenue-critical path never run live; a replayed event re-grants | 4 | 4 | 16 | `WebhookEvent` idempotency; full test-mode E2E | 01 / 15 |
+| R-06 | **Stripe unvalidated.** Revenue-critical path never run live. **Idempotency AND ordering now closed in Stage 01** (`webhook-events.ts`, 12 tests); live validation still outstanding | 4 | 3 | 12 | Live test-mode E2E | 15 |
 | R-07 | **Session theft persists 30 days.** Stateless JWT; logout deletes the cookie only | 3 | 4 | 12 | Server-side sessions with immediate revocation | 01 |
-| R-08 | **New route ships unauthenticated.** No global gate; each route re-implements `requireUser()` | 4 | 4 | 16 | Deny-by-default middleware + a route-coverage test | 01 |
+| R-08 | ~~**New route ships unauthenticated.**~~ **CLOSED in Stage 01** — `src/middleware.ts` denies by default; 7 negative tests including a lookalike-prefix test that caught a real fail-open bug (`/administrative-reports` matched `/admin`) | — | — | — | Done | 01 |
 | R-09 | **Silent job loss.** No queue; two designed schedulers have no runner. In an automation product, silent loss destroys trust faster than an outage | 4 | 4 | 16 | Outbox + lease workers + dead-letter + admin visibility | 01/05 |
 | R-10 | **Unlawful acquisition.** Commercial pressure to scrape prohibited sources | 3 | 5 | 15 | `SOURCE_ACCESS_POLICY.md`; per-source legal basis recorded before enablement; absolute prohibitions | 05 |
 | R-11 | **Case-note exposure.** Most sensitive data on the platform; a public-sector breach is existential for the WorkBC product | 2 | 5 | 10 | `RESTRICTED` classification, org isolation, full audit, per-org retention | 17 |

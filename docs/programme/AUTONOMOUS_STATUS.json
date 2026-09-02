@@ -1,0 +1,101 @@
+{
+  "$comment": "Machine-readable controller for the autonomous build programme. Authoritative over any chat transcript: if this file and a conversation disagree, this file wins. Updated at every stage checkpoint.",
+  "schema_version": 1,
+  "updated_at": "2026-09-02",
+  "current_stage": "01",
+  "last_completed_stage": "00",
+  "current_branch": "claude/stage-01-security-identity-tenancy",
+  "current_head": "2203abe",
+  "current_pr": null,
+  "main_head": "d6ae8b3a9180b529abe06f23417515432c0a7f0e",
+  "run_complete": false,
+
+  "stage_status": {
+    "00": "PASS",
+    "01": "IN_PROGRESS",
+    "02": "NOT_STARTED", "03": "NOT_STARTED", "04": "NOT_STARTED",
+    "05": "NOT_STARTED", "06": "NOT_STARTED", "07": "NOT_STARTED",
+    "08": "NOT_STARTED", "09": "NOT_STARTED", "10": "NOT_STARTED",
+    "11": "NOT_STARTED", "12": "NOT_STARTED", "13": "NOT_STARTED",
+    "14": "NOT_STARTED", "15": "NOT_STARTED", "16": "NOT_STARTED",
+    "17": "NOT_STARTED", "18": "NOT_STARTED", "19": "NOT_STARTED",
+    "20": "NOT_STARTED", "21": "NOT_STARTED",
+    "22": "BLOCKED_BY_DESIGN",
+    "23": "NOT_STARTED", "24": "NOT_STARTED"
+  },
+
+  "stage_01_progress": {
+    "webhook_replay_and_ordering": "DONE — src/lib/billing/webhook-events.ts, wired into the Stripe route, 12 tests",
+    "deny_by_default_middleware": "DONE — src/middleware.ts, 7 negative tests; segment-aware prefix matching",
+    "auth_decision_gate": "DONE — docs/programme/AUTH_DECISION_GATE.md; decision = Supabase Auth, NOT ratified (residency unverified)",
+    "rls_mechanism_proof": "PROVEN LOCALLY on PostgreSQL 16.13 — see next_requirement; not yet a committed test",
+    "postgresql_migration": "NOT_STARTED — needs the baseline migration and a Supabase project",
+    "rls_policies_on_tables": "NOT_STARTED",
+    "organization_membership_wiring": "NOT_STARTED",
+    "session_revocation": "NOT_STARTED — blocked on the auth decision being ratified",
+    "mfa_email_verification_recovery_oauth": "NOT_STARTED — blocked on the auth decision being ratified",
+    "nextjs_16_upgrade": "NOT_STARTED — ADR-0017 step 2",
+    "consent_and_audit": "NOT_STARTED"
+  },
+
+  "next_requirement": "Commit the RLS pooled-connection isolation proof as a repeatable test against a real PostgreSQL service container in CI. The mechanism is already proven locally: with a session-level SET, a request carrying NO tenant context read the previous tenant's row on a reused connection; with SET LOCAL inside the transaction it returned zero rows. Then the Next.js 16 upgrade (ADR-0017 step 2), which is independent of every credential blocker.",
+
+  "blockers": [
+    {
+      "id": "L-3",
+      "type": "LEGAL_COMPLIANCE",
+      "issue": "Cross-border AI processing acceptability under intended customer contracts",
+      "owner": "Founder + privacy counsel",
+      "latest_blocking_stage": "03",
+      "status": "OPEN"
+    },
+    {
+      "id": "SUPABASE-RESIDENCY",
+      "type": "EXTERNAL_SERVICE",
+      "issue": "Supabase Auth data residency for a Canada-Central project could not be verified: supabase.com is blocked by this environment's egress proxy. ADR-0015 requires personal data to stay in Canada, and identity data is personal data.",
+      "owner": "Founder (or any network with access to Supabase docs)",
+      "latest_blocking_stage": "01",
+      "status": "OPEN",
+      "effect": "The authentication decision (Supabase Auth) is RECORDED but NOT RATIFIED. No auth implementation may start until this clears."
+    },
+    {
+      "id": "SUPABASE-PROJECT",
+      "type": "CREDENTIAL",
+      "issue": "No Supabase project or connection string exists. The PostgreSQL migration, and the Stage 01 isolation proof against the ACTUAL deployment and pool mode, cannot be performed without it.",
+      "owner": "Founder",
+      "latest_blocking_stage": "01",
+      "status": "OPEN",
+      "note": "The RLS MECHANISM is provable locally and has been proven. What needs the real project is the deployment-specific proof ADR-0005 requires."
+    }
+  ],
+
+  "external_actions": [
+    {
+      "id": "BRANCH-PROTECTION",
+      "action": "Require the CI checks on main: 'Verify (lint · typecheck · test · build)', 'Generated-file determinism', 'Line-ending policy'; and require a PR before merging.",
+      "why": "Workflows exist and pass, but nothing enforces them. Verified: the GitHub MCP server exposes no branch-protection tool, so this cannot be done from the agent.",
+      "status": "REQUIRED"
+    },
+    {
+      "id": "SECRET-SCANNING",
+      "action": "Enable secret scanning and push protection (Settings -> Code security).",
+      "status": "REQUIRED"
+    },
+    {
+      "id": "REPO-VISIBILITY",
+      "action": "Decide whether this proprietary commercial repository should remain PUBLIC.",
+      "why": "Verified public via the GitHub API (private: false). SECURITY.md now truthfully documents unmitigated weaknesses (no RLS, unrevocable sessions, no MFA, 6 high advisories) and is world-readable. Defensible while there are no real users and no real data; it should be a deliberate decision, not a default.",
+      "status": "FOUNDER_DECISION"
+    }
+  ],
+
+  "invariants_never_to_break": [
+    "No autonomous application submission (ADR-0016). Stage 22 is blocked by design.",
+    "No sensitive demographic attribute may reach matching, scoring, ranking or recommendation (ADR-0007).",
+    "No unlawful data acquisition: no CAPTCHA bypass, access-control circumvention or fingerprint evasion (ADR-0008).",
+    "Never run npm audit fix --force: it leaves Payload's peer range (ADR-0017).",
+    "Never skip, disable or delete a test to obtain a green run.",
+    "No integration described above its recorded status in INTEGRATION_REGISTER.md.",
+    "Tenancy context must be set with SET LOCAL inside the query's transaction. A session-level SET leaks across pooled connections — proven, not assumed."
+  ]
+}
