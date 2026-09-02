@@ -1,4 +1,5 @@
-import { FlatCompat } from '@eslint/eslintrc';
+import nextCoreWebVitals from 'eslint-config-next/core-web-vitals';
+import nextTypescript from 'eslint-config-next/typescript';
 
 /**
  * ESLint configuration — Stage 00.
@@ -23,12 +24,17 @@ import { FlatCompat } from '@eslint/eslintrc';
  *   3. Report — not block — in CI for now.
  *   4. Ratchet: fix by rule class, and flip each cleaned rule to "error".
  *
- * `next lint` is NOT used. It is deprecated in Next 15 and removed in Next 16,
- * which Stage 01 upgrades to under ADR-0017 — so `npm run lint` invokes eslint
- * directly and will keep working across that upgrade. This also permanently
- * removes the interactive prompt.
+ * `next lint` is NOT used. It was deprecated in Next 15 and is REMOVED in Next
+ * 16, which Stage 01 upgraded to under ADR-0017 — so `npm run lint` invokes
+ * eslint directly and kept working across that upgrade, which was the point of
+ * choosing it. This also permanently removes the interactive prompt.
+ *
+ * The configs are imported as NATIVE FLAT CONFIG. eslint-config-next 15 was
+ * eslintrc-shaped and needed the `FlatCompat` shim; version 16 ships real flat
+ * config arrays, and feeding those back through FlatCompat throws
+ * "Converting circular structure to JSON". The shim and its `@eslint/eslintrc`
+ * dependency are therefore gone.
  */
-const compat = new FlatCompat({ baseDirectory: import.meta.dirname });
 
 const config = [
   {
@@ -48,7 +54,8 @@ const config = [
       'src/payload-types.ts',
     ],
   },
-  ...compat.extends('next/core-web-vitals', 'next/typescript'),
+  ...nextCoreWebVitals,
+  ...nextTypescript,
   {
     rules: {
       // Deliberately downgraded to warnings for the Stage 00 baseline so the
@@ -56,6 +63,33 @@ const config = [
       // "error" as its class is remediated — see docs/programme/LINT_BASELINE.md.
       '@typescript-eslint/no-explicit-any': 'warn',
       '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
+
+      /**
+       * Surfaced by the Next 16 upgrade (ADR-0017), not by new code.
+       *
+       * eslint-config-next 16 enables `react-hooks/set-state-in-effect`, which
+       * flags six pre-existing call sites. Each was read before this rule was
+       * relaxed, and none is a defect:
+       *
+       *   - `usePrefersReducedMotion` and the `mounted` flag in drawer.tsx set
+       *     state from an effect because `window.matchMedia` and hydration
+       *     status CANNOT be read during a server render. This is the standard
+       *     SSR-safe pattern; the cost is one extra render on mount.
+       *   - The drawer's `rendered`/`entered` pair deliberately sequences
+       *     renders so the panel animates from an off-screen start position.
+       *     Setting state in the effect is the mechanism, not an oversight.
+       *   - data-table.tsx clamps the page when a filter shortens the list, and
+       *     resets page/row when the query or sort changes. These two ARE
+       *     improvable — the clamp is derivable during render — and are the
+       *     real remediation target.
+       *
+       * They stay VISIBLE as warnings rather than being disabled: every run
+       * prints them and the ratchet counts them. They are not refactored here
+       * because rewriting animation and pagination behaviour during a security
+       * stage is scope creep against components with no test coverage.
+       * Tracked in docs/programme/LINT_BASELINE.md.
+       */
+      'react-hooks/set-state-in-effect': 'warn',
     },
   },
   {

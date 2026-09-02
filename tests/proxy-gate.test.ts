@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { isPublicPath } from '../src/middleware';
+import { isPublicPath } from '../src/proxy';
 
 /**
  * These are NEGATIVE authorisation tests. The point is not that the public
@@ -8,7 +8,7 @@ import { isPublicPath } from '../src/middleware';
  * remembered to close it, which is the S-02 failure mode.
  */
 
-describe('middleware public surface — deny by default', () => {
+describe('proxy (edge gate) public surface — deny by default', () => {
   it('treats an invented route as PROTECTED', () => {
     // The whole purpose of the gate: a route nobody has thought about yet.
     assert.equal(isPublicPath('/api/some/route/added/next/quarter'), false);

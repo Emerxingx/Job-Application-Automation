@@ -94,5 +94,34 @@ Resolves with a future Payload release; track, do not force.
   optimizer, no custom-server Server Actions), record the accepted risk, and
   block production until resolved.
 
+## Outcome — Step 2 performed in Stage 01 (2026-09-02)
+
+`next` 15.4.11 → **16.3.4**, with `eslint-config-next` 15.4.11 → 16.3.3 moved in
+lockstep (they ship on the same release train). Inside Payload 3.88.0's declared
+peer range; **Payload was not changed**.
+
+| | Advisories | high |
+| --- | --- | --- |
+| Before | 14 | 6 |
+| **After** | **11** | **3** |
+
+**Every deployed high-severity advisory is cleared.** The three remaining highs
+are the dev-only `prisma` / `@prisma/config` / `deepmerge-ts` chain — Step 1,
+still outstanding, and deliberately not bundled with a framework upgrade.
+
+Regression: lint 0 errors, typecheck exit 0, **689/689 tests**, build exit 0 on
+Turbopack.
+
+Two required follow-ons, both done in the same change:
+- **`middleware.ts` → `src/proxy.ts`.** Next 16 deprecates the middleware
+  convention. Verified against Next's loader source, not guessed.
+- **ESLint moved to native flat config.** `eslint-config-next` 16 ships real flat
+  config; `FlatCompat` throws on it. `@eslint/eslintrc` removed.
+
+The stricter ruleset surfaced six pre-existing `react-hooks/set-state-in-effect`
+sites. Each was analysed (`LINT_BASELINE.md`); none is a defect, and they are
+recorded as visible warnings rather than disabled.
+
 ## Revisit when
-Every Next release, or whenever a new advisory affects a deployed path.
+Every Next release, or whenever a new advisory affects a deployed path. **17.x is
+outside Payload's peer range** — do not take it without checking Payload first.

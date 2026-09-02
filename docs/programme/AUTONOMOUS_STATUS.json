@@ -5,41 +5,52 @@
   "current_stage": "01",
   "last_completed_stage": "00",
   "current_branch": "claude/stage-01-security-identity-tenancy",
-  "current_head": "2203abe",
-  "current_pr": null,
+  "current_head": "pending",
+  "current_pr": 13,
   "main_head": "d6ae8b3a9180b529abe06f23417515432c0a7f0e",
   "run_complete": false,
-
   "stage_status": {
     "00": "PASS",
     "01": "IN_PROGRESS",
-    "02": "NOT_STARTED", "03": "NOT_STARTED", "04": "NOT_STARTED",
-    "05": "NOT_STARTED", "06": "NOT_STARTED", "07": "NOT_STARTED",
-    "08": "NOT_STARTED", "09": "NOT_STARTED", "10": "NOT_STARTED",
-    "11": "NOT_STARTED", "12": "NOT_STARTED", "13": "NOT_STARTED",
-    "14": "NOT_STARTED", "15": "NOT_STARTED", "16": "NOT_STARTED",
-    "17": "NOT_STARTED", "18": "NOT_STARTED", "19": "NOT_STARTED",
-    "20": "NOT_STARTED", "21": "NOT_STARTED",
+    "02": "NOT_STARTED",
+    "03": "NOT_STARTED",
+    "04": "NOT_STARTED",
+    "05": "NOT_STARTED",
+    "06": "NOT_STARTED",
+    "07": "NOT_STARTED",
+    "08": "NOT_STARTED",
+    "09": "NOT_STARTED",
+    "10": "NOT_STARTED",
+    "11": "NOT_STARTED",
+    "12": "NOT_STARTED",
+    "13": "NOT_STARTED",
+    "14": "NOT_STARTED",
+    "15": "NOT_STARTED",
+    "16": "NOT_STARTED",
+    "17": "NOT_STARTED",
+    "18": "NOT_STARTED",
+    "19": "NOT_STARTED",
+    "20": "NOT_STARTED",
+    "21": "NOT_STARTED",
     "22": "BLOCKED_BY_DESIGN",
-    "23": "NOT_STARTED", "24": "NOT_STARTED"
+    "23": "NOT_STARTED",
+    "24": "NOT_STARTED"
   },
-
   "stage_01_progress": {
-    "webhook_replay_and_ordering": "DONE — src/lib/billing/webhook-events.ts, wired into the Stripe route, 12 tests",
-    "deny_by_default_middleware": "DONE — src/middleware.ts, 7 negative tests; segment-aware prefix matching",
-    "auth_decision_gate": "DONE — docs/programme/AUTH_DECISION_GATE.md; decision = Supabase Auth, NOT ratified (residency unverified)",
-    "rls_mechanism_proof": "PROVEN LOCALLY on PostgreSQL 16.13 — see next_requirement; not yet a committed test",
-    "postgresql_migration": "NOT_STARTED — needs the baseline migration and a Supabase project",
+    "webhook_replay_and_ordering": "DONE \u2014 src/lib/billing/webhook-events.ts, wired into the Stripe route, 12 tests",
+    "deny_by_default_middleware": "DONE \u2014 src/middleware.ts, 7 negative tests; segment-aware prefix matching",
+    "auth_decision_gate": "DONE \u2014 docs/programme/AUTH_DECISION_GATE.md; decision = Supabase Auth, NOT ratified (residency unverified)",
+    "rls_mechanism_proof": "PROVEN LOCALLY on PostgreSQL 16.13 \u2014 see next_requirement; not yet a committed test",
+    "postgresql_migration": "NOT_STARTED \u2014 needs the baseline migration and a Supabase project",
     "rls_policies_on_tables": "NOT_STARTED",
     "organization_membership_wiring": "NOT_STARTED",
-    "session_revocation": "NOT_STARTED — blocked on the auth decision being ratified",
-    "mfa_email_verification_recovery_oauth": "NOT_STARTED — blocked on the auth decision being ratified",
-    "nextjs_16_upgrade": "NOT_STARTED — ADR-0017 step 2",
-    "consent_and_audit": "NOT_STARTED"
+    "session_revocation": "NOT_STARTED \u2014 blocked on the auth decision being ratified",
+    "mfa_email_verification_recovery_oauth": "NOT_STARTED \u2014 blocked on the auth decision being ratified",
+    "nextjs_16_upgrade": "DONE \u2014 next 16.3.4 + eslint-config-next 16.3.3; advisories 14->11, deployed highs 6->0; middleware migrated to src/proxy.ts; ESLint on native flat config",
+    "consent_and_audit": "NOT_STARTED",
+    "dependabot_major_guard": "DONE \u2014 majors ignored for all npm deps and Actions after 8 unsafe PRs appeared (R-31)"
   },
-
-  "next_requirement": "Commit the RLS pooled-connection isolation proof as a repeatable test against a real PostgreSQL service container in CI. The mechanism is already proven locally: with a session-level SET, a request carrying NO tenant context read the previous tenant's row on a reused connection; with SET LOCAL inside the transaction it returned zero rows. Then the Next.js 16 upgrade (ADR-0017 step 2), which is independent of every credential blocker.",
-
+  "next_requirement": "Commit the RLS pooled-connection proof as a repeatable CI test against a PostgreSQL service container. Then ADR-0017 Step 1 (dev-only prisma/@prisma/config/deepmerge-ts chain, fixAvailable, 3 remaining highs). Everything else in Stage 01 \u2014 PostgreSQL migration, RLS policies on real tables, tenancy wiring, session revocation, MFA/OAuth \u2014 is BLOCKED on a Supabase project and on ratifying the auth decision.",
   "blockers": [
     {
       "id": "L-3",
@@ -68,11 +79,10 @@
       "note": "The RLS MECHANISM is provable locally and has been proven. What needs the real project is the deployment-specific proof ADR-0005 requires."
     }
   ],
-
   "external_actions": [
     {
       "id": "BRANCH-PROTECTION",
-      "action": "Require the CI checks on main: 'Verify (lint · typecheck · test · build)', 'Generated-file determinism', 'Line-ending policy'; and require a PR before merging.",
+      "action": "Require the CI checks on main: 'Verify (lint \u00b7 typecheck \u00b7 test \u00b7 build)', 'Generated-file determinism', 'Line-ending policy'; and require a PR before merging.",
       "why": "Workflows exist and pass, but nothing enforces them. Verified: the GitHub MCP server exposes no branch-protection tool, so this cannot be done from the agent.",
       "status": "REQUIRED"
     },
@@ -88,7 +98,6 @@
       "status": "FOUNDER_DECISION"
     }
   ],
-
   "invariants_never_to_break": [
     "No autonomous application submission (ADR-0016). Stage 22 is blocked by design.",
     "No sensitive demographic attribute may reach matching, scoring, ranking or recommendation (ADR-0007).",
@@ -96,6 +105,6 @@
     "Never run npm audit fix --force: it leaves Payload's peer range (ADR-0017).",
     "Never skip, disable or delete a test to obtain a green run.",
     "No integration described above its recorded status in INTEGRATION_REGISTER.md.",
-    "Tenancy context must be set with SET LOCAL inside the query's transaction. A session-level SET leaks across pooled connections — proven, not assumed."
+    "Tenancy context must be set with SET LOCAL inside the query's transaction. A session-level SET leaks across pooled connections \u2014 proven, not assumed."
   ]
 }

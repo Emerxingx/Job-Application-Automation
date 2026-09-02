@@ -28,8 +28,8 @@ npm run dev           # http://localhost:3000
 npx tsc --noEmit      # typecheck  — PASSES
 npm test              # 670 tests  — PASSES
 npm run build         # production — PASSES
-npm run lint          # eslint directly — 0 errors, 2 warnings (baseline)
-npm run lint:ci       # blocking variant: --max-warnings=2
+npm run lint          # eslint directly — 0 errors, 8 warnings (baseline)
+npm run lint:ci       # blocking variant: --max-warnings=8
 npm run verify        # lint:ci + typecheck + test + build (the CI gate set)
 npm run db:push       # schema sync (NOT migrations — none exist)
 npm run db:seed       # plans + demo account
@@ -50,7 +50,9 @@ npm run cms:types     # regenerate payload-types.ts
    `eslint` directly**, never `next lint` (deprecated in Next 15, removed in
    16). Baseline is **0 errors, 2 warnings**, locked by `--max-warnings=2`. The
    one rule exemption — `no-require-imports` for `src/lib/providers/**` — is the
-   deliberate lazy-`require` pattern, not debt. See
+   deliberate lazy-`require` pattern, not debt. The baseline rose from 2 to 8
+   when Next 16 brought a stricter ruleset that surfaced six **pre-existing**
+   `set-state-in-effect` sites; each was analysed and none is a defect. See
    `docs/programme/LINT_BASELINE.md`.
 
 3. **34 of 68 Prisma models have no application code references.** Some are
@@ -121,6 +123,15 @@ npm run cms:types     # regenerate payload-types.ts
 ```
 next: ">=15.2.9 <15.3.0 || >=15.3.9 <15.4.0 || >=15.4.11 <15.5.0 || >=16.2.6 <17.0.0"
 ```
-Installed: `next@15.4.11` — the **last** 15.4.x release, so there is no in-band
-patch. The supported upgrade target is **16.2.6+** (Payload already allows it).
-**Check this range before any Next upgrade.**
+Installed: **`next@16.3.4`** — inside the `>=16.2.6 <17.0.0` window. Stage 01
+performed this upgrade under `ADR-0017`; it removed every **deployed**
+high-severity advisory (14 advisories → 11, high 6 → 3, and the remaining three
+are dev-only Prisma chain). **Check this range before any further Next upgrade** —
+17.x is outside it.
+
+Two consequences of being on 16.x:
+- The edge gate is **`src/proxy.ts`**, not `middleware.ts`. Next 16 deprecated
+  the old convention; the handler export is `proxy`. Verified against Next's own
+  loader (`(isProxy ? mod.proxy : mod.middleware) || mod.default`).
+- `eslint-config-next` is **native flat config**. Do not reintroduce
+  `FlatCompat` — passing flat config through it throws a circular-structure error.

@@ -5,6 +5,19 @@ import { DEV_AUTH_SECRET, isUsableSecret } from '@/lib/auth-policy';
 /**
  * Global authentication gate — DENY BY DEFAULT.
  *
+ * WHY THIS FILE IS CALLED `proxy` AND NOT `middleware`
+ * ----------------------------------------------------
+ * Next 16 renamed the convention: `middleware.ts` is deprecated and the build
+ * warns about it. Verified against Next's own loader source rather than guessed
+ * — `next/dist/build/webpack/loaders/next-middleware-loader.js` resolves the
+ * handler as `(isProxy ? mod.proxy : mod.middleware) || mod.default`, and
+ * `PROXY_FILENAME` is `proxy` matched at `(?:src/)?proxy`. So the file is
+ * `src/proxy.ts`, the export is `proxy`, and the `config.matcher` export is
+ * unchanged.
+ *
+ * This landed in the same stage as the Next 16 upgrade (ADR-0017) precisely so
+ * a brand-new security-critical file does not ship on a deprecated convention.
+ *
  * WHY THIS EXISTS
  * ---------------
  * Before Stage 01 there was no middleware. Every route re-implemented its own
@@ -116,7 +129,7 @@ async function hasValidSession(request: NextRequest): Promise<boolean> {
   }
 }
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   if (isPublicPath(pathname)) return NextResponse.next();
