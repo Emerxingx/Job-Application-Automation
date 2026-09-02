@@ -2,22 +2,15 @@ import { cookies } from 'next/headers';
 import { SignJWT, jwtVerify } from 'jose';
 import bcrypt from 'bcryptjs';
 import { db } from './db';
+import { DEV_AUTH_SECRET, isUsableSecret } from './auth-policy';
 
 const COOKIE_NAME = 'jobpilot_session';
 const SESSION_DAYS = 30;
 
-/**
- * The development fallback. It also ships in `.env.example`, which is exactly
- * why production has to reject it by value: it is long enough to pass a length
- * check, so a deployment that copied the example file would otherwise sign
- * every session with a key published in the repository.
- */
-export const DEV_AUTH_SECRET = 'dev-only-secret-change-me-in-production-0123456789';
-
-/** Whether a candidate secret is safe to sign sessions with in production. */
-export function isUsableSecret(value: string | undefined): value is string {
-  return typeof value === 'string' && value.length >= 32 && value !== DEV_AUTH_SECRET;
-}
+// Defined in ./auth-policy so src/middleware.ts can use them without pulling
+// this module's Prisma and bcrypt imports into the edge runtime. Re-exported
+// here so every existing caller and test is unaffected.
+export { DEV_AUTH_SECRET, isUsableSecret } from './auth-policy';
 
 function secret(): Uint8Array {
   const value = process.env.AUTH_SECRET;
