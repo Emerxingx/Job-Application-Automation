@@ -53,14 +53,14 @@
     "@types/node": "^22.10.5",
     "@types/pdfkit": "^0.17.6",
     "@types/react": "^19.0.4",
-    "@types/react-dom": "^19.0.2",
+    "@types/react-dom": "^19.2.5",
     "autoprefixer": "^10.4.20",
     "eslint": "^9.39.5",
     "eslint-config-next": "^15.4.11",
     "postcss": "^8.4.49",
     "prisma": "^6.2.1",
     "tailwindcss": "^3.4.17",
-    "tsx": "^4.19.2",
+    "tsx": "^4.23.13",
     "typescript": "^5.7.3"
   }
 }
