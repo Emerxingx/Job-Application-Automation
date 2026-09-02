@@ -50,9 +50,10 @@ npm run cms:types     # regenerate payload-types.ts
    provider for production — Prisma's `provider` is not env-switchable, so that
    is an unversioned manual edit. `ADR-0002` replaces this.
 
-2. **ESLint was never installed until Stage 00.** `next.config.mjs` still sets
-   `eslint: { ignoreDuringBuilds: true }` — a leftover that is now redundant,
-   since CI lints separately. Lint is configured as **flat config invoking
+2. **ESLint was never installed until Stage 00.** The
+   `eslint: { ignoreDuringBuilds: true }` leftover in `next.config.mjs` is gone —
+   it stopped meaning anything once CI gained a blocking lint job, and Next 16
+   warned on it. Lint is configured as **flat config invoking
    `eslint` directly**, never `next lint` (deprecated in Next 15, removed in
    16). Baseline is **0 errors, 8 warnings**, locked by `--max-warnings=8`. The
    one rule exemption — `no-require-imports` for `src/lib/providers/**` — is the

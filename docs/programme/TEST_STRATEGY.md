@@ -73,9 +73,10 @@ description cannot redirect a system prompt.
 
 Done in Stage 00 and re-baselined in Stage 01. ESLint is installed, configured as
 native flat config, and blocking in CI at `--max-warnings=8`; the count and the
-justification for every warning are in `LINT_BASELINE.md`. What remains of the
-original plan: `eslint: { ignoreDuringBuilds: true }` is still set in
-`next.config.mjs` and is now redundant, since CI lints separately.
+justification for every warning are in `LINT_BASELINE.md`. The last step —
+removing `eslint: { ignoreDuringBuilds: true }` from `next.config.mjs` — is
+done: it stopped meaning anything once lint became its own gate, and Next 16
+warned on the key. The plan is complete.
 
 ## The RLS isolation proof (`tests/rls-isolation.test.ts`)
 
