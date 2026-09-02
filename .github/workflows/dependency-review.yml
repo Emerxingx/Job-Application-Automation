@@ -1,0 +1,54 @@
+name: Dependency audit
+
+# REPORTING ONLY, DELIBERATELY.
+#
+# `npm audit` currently reports 14 advisories (1 low, 7 moderate, 6 high). The
+# dominant contributor is next@15.4.11, which has no in-band patch — 15.4.11 is
+# the final 15.4.x release. The supported fix is Next 16.2.6+, which sits inside
+# @payloadcms/next@3.88.0's declared peer range, and that upgrade is STAGE 01
+# work under docs/adr/ADR-0017-dependency-remediation.md.
+#
+# So this job must not block Stage 00: it would fail on day one for a known,
+# scheduled, documented reason. It becomes blocking once ADR-0017 Step 2 lands.
+#
+# NEVER run `npm audit fix --force` here or locally: it installs next@15.5.25,
+# which is OUTSIDE Payload's peer range and would break the supported build.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: npm audit (reporting only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+
+      - name: Report advisories
+        continue-on-error: true
+        run: |
+          npm audit --audit-level=high || true
+          echo "--- summary ---"
+          npm audit --json > audit.json || true
+          node -e "const a=require('./audit.json');console.log(JSON.stringify(a.metadata?.vulnerabilities??{},null,2))"
+
+      - name: Upload the audit report
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-audit
+          path: audit.json
+          if-no-files-found: warn

@@ -13,8 +13,8 @@ Every gate needs **evidence**, not an assertion. Status: `PASS` · `PARTIAL` ·
 | Typecheck | exit 0 | exit 0 | PASS |
 | Unit + integration tests | all pass | 670/670 | PASS |
 | Production build | exit 0 | exit 0, ~79 routes | PASS |
-| Lint | configured, non-interactive, clean | **not installed; prompts; exit 1** | **FAIL** |
-| CI enforcing all of the above | required on `main` | **absent** | **FAIL** |
+| Lint | configured, non-interactive, clean | configured (flat config, `eslint` directly); **0 errors, 2 warnings**, locked at `--max-warnings=2` | **PASS** |
+| CI enforcing all of the above | required on `main` | workflow added and green; **branch protection is an EXTERNAL ACTION** (repository setting, not changeable from here) | **PARTIAL** |
 | E2E on critical journeys | present | absent | FAIL |
 
 ## G2 — Security
@@ -71,7 +71,7 @@ Every gate needs **evidence**, not an assertion. Status: `PASS` · `PARTIAL` ·
 
 | Gate | Required | Current | Status |
 | --- | --- | --- | --- |
-| **No UI promises unimplemented behaviour** | verified | **auto-apply toggle does nothing** | **FAIL** |
+| **No UI promises unimplemented behaviour** | verified | auto-apply control disabled and labelled; README corrected | **PASS** |
 | AI truthfulness enforced | evidence grounding + tests | none | **FAIL** |
 | Eligibility gates recommendations | enforced | absent | FAIL |
 | Score explainability | dimensions + evidence | dimensions yes, evidence no | PARTIAL |

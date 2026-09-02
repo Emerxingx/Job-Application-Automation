@@ -3,8 +3,8 @@
 Your AI-powered career co-pilot for the Canadian and US job markets. Smart, automated, personalized.
 
 JobPilot scans live job postings for the titles you want, scores your real chance of getting
-through the screen, rewrites your resume for each posting, applies on your behalf, and keeps a
-complete, auditable folder for every application it sends.
+through the screen, rewrites your resume for each posting, prepares the whole application for
+you to confirm, and keeps a complete, auditable folder for every application you send.
 
 ---
 
@@ -15,13 +15,14 @@ A full evidence-based architecture audit lives in [`docs/`](docs/). Start with
 measured state of this repository, and [`docs/adr/`](docs/adr/) for the decisions
 behind the target architecture. `HANDOFF.md` remains the prior engineering handoff.
 
-> **Accuracy note.** The summary above says JobPilot "applies on your behalf".
-> In the current implementation this holds only where an employer has authorized
-> an ATS API; everywhere else the application is **prepared in full and submitted
-> by the applicant** — a deliberate decision recorded in
-> [`docs/adr/ADR-0016-application-automation.md`](docs/adr/ADR-0016-application-automation.md).
-> The dashboard's "Auto-apply above N%" toggle is likewise **not implemented**.
-> Both are tracked for correction in Stage 00.
+> **On "applies on your behalf".** JobPilot submits programmatically only where an
+> employer has authorized an ATS API. Everywhere else the application is
+> **prepared in full and confirmed by the applicant** — a deliberate decision
+> recorded in
+> [`docs/adr/ADR-0016-application-automation.md`](docs/adr/ADR-0016-application-automation.md),
+> because the major job boards prohibit automated submission and enforce it
+> against the *applicant's* account. The dashboard's auto-apply toggle is
+> disabled and labelled accordingly; nothing is ever submitted unattended.
 
 ---
 

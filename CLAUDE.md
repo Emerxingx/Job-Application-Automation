@@ -28,7 +28,9 @@ npm run dev           # http://localhost:3000
 npx tsc --noEmit      # typecheck  — PASSES
 npm test              # 670 tests  — PASSES
 npm run build         # production — PASSES
-npm run lint          # BROKEN: prompts interactively, exits 1
+npm run lint          # eslint directly — 0 errors, 2 warnings (baseline)
+npm run lint:ci       # blocking variant: --max-warnings=2
+npm run verify        # lint:ci + typecheck + test + build (the CI gate set)
 npm run db:push       # schema sync (NOT migrations — none exist)
 npm run db:seed       # plans + demo account
 npm run cms:importmap # regenerate the tracked Payload import map
@@ -42,11 +44,14 @@ npm run cms:types     # regenerate payload-types.ts
    provider for production — Prisma's `provider` is not env-switchable, so that
    is an unversioned manual edit. `ADR-0002` replaces this.
 
-2. **ESLint is not installed and has no config.** `next.config.mjs` sets
-   `eslint: { ignoreDuringBuilds: true }`, which reads as "lint is skipped." It
-   is not merely skipped — it has never run. `npm run lint` drops into an
-   interactive setup prompt. **Do not add it to CI until it is configured**, or
-   the runner will hang.
+2. **ESLint was never installed until Stage 00.** `next.config.mjs` still sets
+   `eslint: { ignoreDuringBuilds: true }` — a leftover that is now redundant,
+   since CI lints separately. Lint is configured as **flat config invoking
+   `eslint` directly**, never `next lint` (deprecated in Next 15, removed in
+   16). Baseline is **0 errors, 2 warnings**, locked by `--max-warnings=2`. The
+   one rule exemption — `no-require-imports` for `src/lib/providers/**` — is the
+   deliberate lazy-`require` pattern, not debt. See
+   `docs/programme/LINT_BASELINE.md`.
 
 3. **34 of 68 Prisma models have no application code references.** Some are
    nested-write models genuinely in use (`InvoiceLine`, `PaymentAllocation`,
@@ -55,12 +60,12 @@ npm run cms:types     # regenerate payload-types.ts
    (a complete scheduler with no scheduler), and `WebhookEvent` (idempotency
    that is never applied). Check before assuming a model does something.
 
-4. **The auto-apply toggle does nothing.** `agent-form.tsx` renders "Auto-apply
-   above N%". `scanner.ts` uses the threshold only to increment a counter. No
-   scheduler exists. **Nothing applies autonomously — this is correct and
-   intended** (`ADR-0016`) — but the UI implies otherwise and must be fixed.
-   README.md also currently claims the product "applies on your behalf"; the
-   apply engine is assisted-only except against authorized ATS APIs.
+4. **Nothing applies autonomously, and the UI now says so.** `scanner.ts` reads
+   `autoApplyThreshold` only to increment a counter, and no scheduler exists
+   (`AgentSchedule` has no code that reads it). Stage 00 disabled the auto-apply
+   control and corrected the README. **Do not re-enable it** — autonomous
+   submission is Stage 22 and is gated on lawfulness review plus an explicit
+   founder decision (`ADR-0016`).
 
 5. **There are two databases.** Prisma owns transactional data; Payload owns
    content, in its **own** database (`PAYLOAD_DATABASE_URI`). Deliberate.

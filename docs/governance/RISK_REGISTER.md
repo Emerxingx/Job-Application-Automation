@@ -22,21 +22,22 @@ Scored **Likelihood × Impact** (1–5). Owner is the stage that closes it.
 | R-09 | **Silent job loss.** No queue; two designed schedulers have no runner. In an automation product, silent loss destroys trust faster than an outage | 4 | 4 | 16 | Outbox + lease workers + dead-letter + admin visibility | 01/05 |
 | R-10 | **Unlawful acquisition.** Commercial pressure to scrape prohibited sources | 3 | 5 | 15 | `SOURCE_ACCESS_POLICY.md`; per-source legal basis recorded before enablement; absolute prohibitions | 05 |
 | R-11 | **Case-note exposure.** Most sensitive data on the platform; a public-sector breach is existential for the WorkBC product | 2 | 5 | 10 | `RESTRICTED` classification, org isolation, full audit, per-org retention | 17 |
-| R-12 | **Auto-apply UI over-promises.** A user enables a toggle that does nothing and believes applications were sent | 5 | 3 | 15 | Disable or relabel the control | **00** |
+| R-12 | ~~**Auto-apply UI over-promises.**~~ **CLOSED in Stage 00** — control disabled and labelled "Not available"; the "submitted without asking" sub-label removed; agents-list badge and README headline corrected | — | — | — | Done | 00 |
 | R-13 | **Product/billing inversion.** ~19k lines of commercial code against ~500 lines of candidate core; effort continues to flow to the mature layer | 3 | 4 | 12 | Stage sequencing puts candidate core first; billing is re-scoped, not extended | 02–10 |
 
 ## Medium (5–9)
 
 | ID | Risk | L | I | S | Mitigation | Stage |
 | --- | --- | --- | --- | --- | --- | --- |
-| R-14 | Lint backlog surfaces late on 238 files | 4 | 2 | 8 | Measure first, report-only, then ratchet | 00 |
+| R-14 | ~~Lint backlog surfaces late~~ **CLOSED in Stage 00** — measured at 9 issues, of which 6 were the deliberate provider `require()` pattern (exempted with reasons, not "fixed"). Residual **0 errors / 2 warnings**, locked as a blocking gate via `--max-warnings=2` | — | — | — | Done | 00 |
+| R-30 | **ESLint 9 is EOL upstream, and ESLint 10 is outside `eslint-config-next@15.4.11`'s peer range** (`^7 \|\| ^8 \|\| ^9`) — the same constraint shape as Next/Payload | 3 | 2 | 6 | Pinned to 9.x; Dependabot ignores `eslint >=10`; revisit with the Next 16 upgrade | 01 |
 | R-15 | Payload peer range blocks a future Next security fix | 2 | 4 | 8 | Standing pre-upgrade check; `ADR-0003` revisit trigger | ongoing |
 | R-16 | Rate limits multiply by instance count | 3 | 3 | 9 | Shared Redis store | 01 |
 | R-17 | Artefacts lost on container restart (local filesystem) | 4 | 2 | 8 | Object storage | 05 |
 | R-18 | Cross-border AI processing without adequate consent | 2 | 4 | 8 | Documented exception, disclosure, minimal content, no sensitive data | 01/15 |
 | R-19 | Dashboards degrade transactional performance | 3 | 3 | 9 | Marts and materialized views | 21 |
 | R-20 | Taxonomy licensing breach | 2 | 4 | 8 | Licence recorded before ingestion | 04 |
-| R-21 | Windows dirty-tree churn on generated files | 4 | 1 | 4 | `.gitattributes` + determinism check | 00 |
+| R-21 | ~~Windows dirty-tree churn on generated files~~ **CLOSED in Stage 00** — `.gitattributes` added (renormalisation was a no-op; zero CRLF in tree) plus a CI determinism check and a line-ending job | — | — | — | Done | 00 |
 | R-22 | 34 unreferenced models become permanent confusion | 3 | 2 | 6 | Explicit wire/keep/defer decision per model, recorded | 01 |
 
 ## Accepted with compensating controls

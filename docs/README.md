@@ -19,8 +19,9 @@ product/         7 documents — vision, modules, personas, roles, screens,
                 journeys, entitlements
 governance/      8 registers — decisions, risks, integrations, compliance,
                 classification, retention, AI governance, source access
-programme/       6 documents — baseline, gaps, build plan, stage status,
-                test strategy, readiness gates
+programme/       8 documents — baseline, gaps, build plan, stage status,
+                test strategy, readiness gates, lint baseline,
+                dependency audit
 adr/            20 numbered decision records
 ```
 
