@@ -64,3 +64,16 @@ blocks the architecture baseline, is in
 **Handling rule.** An unresolved question is never converted into an engineering
 assumption. A stage reaching its exit gate with its question still open is
 **BLOCKED** at that gate.
+
+## R-31 — automated dependency majors (found and closed in Stage 01)
+
+Dependabot, enabled in Stage 00, immediately proposed `prisma` 6→7, `stripe`
+17→22, `eslint-config-next` 15→16 and three GitHub Action majors. Any of the
+first three would have broken the build: Prisma 7 removes the `package.json#prisma`
+block still in use, the Stripe SDK major is coupled to an API version pinned in
+code, and `eslint-config-next` must track `next`, which Payload pins.
+
+The config constrained patch/minor grouping but not majors. Now closed:
+`version-update:semver-major` is ignored for every npm dependency and every
+Action, with named entries preserving the reasoning. None of the eight PRs was
+merged. Detail in `../programme/DEPENDENCY_AUDIT.md`.

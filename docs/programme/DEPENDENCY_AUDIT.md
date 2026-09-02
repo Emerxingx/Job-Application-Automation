@@ -71,3 +71,32 @@ This is the same constraint shape as Next/Payload. Recorded as **R-30** in
 `../governance/RISK_REGISTER.md`; Dependabot is configured to ignore
 `eslint >= 10.0.0` so automation cannot push it out of range. Revisit with the
 Next 16 upgrade, which will also bring a newer `eslint-config-next`.
+
+## Defect found after Stage 00 merged — automated majors
+
+Within minutes of Dependabot being enabled it opened **eight** PRs, several of
+which would have broken the build:
+
+| PR | Bump | Why it is unsafe |
+| --- | --- | --- |
+| #12 | `prisma` 6.19.3 → **7.10.0** | Prisma 7 removes the `package.json#prisma` config block this repo still uses — the build already warns about it. Coordinated with the PostgreSQL migration (`ADR-0002`), not a bump |
+| #10 | `stripe` 17.7.0 → **22.6.0** | `src/lib/providers/payments/stripe.ts` pins `apiVersion: '2025-02-24.acacia'`; a major SDK jump changes the accepted API versions and the types |
+| #11 | `eslint-config-next` 15.4.11 → **16.3.3** | Ships on the Next release train; moving it ahead of `next` (pinned by Payload) desyncs the toolchain |
+| #5–#7 | `actions/*` 4 → **7** | Action majors change runner and Node requirements, on the workflow that proves everything else |
+
+**Root cause:** the first config grouped patch and minor updates but placed **no
+constraint on majors**, so every major arrived as its own ungrouped PR. That is
+the precise opposite of the stated intent — sparing a non-technical founder a
+stream of risky PRs.
+
+**Fix:** `version-update:semver-major` is ignored for **every** npm dependency and
+every GitHub Action, with named entries for the four cases above so the reason
+survives. Majors are now a deliberate human decision with their own regression
+run; for `next`/`payload` that decision is `ADR-0017`.
+
+Dependabot closes PRs that no longer match its configuration, so the eight
+should retire once this lands. **None of them was merged.**
+
+**The lesson worth keeping:** automation added in Stage 00 was itself a change
+that needed reviewing against reality, not just configuring. It was only visible
+because the PRs appeared and were read.
