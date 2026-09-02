@@ -338,7 +338,15 @@ export function AgentForm({ defaultLocation }: { defaultLocation?: string }) {
           removed: the `autoApply` and `autoApplyThreshold` columns still exist on
           the Agent model, and Stage 00 does not change the schema.
         */}
-        <div className="rounded-xl border border-line p-4 opacity-70">
+        {/*
+          The container is NOT dimmed with opacity. The explanatory copy below is
+          informative content, not an inactive control: at `opacity-70` the muted
+          token resolves to roughly rgb(136,133,129) on this background, which is
+          3.5:1 and fails WCAG 2.2 AA (4.5:1) for text this size. Undimmed it is
+          7.3:1. The disabled checkbox is dimmed by the browser's own native
+          disabled styling, which is what 1.4.3 exempts.
+        */}
+        <div className="rounded-xl border border-line p-4">
           <label className="flex items-start gap-3">
             <input
               type="checkbox"
@@ -346,7 +354,7 @@ export function AgentForm({ defaultLocation }: { defaultLocation?: string }) {
               disabled
               readOnly
               aria-describedby="auto-apply-note"
-              className="mt-0.5 h-4 w-4 accent-brand-500"
+              className="mt-0.5 h-4 w-4 accent-brand-500 opacity-60"
             />
             <span>
               <span className="block text-sm font-medium text-ink">
