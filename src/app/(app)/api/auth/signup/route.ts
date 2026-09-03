@@ -4,6 +4,9 @@ import { createSession, hashPassword } from '@/lib/auth';
 import { activatePlan } from '@/lib/subscription';
 import { describeWait, fail, ok, route, tooMany } from '@/lib/api';
 import { LIMITS, clientAddress, rateLimit } from '@/lib/rate-limit';
+import { ensurePersonalWorkspace } from '@/lib/tenancy/organizations';
+import { grantConsent, REQUIRED_AT_SIGNUP } from '@/lib/consent';
+import { recordSecurityEvent, requestMeta } from '@/lib/security-audit';
 import type { BillingInterval } from '@/lib/types';
 
 const schema = z.object({
@@ -13,6 +16,12 @@ const schema = z.object({
   country: z.enum(['CA', 'US']).default('CA'),
   plan: z.string().optional(),
   interval: z.string().optional(),
+  // The form posts "on" for a checked box; an API client may post true. Both
+  // are accepted; anything else — including absence — is a refusal.
+  acceptTerms: z
+    .union([z.literal('on'), z.literal(true), z.literal('true')])
+    .optional()
+    .transform((v) => v !== undefined),
 });
 
 export const POST = route(async (request: Request) => {
@@ -26,19 +35,32 @@ export const POST = route(async (request: Request) => {
 
   const body = schema.parse(await request.json());
   const email = body.email.toLowerCase().trim();
+  const meta = requestMeta(request);
+
+  if (!body.acceptTerms) {
+    return fail('Please accept the Terms of Service and Privacy Policy to create an account.', 422);
+  }
 
   const existing = await db.user.findUnique({ where: { email } });
   if (existing) {
     return fail('An account with that email already exists. Try signing in instead.', 409);
   }
 
-  const user = await db.user.create({
-    data: {
-      email,
-      passwordHash: await hashPassword(body.password),
-      fullName: body.fullName.trim(),
-      country: body.country,
-    },
+  const passwordHash = await hashPassword(body.password);
+  const fullName = body.fullName.trim();
+
+  // The user, their personal workspace and their consent records commit
+  // together or not at all: an account that exists without a workspace has no
+  // tenant to act in, and one without consent records was never agreed to.
+  const user = await db.$transaction(async (tx) => {
+    const created = await tx.user.create({
+      data: { email, passwordHash, fullName, country: body.country },
+    });
+    await ensurePersonalWorkspace(tx, created);
+    for (const purpose of REQUIRED_AT_SIGNUP) {
+      await grantConsent(tx, created, purpose, { source: 'signup', meta });
+    }
+    return created;
   });
 
   // Everyone starts on a plan so quota logic always has something to read.
@@ -57,7 +79,16 @@ export const POST = route(async (request: Request) => {
     data: { userId: user.id, type: 'billing', message: 'Welcome to JobPilot AI.' },
   });
 
-  await createSession(user.id);
+  const sessionId = await createSession(user.id, { method: 'password', meta });
+  await recordSecurityEvent({
+    event: 'auth.signup',
+    user,
+    entityType: 'Session',
+    entityId: sessionId,
+    summary: 'Account created and signed in',
+    detail: { method: 'password', country: body.country },
+    meta,
+  });
 
   return ok({ ok: true, redirect: '/onboarding' });
 });

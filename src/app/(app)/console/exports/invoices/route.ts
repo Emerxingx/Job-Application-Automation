@@ -95,7 +95,7 @@ export const GET = consoleRoute(async (request: Request) => {
     db.invoice.count({ where }),
     db.invoice.findMany({
       where,
-      orderBy: [{ issuedAt: 'desc' }, { createdAt: 'desc' }],
+      orderBy: [{ issuedAt: { sort: 'desc', nulls: 'last' } }, { createdAt: 'desc' }],
       take: MAX_ROWS,
       select: {
         id: true,

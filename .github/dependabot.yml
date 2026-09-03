@@ -1,8 +1,24 @@
 version: 2
 updates:
-  # Grouped and monthly on purpose. A non-technical founder cannot absorb a
-  # stream of individual bumps, and Stage 01 owns the one upgrade that actually
-  # matters (Next 15.4.11 -> 16.2.6+, ADR-0017).
+  # WHY THIS IS NARROW
+  #
+  # The first version of this file grouped patch/minor updates but placed no
+  # constraint on MAJOR ones. Dependabot immediately opened eight PRs, several
+  # of which would have broken the build if merged:
+  #
+  #   - prisma 6 -> 7: Prisma 7 removes the `package.json#prisma` config block,
+  #     which this repo still uses (the build already warns about it). The
+  #     migration is coordinated work, not a bump.
+  #   - stripe 17 -> 22: src/lib/providers/payments/stripe.ts pins
+  #     `apiVersion: '2025-02-24.acacia'`. A major SDK jump changes the accepted
+  #     API versions and the types compiled against them.
+  #   - eslint-config-next 15 -> 16: it ships on the Next release train and must
+  #     move WITH next, which is itself pinned by Payload's peer range.
+  #
+  # That is the opposite of the intent, which was to spare a non-technical
+  # founder a stream of risky PRs. So: automation proposes only low-risk
+  # updates. Every major is a deliberate human decision with its own regression
+  # run — for next/payload that decision is ADR-0017.
   - package-ecosystem: npm
     directory: /
     schedule:
@@ -16,18 +32,39 @@ updates:
         dependency-type: production
         update-types: [patch]
     ignore:
-      # Payload pins the supported Next range. An automated Next bump would
-      # almost certainly leave that range and break the build. ADR-0017 owns it.
+      # No automated majors, for ANY npm dependency. This is the rule the first
+      # version was missing.
+      - dependency-name: '*'
+        update-types: [version-update:semver-major]
+      # Payload pins the supported Next range; an automated bump would leave it.
+      # ADR-0017 owns this upgrade.
       - dependency-name: next
-      - dependency-name: 'payload'
+      - dependency-name: payload
       - dependency-name: '@payloadcms/*'
+      # Ships with Next and must move with it, not ahead of it.
+      - dependency-name: eslint-config-next
       # eslint-config-next@15.4.11 declares eslint "^7 || ^8 || ^9". ESLint 10
-      # is published and is OUTSIDE that range — the same shape of constraint as
-      # Next/Payload. Revisit when eslint-config-next widens its peer range.
+      # is published and is OUTSIDE that range. Revisit with the Next 16
+      # upgrade, which brings a newer eslint-config-next. See R-30.
       - dependency-name: eslint
         versions: ['>=10.0.0']
+      # Prisma 7 removes `package.json#prisma`. Coordinated with the PostgreSQL
+      # migration under ADR-0002, not an automated bump.
+      - dependency-name: prisma
+        update-types: [version-update:semver-major]
+      - dependency-name: '@prisma/client'
+        update-types: [version-update:semver-major]
+      # The Stripe SDK major is coupled to the pinned API version in code.
+      - dependency-name: stripe
+        update-types: [version-update:semver-major]
 
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: monthly
+    open-pull-requests-limit: 3
+    ignore:
+      # Action majors change runner and Node requirements. Deliberate, not
+      # automated — the CI workflow is the thing that proves everything else.
+      - dependency-name: '*'
+        update-types: [version-update:semver-major]

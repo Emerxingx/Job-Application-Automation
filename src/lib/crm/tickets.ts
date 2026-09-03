@@ -97,8 +97,10 @@ export function formatTicketNumber(year: number, value: number, padding = TICKET
  * value just allocated is `nextValue - 1` on both paths — creation seeds
  * nextValue at 2 for exactly that reason.
  *
- * SQLite serialises writers, which is what makes this gap-free here. On
- * Postgres this needs SELECT … FOR UPDATE.
+ * Gap-free on PostgreSQL because the bump is a single atomic row UPDATE
+ * (`{ increment: 1 }`), not a read-then-write — the same reasoning as
+ * src/lib/billing/numbering.ts. No SELECT … FOR UPDATE is needed as long as
+ * the increment stays in the database.
  */
 export async function allocateTicketNumber(
   tx: Pick<typeof db, 'documentSequence'>,
@@ -267,8 +269,8 @@ export async function listTickets(
     db.supportTicket.count({ where }),
     db.supportTicket.findMany({
       where,
-      // Urgent first would need a CASE expression SQLite orderBy cannot express
-      // through Prisma; breached-then-oldest is the queue staff actually work.
+      // Urgent first would need a CASE expression Prisma's orderBy cannot
+      // express; breached-then-oldest is the queue staff actually work.
       orderBy: [{ breachedSla: 'desc' }, { lastReplyAt: 'desc' }],
       skip: (page - 1) * pageSize,
       take: pageSize,

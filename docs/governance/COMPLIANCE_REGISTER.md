@@ -41,6 +41,37 @@ policy is an architectural requirement rather than a feature.
 Every processor is inventoried in `INTEGRATION_REGISTER.md` with its data
 categories and residency.
 
+## Data residency — primary store and identity (`ADR-0015`)
+
+| Item | State | Evidence | Recorded |
+| --- | --- | --- | --- |
+| Transactional database region | **Canada (Central), AWS `ca-central-1`** | Founder attestation — the project was provisioned there | 2026-09-02 |
+| Supabase Auth records | **Same region as the project database**, in the project's Postgres `auth` schema | Founder attestation, citing Supabase's regions and Auth documentation | 2026-09-02 |
+| Supabase Auth technical residency gate | **SATISFIED** | `../programme/AUTH_DECISION_GATE.md` §6 | 2026-09-02 |
+| Verified independently by engineering | **NO** | `supabase.com` is blocked by this environment's egress proxy; the claim is recorded as an attestation, not as a measurement | — |
+| Region confirmed from the provisioned project itself | **PARTIAL** — confirmed from the **connection endpoint** (the pooler host of the provisioned credential is `aws-0-ca-central-1.pooler.supabase.com`, read from the variable's shape without printing it); **not** from a live query, because the project is unreachable from the build environment (R-34) | `AUTH_DECISION_GATE.md` §6.5 names the endpoint as an acceptable source; a live `SELECT` remains outstanding | 2026-09-03 |
+| Consent capture | **IMPLEMENTED** — explicit, versioned, revocable records (`ConsentRecord`) for Terms of Service and Privacy Policy at signup; each grant and revocation audited | `src/lib/consent.ts`; the document **wording** is pending counsel (R-36, L-5) | 2026-09-03 |
+
+### What this settles, and what it does not
+
+It settles the **technical** question `ADR-0015` asks of the primary store and of
+identity: both sit in Canada. That was the open blocker on the Stage 01
+authentication decision, which is now ratified.
+
+It settles **nothing legal**. Recorded verbatim from the founder's instruction of
+2026-09-02:
+
+> This does NOT resolve the separate WorkBC/public-sector legal/compliance
+> question regarding subprocessors, cross-border processing, or contractual
+> requirements. Keep those public-sector/legal items OPEN in the compliance
+> register until counsel resolves them. Do not treat this technical gate as legal
+> approval for WorkBC/public-sector deployment.
+
+Accordingly **`L-1` and `L-3` below remain OPEN**, and **Product 3 (Employment
+Services / WorkBC Case Manager OS) must not be deployed to a public-sector
+customer on the strength of this section.** Region is where bytes sit. It is not
+a subprocessor assessment, a cross-border processing assessment, or a contract.
+
 ## Payments and financial
 No card data stored — Stripe holds it. Invoice retention 7 years. Tax
 determination via Stripe Tax plus the existing registration and collection-policy

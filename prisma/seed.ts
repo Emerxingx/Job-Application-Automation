@@ -1,7 +1,10 @@
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
+import { normalizeDatabaseUrl } from '../src/lib/db-url';
+import { ensurePersonalWorkspace } from '../src/lib/tenancy/organizations';
+import { CONSENT_VERSIONS, REQUIRED_AT_SIGNUP } from '../src/lib/consent';
 
-const db = new PrismaClient();
+const db = new PrismaClient({ datasourceUrl: normalizeDatabaseUrl(process.env.DATABASE_URL) });
 
 const PLANS = [
   {
@@ -183,6 +186,20 @@ async function main() {
     },
     update: { passwordHash },
   });
+
+  // Stage 01: every user owns a personal workspace, and the demo account has
+  // consented to the current documents, exactly as a real signup would have.
+  await ensurePersonalWorkspace(db, user);
+  for (const purpose of REQUIRED_AT_SIGNUP) {
+    const held = await db.consentRecord.findFirst({
+      where: { userId: user.id, purpose, version: CONSENT_VERSIONS[purpose], revokedAt: null },
+    });
+    if (!held) {
+      await db.consentRecord.create({
+        data: { userId: user.id, purpose, version: CONSENT_VERSIONS[purpose], source: 'import' },
+      });
+    }
+  }
 
   const now = new Date();
   const periodEnd = new Date(now);

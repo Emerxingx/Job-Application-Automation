@@ -20,8 +20,8 @@
  * back to a customer.
  *
  * Merging happens in the read layer, in memory, over a bounded window per
- * source. There is no union view in SQLite and building one would freeze the
- * shape of four tables that change independently.
+ * source. A union view would freeze the shape of four tables that change
+ * independently, so the merge stays in code.
  */
 
 import { db } from '../db';

@@ -508,8 +508,8 @@ export async function revokeApiKey(
  * Stamp usage after a successful authenticated call.
  *
  * Deliberately swallows its own errors. This is bookkeeping on the hot path; a
- * locked SQLite table must not turn a perfectly good 200 into a 500. The
- * counter is advisory, the request already happened.
+ * lock wait or a transient connection error must not turn a perfectly good 200
+ * into a 500. The counter is advisory, the request already happened.
  */
 export async function recordApiKeyUse(keyId: string, ip: string | null): Promise<void> {
   try {

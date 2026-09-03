@@ -1,6 +1,5 @@
 import { z } from 'zod';
-import { db } from '@/lib/db';
-import { requireUser } from '@/lib/auth';
+import { requireTenant } from '@/lib/tenancy/request';
 import { fail, ok, route } from '@/lib/api';
 
 const agentSchema = z.object({
@@ -20,24 +19,26 @@ const agentSchema = z.object({
 });
 
 export const GET = route(async () => {
-  const user = await requireUser();
+  const { user, run } = await requireTenant();
 
-  const agents = await db.agent.findMany({
-    where: { userId: user.id },
-    orderBy: { createdAt: 'desc' },
-    include: { _count: { select: { matches: true, applications: true } } },
-  });
+  const agents = await run((tx) =>
+    tx.agent.findMany({
+      where: { userId: user.id },
+      orderBy: { createdAt: 'desc' },
+      include: { _count: { select: { matches: true, applications: true } } },
+    }),
+  );
 
   return ok({ agents });
 });
 
 export const POST = route(async (request: Request) => {
-  const user = await requireUser();
+  const { user, run } = await requireTenant();
   const body = agentSchema.parse(await request.json());
 
   // Enforce the plan's agent ceiling.
   const maxAgents = user.subscription?.plan.maxAgents ?? 1;
-  const count = await db.agent.count({ where: { userId: user.id } });
+  const count = await run((tx) => tx.agent.count({ where: { userId: user.id } }));
   if (count >= maxAgents) {
     return fail(
       `Your ${user.subscription?.plan.name ?? 'current'} plan includes ${maxAgents} agent${maxAgents === 1 ? '' : 's'}. Upgrade to run more searches in parallel.`,
@@ -45,32 +46,35 @@ export const POST = route(async (request: Request) => {
     );
   }
 
-  const agent = await db.agent.create({
-    data: {
-      userId: user.id,
-      name: body.name,
-      titles: JSON.stringify(body.titles),
-      keywords: JSON.stringify(body.keywords),
-      excludeKeywords: JSON.stringify(body.excludeKeywords),
-      locations: JSON.stringify(body.locations),
-      workMode: body.workMode,
-      jobType: body.jobType,
-      minSalary: body.minSalary,
-      seniority: body.seniority,
-      minMatchScore: body.minMatchScore,
-      autoApply: body.autoApply,
-      autoApplyThreshold: body.autoApplyThreshold,
-      scanFrequency: body.scanFrequency,
-    },
-  });
+  const agent = await run(async (tx) => {
+    const created = await tx.agent.create({
+      data: {
+        userId: user.id,
+        name: body.name,
+        titles: JSON.stringify(body.titles),
+        keywords: JSON.stringify(body.keywords),
+        excludeKeywords: JSON.stringify(body.excludeKeywords),
+        locations: JSON.stringify(body.locations),
+        workMode: body.workMode,
+        jobType: body.jobType,
+        minSalary: body.minSalary,
+        seniority: body.seniority,
+        minMatchScore: body.minMatchScore,
+        autoApply: body.autoApply,
+        autoApplyThreshold: body.autoApplyThreshold,
+        scanFrequency: body.scanFrequency,
+      },
+    });
 
-  await db.activityEvent.create({
-    data: {
-      userId: user.id,
-      type: 'agent',
-      message: `Created the agent "${agent.name}".`,
-      meta: JSON.stringify({ agentId: agent.id }),
-    },
+    await tx.activityEvent.create({
+      data: {
+        userId: user.id,
+        type: 'agent',
+        message: `Created the agent "${created.name}".`,
+        meta: JSON.stringify({ agentId: created.id }),
+      },
+    });
+    return created;
   });
 
   return ok({ agent }, { status: 201 });

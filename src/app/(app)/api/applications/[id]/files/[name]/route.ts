@@ -1,5 +1,4 @@
-import { db } from '@/lib/db';
-import { requireUser } from '@/lib/auth';
+import { requireTenant } from '@/lib/tenancy/request';
 import { readFolderFile } from '@/lib/storage';
 import { fail, route } from '@/lib/api';
 
@@ -7,13 +6,17 @@ type Params = { params: Promise<{ id: string; name: string }> };
 
 /** Download one file from an application folder. */
 export const GET = route(async (_request: Request, { params }: Params) => {
-  const user = await requireUser();
+  const { user, run } = await requireTenant();
   const { id, name } = await params;
 
-  const application = await db.application.findFirst({
-    where: { id, userId: user.id },
-    include: { job: true },
-  });
+  // The lookup runs on the tenant path; the filesystem read below stays
+  // outside the transaction.
+  const application = await run((tx) =>
+    tx.application.findFirst({
+      where: { id, userId: user.id },
+      include: { job: true },
+    }),
+  );
   if (!application) return fail('Application not found.', 404);
 
   const fileName = decodeURIComponent(name);

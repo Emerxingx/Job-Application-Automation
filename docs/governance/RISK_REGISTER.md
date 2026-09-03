@@ -6,19 +6,19 @@ Scored **Likelihood × Impact** (1–5). Owner is the stage that closes it.
 
 | ID | Risk | L | I | S | Mitigation | Stage |
 | --- | --- | --- | --- | --- | --- | --- |
-| R-01 | **Cross-tenant data leak.** Isolation is 63 hand-written filters; no RLS, no isolation test. One omission exposes another org's candidates, case notes or placements | 4 | 5 | 20 | RLS backstop + permanent negative-authorization suite | 01 |
+| R-01 | **Cross-tenant data leak.** Isolation was 63 hand-written filters. **Reduced in Stage 01**: RLS policies on every table (`ENABLE`+`FORCE`, generated from a committed classification), transaction-scoped context, and a negative suite through the real Prisma client with filters removed (`tests/tenancy-isolation.test.ts`). Residual: handlers not yet on the tenant path rely on their filter alone (R-35), and the proof has not run through the staging project's pooler (R-34) | 2 | 5 | 10 | Complete tenant-path adoption; run the suite against Supavisor once reachable | 02 |
 | R-02 | **AI fabricates candidate facts.** No evidence grounding exists. A fabricated claim on a submitted résumé is a career-damaging, trust-destroying failure | 4 | 5 | 20 | Career Evidence Vault; generation accepts evidence refs only; truthfulness suite | 03 |
 | R-03 | **Deployed Next.js advisories.** Proxy/middleware bypass, SSRF, cache poisoning, XSS, DoS on a version with no in-band patch | 4 | 5 | 20 | Upgrade to 16.2.6+, inside Payload's peer range. **Never `audit fix --force`** | 01 |
-| R-04 | **No migrations + SQLite.** No reproducible schema, no recovery path, no RLS capability | 5 | 4 | 20 | PostgreSQL + baseline migration `0001` + the `ADR-0002` production migration standard (restore points and recovery plans; Prisma emits no down migrations) | 01 |
+| R-04 | ~~**No migrations + SQLite.**~~ **CLOSED in Stage 01** — PostgreSQL provider, three-migration history baselined from the existing schema, CI applies it to an empty database and fails on drift; procedure and recovery in `../operations/DATABASE_MIGRATIONS.md`. Residual: the staging rehearsal and a restore rehearsal are outstanding (R-34, Stage 23) | — | — | — | Done | 01 |
 
 ## High (10–15)
 
 | ID | Risk | L | I | S | Mitigation | Stage |
 | --- | --- | --- | --- | --- | --- | --- |
 | R-05 | **Sensitive demographics influence outcomes.** No fields yet, so no defect — but nothing prevents someone adding `gender` to `User`, after which every `SELECT *` and profile serialisation carries it into scoring and prompts | 3 | 5 | 15 | Separate schema and grants **before** any such field exists | 02 |
-| R-06 | **Stripe unvalidated and non-idempotent.** Revenue-critical path never run live; a replayed event re-grants | 4 | 4 | 16 | `WebhookEvent` idempotency; full test-mode E2E | 01 / 15 |
-| R-07 | **Session theft persists 30 days.** Stateless JWT; logout deletes the cookie only | 3 | 4 | 12 | Server-side sessions with immediate revocation | 01 |
-| R-08 | **New route ships unauthenticated.** No global gate; each route re-implements `requireUser()` | 4 | 4 | 16 | Deny-by-default middleware + a route-coverage test | 01 |
+| R-06 | **Stripe unvalidated.** Revenue-critical path never run live. **Idempotency AND ordering now closed in Stage 01** (`webhook-events.ts`, 12 tests); live validation still outstanding | 4 | 3 | 12 | Live test-mode E2E | 15 |
+| R-07 | ~~**Session theft persists 30 days.**~~ **CLOSED in Stage 01** — sessions are rows; logout, password change and the account holder's own revoke take effect on the next request, with no cache (a staff-initiated revoke is a Stage 20 console function — the reason code exists, no caller does yet). A pre-Stage-01 token (no `sid`) is refused outright. Residual: the edge gate still checks only the signature, by design | — | — | — | Done | 01 |
+| R-08 | ~~**New route ships unauthenticated.**~~ **CLOSED in Stage 01** — `src/proxy.ts` (Next 16's middleware convention) denies by default; 9 negative tests including a lookalike-prefix test that caught a real fail-open bug (`/administrative-reports` matched `/admin`) | — | — | — | Done | 01 |
 | R-09 | **Silent job loss.** No queue; two designed schedulers have no runner. In an automation product, silent loss destroys trust faster than an outage | 4 | 4 | 16 | Outbox + lease workers + dead-letter + admin visibility | 01/05 |
 | R-10 | **Unlawful acquisition.** Commercial pressure to scrape prohibited sources | 3 | 5 | 15 | `SOURCE_ACCESS_POLICY.md`; per-source legal basis recorded before enablement; absolute prohibitions | 05 |
 | R-11 | **Case-note exposure.** Most sensitive data on the platform; a public-sector breach is existential for the WorkBC product | 2 | 5 | 10 | `RESTRICTED` classification, org isolation, full audit, per-org retention | 17 |
@@ -64,3 +64,130 @@ blocks the architecture baseline, is in
 **Handling rule.** An unresolved question is never converted into an engineering
 assumption. A stage reaching its exit gate with its question still open is
 **BLOCKED** at that gate.
+
+## R-31 — automated dependency majors (found and closed in Stage 01)
+
+Dependabot, enabled in Stage 00, immediately proposed `prisma` 6→7, `stripe`
+17→22, `eslint-config-next` 15→16 and three GitHub Action majors. Any of the
+first three would have broken the build: Prisma 7 removes the `package.json#prisma`
+block still in use, the Stripe SDK major is coupled to an API version pinned in
+code, and `eslint-config-next` must track `next`, which Payload pins.
+
+The config constrained patch/minor grouping but not majors. Now closed:
+`version-update:semver-major` is ignored for every npm dependency and every
+Action, with named entries preserving the reasoning. None of the eight PRs was
+merged. Detail in `../programme/DEPENDENCY_AUDIT.md`.
+
+## R-32 — esbuild ETXTBSY on CI install (mitigated, Stage 01)
+
+CI run 15 failed at `npm ci` with `ETXTBSY` from esbuild's postinstall: it writes
+its binary then immediately execs it to check `--version`, and on a busy runner
+the write handle may not be closed yet.
+
+**Diagnosed, not assumed a flake.** The same lockfile installs cleanly from
+scratch locally (exit 0), and the nested `esbuild@0.18.20` is byte-identical on
+`main` and on the branch — the change did not introduce it. It arrives via
+`@esbuild-kit/core-utils` → `drizzle-kit` → `@payloadcms/db-*`, a path no
+application code touches (`drizzle-kit` is Payload's migration CLI and never runs
+in production). That is the same chain already accepted as **R-23**.
+
+**Mitigation:** one clean retry of `npm ci`, and only after a first failure. It
+prints a `::warning::` so the retry is visible in the log rather than silent, and
+a second failure still fails the job. This does not mask a genuine install
+problem; it absorbs a known installer race.
+
+**Proper fix:** the `@esbuild-kit/*` packages are deprecated upstream ("merged
+into tsx"). They disappear when Payload updates its adapter dependencies —
+tracked with R-23.
+
+## R-33 — three ways RLS looks enabled and is not (found in Stage 01, encoded as tests)
+
+Building the `ADR-0005` mechanism proof against a real PostgreSQL 16.13 surfaced
+three failure modes that a schema review passes and a running system does not.
+None is a defect in this repository yet, because no RLS policy exists yet. All
+three are the reason the proof is a committed test rather than a paragraph.
+
+**1. Session-level `SET` leaks tenant context across pooled requests.** The
+obvious way to establish tenancy — `SET app.user_id = …` at the start of a
+request — outlives the request. Test 2 reproduces a cross-tenant read on a
+request that sets no context at all, caused by nothing but connection reuse; it
+asserts `pg_backend_pid()` is unchanged, so the scenario cannot silently not
+occur. The requirement is therefore not "set a GUC" but **set it with
+`is_local = true`, inside the same transaction as the query** (tests 3 and 10).
+
+**2. `ENABLE ROW LEVEL SECURITY` does not bind the table's owner.** For the
+owner, policies exist, are attached, and are not applied. On a managed Postgres
+the application's migration role typically *is* the owner, so this is the
+realistic configuration, not an exotic one. Test 8 reproduces a complete bypass
+with a correct policy enabled, then shows `FORCE ROW LEVEL SECURITY` closing it.
+**Every policied table must be `FORCE`d**, and Stage 01's migration standard now
+says so.
+
+**3. "No tenant context" is not always `NULL`.** `current_setting(name, true)`
+returns `NULL` on a connection that has never seen the setting and the **empty
+string** on one where it has been set and cleared — which is every recycled
+connection. A guard written as `IS NULL` fires on the first request a connection
+ever serves and never again. Test 4 asserts both states and that both fail
+closed. Policies must be equality against a real tenant id, never a `NULL` test.
+
+A fourth, milder finding is recorded in the test rather than here: `SET` and
+`SET LOCAL` take no bind parameters, so the only literal way to write them is to
+interpolate the tenant id into SQL text. `set_config($1, $2, true)` is the
+parameterised equivalent and is what the application must use — an injection site
+in the statement that decides who can see what would be the worst possible place
+for one.
+
+**Residual, unchanged:** this proves the mechanism on a stock PostgreSQL. The
+deployment-specific proof `ADR-0005` also requires — the same assertions through
+the real connection pooler in its configured pool mode — needs the provisioned
+project and is tracked as `SUPABASE-PROJECT` in
+`../programme/AUTONOMOUS_STATUS.json`.
+
+## R-34 — the build environment cannot reach the staging database (open, Stage 01)
+
+`DATABASE_URL` and `DIRECT_URL` for the Supabase staging project are present
+and correctly shaped (transaction pooler on 6543 with `pgbouncer=true`,
+session endpoint on 5432, host in `ca-central-1` — verified without reading
+the values). But the environment's egress proxy relays HTTPS only, the
+project's HTTPS host is policy-denied (403 on CONNECT), and the pooler needs
+raw TCP, which the gateway accepts and then black-holes (the PostgreSQL
+`SSLRequest` never receives a reply; a plain startup gets a reset). Direct TCP
+to the pooler times out.
+
+Consequence: every proof that needs the *real* project — migration rehearsal
+against Supabase, the pooled-runtime proof through Supavisor, region read from
+a live query, Supabase Auth token exchange — is `NOT VERIFIED`, not `PASS`.
+The mechanism, the migrations, the policies and the Prisma path are proven on
+PostgreSQL 16 and through PgBouncer in transaction mode locally and in CI.
+
+Mitigation: the exact requirement is recorded in `../programme/AUTONOMOUS_STATUS.json`
+(allow TCP egress to the pooler host on 5432 and 6543, or run the recorded
+commands from a network that has it, or add the connection strings as GitHub
+Actions secrets so CI can run the same suites against staging). Owner:
+founder / environment administrator.
+
+## R-35 — tenant-path adoption is partial (open, Stage 01 → 02)
+
+RLS protects a query only when the query runs on the tenant path
+(`requireTenant()` → `run(tx => …)`). Stage 01 converted the candidate-facing
+API routes and dashboard pages that query Prisma directly; the exact list of
+what is and is not on the tenant path is in `../programme/STAGE01_EVIDENCE.md`.
+Handlers still on the system client — chiefly those that go through library
+functions such as billing, exports, the scanner and the apply engine — are
+protected by their `where: { userId }` filters exactly as before Stage 01: no
+regression, but no backstop either. Two failure modes remain possible until
+adoption is complete: a forgotten filter in a library function, and a `db.`
+call written inside a `run` callback (which silently escapes the transaction).
+Mitigation: continue adoption as each library area is touched in Stages 02–10,
+and add a lint rule or test that flags `db.` inside `run` callbacks (Stage 02).
+
+## R-36 — the legal documents behind the consent records are not yet written (open)
+
+Signup now records versioned consent to the Terms of Service and Privacy
+Policy (`ConsentRecord`, version `2026-09-01`), and `/terms` and `/privacy`
+exist so that consent is informed. Their **text is pending founder and
+counsel** (L-5 and the `ADR-0015` disclosure obligations); the pages say so
+explicitly and show the version identifier. A user who signs up today has
+agreed to a document whose wording is not published — acceptable while there
+are no real users, not acceptable at launch. Owner: founder + counsel; must be
+resolved before any real signup (Stage 24 gate at the latest).

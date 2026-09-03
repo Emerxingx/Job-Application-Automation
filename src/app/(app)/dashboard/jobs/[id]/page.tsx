@@ -1,8 +1,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { ArrowLeft, Calendar, ExternalLink, MapPin, Wallet } from 'lucide-react';
-import { db } from '@/lib/db';
-import { requireUser } from '@/lib/auth';
+import { requireTenant } from '@/lib/tenancy/request';
 import { getQuota } from '@/lib/subscription';
 import { parseJson } from '@/lib/types';
 import type { ScoreBreakdown } from '@/lib/types';
@@ -21,20 +20,28 @@ const BREAKDOWN_LABELS: Record<keyof ScoreBreakdown, string> = {
 };
 
 export default async function JobDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  const user = await requireUser();
+  const { user, run } = await requireTenant();
   const { id } = await params;
 
-  const job = await db.job.findUnique({ where: { id } });
-  if (!job) notFound();
-
-  const [match, application, quota] = await Promise.all([
-    db.jobMatch.findFirst({
-      where: { jobId: id, agent: { userId: user.id } },
-      orderBy: { matchScore: 'desc' },
+  // Job is reference data, readable on the tenant path; the match and the
+  // application are the user's own rows.
+  const [loaded, quota] = await Promise.all([
+    run(async (tx) => {
+      const job = await tx.job.findUnique({ where: { id } });
+      if (!job) return null;
+      const [match, application] = await Promise.all([
+        tx.jobMatch.findFirst({
+          where: { jobId: id, agent: { userId: user.id } },
+          orderBy: { matchScore: 'desc' },
+        }),
+        tx.application.findUnique({ where: { userId_jobId: { userId: user.id, jobId: id } } }),
+      ]);
+      return { job, match, application };
     }),
-    db.application.findUnique({ where: { userId_jobId: { userId: user.id, jobId: id } } }),
     getQuota(user.id),
   ]);
+  if (!loaded) notFound();
+  const { job, match, application } = loaded;
 
   const breakdown = parseJson<ScoreBreakdown>(match?.scoreBreakdown, {
     skills: 0,

@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server';
+import { Prisma } from '@prisma/client';
 import { ZodError } from 'zod';
 import { UnauthorizedError } from './auth';
+import { TenantContextError } from './tenancy/context';
+import { OrganizationAccessError } from './tenancy/organizations';
 
 /** Standard JSON success response. */
 export function ok<T>(data: T, init?: ResponseInit) {
@@ -47,10 +50,26 @@ export function route<Args extends unknown[]>(
       if (error instanceof ZodError) {
         return fail(error.issues[0]?.message ?? 'Invalid request.', 422);
       }
+      if (error instanceof OrganizationAccessError) {
+        return fail(error.message, error.status);
+      }
+      if (error instanceof TenantContextError) {
+        // A request that could not establish who it acts for is not a server
+        // fault and must not read like one; it is refused as unauthorised.
+        return fail('Please sign in to continue.', 401);
+      }
+      if (error instanceof Prisma.PrismaClientKnownRequestError) {
+        // Known database outcomes map to statuses; their messages are not
+        // returned because they name tables, columns and constraints.
+        if (error.code === 'P2002') return fail('That already exists.', 409);
+        if (error.code === 'P2003') return fail('A referenced record does not exist.', 422);
+        if (error.code === 'P2025') return fail('Not found.', 404);
+      }
+      // Everything else is logged server-side and answered generically: an
+      // unexpected error's message can carry a table name, a policy name or a
+      // provider's own text, none of which belongs in a response body.
       console.error('[api] unhandled error:', error);
-      const message =
-        error instanceof Error ? error.message : 'Something went wrong. Please try again.';
-      return fail(message, 500);
+      return fail('Something went wrong. Please try again.', 500);
     }
   };
 }

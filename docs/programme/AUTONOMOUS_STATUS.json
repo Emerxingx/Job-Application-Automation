@@ -1,0 +1,172 @@
+{
+  "$comment": "Machine-readable controller for the autonomous build programme. Authoritative over any chat transcript: if this file and a conversation disagree, this file wins. Updated at every stage checkpoint.",
+  "schema_version": 1,
+  "updated_at": "2026-09-03",
+  "current_stage": "01",
+  "last_completed_stage": "00",
+  "current_branch": "claude/stage-01-security-identity-tenancy",
+  "current_head": "ef12ff836675cf1a0fefc94ed032de004104b9df",
+  "current_head_meaning": "SHA of the last commit whose full gate set was verified locally (lint, typecheck, tests, build). Set by the status-sync commit that immediately follows it, so it names a real, verified commit rather than the one it is written in.",
+  "current_pr": 13,
+  "main_head": "d6ae8b3a9180b529abe06f23417515432c0a7f0e",
+  "run_complete": false,
+  "stage_status": {
+    "00": "PASS",
+    "01": "PARTIAL",
+    "02": "NOT_STARTED",
+    "03": "NOT_STARTED",
+    "04": "NOT_STARTED",
+    "05": "NOT_STARTED",
+    "06": "NOT_STARTED",
+    "07": "NOT_STARTED",
+    "08": "NOT_STARTED",
+    "09": "NOT_STARTED",
+    "10": "NOT_STARTED",
+    "11": "NOT_STARTED",
+    "12": "NOT_STARTED",
+    "13": "NOT_STARTED",
+    "14": "NOT_STARTED",
+    "15": "NOT_STARTED",
+    "16": "NOT_STARTED",
+    "17": "NOT_STARTED",
+    "18": "NOT_STARTED",
+    "19": "NOT_STARTED",
+    "20": "NOT_STARTED",
+    "21": "NOT_STARTED",
+    "22": "BLOCKED_BY_DESIGN",
+    "23": "NOT_STARTED",
+    "24": "NOT_STARTED"
+  },
+  "stage_01_progress": {
+    "webhook_replay_and_ordering": "DONE — src/lib/billing/webhook-events.ts, wired into the Stripe route, 12 tests",
+    "deny_by_default_edge_gate": "DONE — src/proxy.ts, negative tests; segment-aware prefix matching; Stage 01 additions (/terms, /privacy, /api/auth/exchange) covered",
+    "nextjs_16_upgrade": "DONE — next 16.3.4 + eslint-config-next 16.3.3",
+    "dependabot_major_guard": "DONE (R-31)",
+    "auth_decision_gate": "DONE — Supabase Auth, ratified 2026-09-02",
+    "rls_mechanism_proof": "DONE — tests/rls-isolation.test.ts, now pooler-aware (pristine vs recycled backend)",
+    "dependency_remediation_adr_0017": "DONE — npm audit 0 high",
+    "supabase_environment_verification": "PARTIAL — DATABASE_URL (transaction pooler, 6543, pgbouncer=true) and DIRECT_URL (session, 5432) present and correctly shaped, host in ca-central-1; verified WITHOUT printing. SUPABASE_REGION / SUPABASE_PROJECT_NAME NOT present. Connectivity BLOCKED by egress policy (raw TCP not relayed; HTTPS to the project 403). See blockers[SUPABASE-NETWORK] and STAGE01_EVIDENCE.md §1",
+    "postgresql_migration": "DONE locally and in CI — provider switched, 3-migration history (baseline unchanged in semantics; tenancy_identity + backfill; generated row_level_security), drift-checked both directions, CI validates on every push, docs/operations/DATABASE_MIGRATIONS.md. NOT VERIFIED against the Supabase project (network)",
+    "sqlite_assumptions_removed": "DONE — case-insensitive search sites, NULLS LAST on nullable-date DESC sorts, Payload adapter by URI scheme, password percent-encoding (src/lib/db-url.ts), stale comments",
+    "rls_policies_on_real_tables": "DONE — 70/70 tables ENABLE+FORCE, policies generated from src/lib/tenancy/rls-tables.ts; tenant write surface minimal (User: own row, profile columns only; Organization/Membership: read-only; Coupon: system); _prisma_migrations revoked; determinism test; coverage test fails on an unclassified table",
+    "transaction_scoped_tenant_context": "DONE — src/lib/tenancy/context.ts (SET LOCAL ROLE app_tenant + set_config(…, TRUE) in one interactive transaction; ids validated before use); requireTenant() in src/lib/tenancy/request.ts",
+    "tenant_path_adoption": "PARTIAL — see STAGE01_EVIDENCE.md §7 for the exact list; remaining handlers rely on application filters as before (R-35)",
+    "organization_membership_wiring": "DONE — personal workspace per user (signup + backfill), membership service with fail-closed authorisation (an invitation can never touch an active membership; pending invitations withdrawable), routes, 14 negative tests; Organization.type + aiProcessingPolicy (default EXTERNAL_AI_PROHIBITED)",
+    "pooled_runtime_proof": "PARTIAL — tests/tenancy-isolation.test.ts (real Prisma client, filters removed, PID-asserted reuse, 40 parallel requests) passes on direct PostgreSQL 16 and through PgBouncer 1.22 in transaction mode (28/28, 22/22). NOT VERIFIED through Supavisor on the staging project (network)",
+    "session_revocation": "DONE — Session rows; logout, password change and the account holder's own revoke are immediate; session list; pre-Stage-01 tokens refused; 11 tests. Staff-initiated revoke: reason code only, no caller (Stage 20 console)",
+    "supabase_auth_identity": "IMPLEMENTED-NOT-VALIDATED — token verification (HS256 secret or JWKS; issuer/audience/expiry/subject), provider-side email verification via GET /auth/v1/user (never from a token claim — the review found the first version trusted user-writable user_metadata), identity linkage rules, exchange route (503 when unconfigured). 14 verification tests with locally minted tokens + 6 linkage negatives against the database. No real token verified",
+    "mfa_email_verification_recovery_oauth": "BLOCKED (CREDENTIAL + EXTERNAL_SERVICE) — Supabase Auth flows; needs SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY or SUPABASE_JWT_SECRET, and HTTPS egress to the project host",
+    "consent_and_audit": "DONE (capture + audit) — ConsentRecord at signup (required checkbox, server-side refusal), /terms and /privacy pages stating the text is pending counsel (R-36); security events in AuditLog without secrets (email digest on failed sign-in)",
+    "security_negative_testing": "DONE for everything reachable: cross-tenant read/write, missing/malformed/unknown context, revoked/expired session, invalid/expired/wrong-issuer/wrong-audience identity token, missing membership, pending invitation, privilege escalation, owner bypass, pooled reuse (PID asserted), parallel requests, background execution, webhook replay/ordering (existing 12)",
+    "independent_review": "DONE — 13 findings (2 HIGH: identity linkage trusted a user-writable claim; invite upsert could demote/lock out an owner), all HIGH/MEDIUM fixed with negative tests in the same PR, LOW/NIT fixed or recorded; see STAGE01_EVIDENCE.md §11"
+  },
+  "stage_01_exit_gate": {
+    "met": [
+      "Deny-by-default route gate with negative tests",
+      "Webhook replay and ordering closed in code and tested",
+      "Authentication decision made, evidenced and ratified",
+      "PostgreSQL in use with a versioned, CI-validated migration history (local + CI)",
+      "RLS on every table, generated from a committed classification, proven through the real Prisma client with filters removed, on PostgreSQL 16 and through a transaction-mode pooler (PgBouncer)",
+      "Transaction-scoped tenant context; missing/malformed context fails closed before the database",
+      "Organization / Membership wired; per-tenant AI policy in the schema with a fail-closed default",
+      "Server-side session revocation, immediate; session list and password-change revocation",
+      "Consent captured, versioned and revocable; security events audited without secrets",
+      "No high-severity advisory on any deployed path",
+      "Full gate set green: lint 0 errors / 8 warnings, typecheck 0, 766/766 tests (0 skipped), build 0; independent review findings closed"
+    ],
+    "not_met": [
+      "Migration rehearsal and restore path against the Supabase project (NOT VERIFIED — network)",
+      "Pooled-runtime proof through Supavisor on the staging project (NOT VERIFIED — network)",
+      "Region confirmed from a live query on the project (PARTIAL — confirmed from the endpoint hostname only)",
+      "MFA, email verification, account recovery, OAuth (BLOCKED — Supabase Auth credentials + egress)",
+      "Tenant-path adoption complete across every request handler (PARTIAL — R-35)"
+    ],
+    "verdict": "Stage 01 is PARTIAL, not PASS. Every unmet item traces to the staging project being unreachable from the build environment, except tenant-path adoption, which is engineering and continues in Stage 02 alongside the schema work that touches those handlers."
+  },
+  "next_requirement": "Stage 01 cannot reach PASS from this environment: the remaining gate items need TCP egress to the Supabase pooler (or CI secrets) and the Supabase Auth credentials. Per the blocker policy, independent work continues: Stage 02 (Candidate Digital Twin) begins on the PostgreSQL baseline that now exists, on a new branch from main after PR #13 merges as PARTIAL-but-mergeable (all gates that can run are green, no false PASS is recorded). The first Stage 02 requirement is the Digital Twin schema on the migration history, with every new table classified for RLS.",
+  "blockers": [
+    {
+      "id": "L-3",
+      "type": "LEGAL_COMPLIANCE",
+      "issue": "Cross-border AI processing acceptability under intended customer contracts",
+      "owner": "Founder + privacy counsel",
+      "latest_blocking_stage": "03",
+      "status": "OPEN"
+    },
+    {
+      "id": "SUPABASE-RESIDENCY",
+      "type": "EXTERNAL_SERVICE",
+      "issue": "Supabase Auth data residency for a Canada-Central project could not be verified: supabase.com is blocked by this environment's egress proxy. ADR-0015 requires personal data to stay in Canada, and identity data is personal data.",
+      "owner": "Founder (or any network with access to Supabase docs)",
+      "latest_blocking_stage": "01",
+      "status": "RESOLVED_TECHNICALLY",
+      "effect": "The authentication decision (Supabase Auth) is RECORDED but NOT RATIFIED. No auth implementation may start until this clears.",
+      "resolved_on": "2026-09-02",
+      "resolution": "Founder attestation: project provisioned in Canada (Central), AWS ca-central-1; Supabase Auth records live in the project's own Postgres auth schema, so Auth residency follows the project database. Recorded in docs/governance/COMPLIANCE_REGISTER.md and AUTH_DECISION_GATE.md §6.",
+      "provenance": "Founder attestation, NOT verified by this agent — supabase.com is blocked by the egress proxy. Recorded as an attestation, never as a measurement.",
+      "residual": "Region confirmed from the connection endpoint hostname (ca-central-1) on 2026-09-03; a live query from the project remains outstanding (network).",
+      "does_not_resolve": "The WorkBC/public-sector legal question on subprocessors, cross-border processing and contractual requirements. L-1 and L-3 remain OPEN. Product 3 must not be deployed to a public-sector customer on the strength of this."
+    },
+    {
+      "id": "SUPABASE-NETWORK",
+      "type": "EXTERNAL_SERVICE",
+      "issue": "The Supabase staging project is not reachable from the Claude build environment. DATABASE_URL and DIRECT_URL are present and correctly shaped (verified without reading values). Direct TCP to aws-0-ca-central-1.pooler.supabase.com:5432/6543 times out; the egress proxy accepts CONNECT to those ports but relays no bytes (PostgreSQL SSLRequest gets no reply, startup gets ECONNRESET) and its README lists raw-TCP databases as unsupported; HTTPS to <ref>.supabase.co, supabase.com and api.supabase.com is policy-denied (403). Reported, not worked around.",
+      "owner": "Founder / environment administrator",
+      "latest_blocking_stage": "01",
+      "status": "OPEN",
+      "needed": [
+        "TCP egress from the build environment to aws-0-ca-central-1.pooler.supabase.com on 5432 and 6543, OR",
+        "the two connection strings as GitHub Actions secrets (SUPABASE_STAGING_DATABASE_URL, SUPABASE_STAGING_DIRECT_URL) so CI can run the migration deploy and the tenancy suites against staging, OR",
+        "the commands in docs/programme/STAGE01_EVIDENCE.md §8 run from any network that can reach the pooler, with the redacted output pasted into the PR",
+        "for Supabase Auth: SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY or SUPABASE_JWT_SECRET, plus HTTPS egress to the project host"
+      ],
+      "effect": "Blocks the four NOT VERIFIED / BLOCKED items of the Stage 01 exit gate. Blocks nothing else: all engineering that does not need the live project is done and proven locally and in CI.",
+      "note": "SUPABASE_REGION and SUPABASE_PROJECT_NAME, listed in the brief, are not set in this environment; nothing depends on them."
+    }
+  ],
+  "external_actions": [
+    {
+      "id": "BRANCH-PROTECTION",
+      "action": "Require the CI checks on main: 'Verify (lint · typecheck · test · build)', 'Generated-file determinism', 'Line-ending policy'; and require a PR before merging.",
+      "why": "Workflows exist and pass, but nothing enforces them. Verified: the GitHub MCP server exposes no branch-protection tool, so this cannot be done from the agent.",
+      "status": "REQUIRED"
+    },
+    {
+      "id": "SECRET-SCANNING",
+      "action": "Enable secret scanning and push protection (Settings -> Code security).",
+      "status": "REQUIRED"
+    },
+    {
+      "id": "REPO-VISIBILITY",
+      "action": "Decide whether this proprietary commercial repository should remain PUBLIC.",
+      "why": "Verified public via the GitHub API (private: false). SECURITY.md now truthfully documents unmitigated weaknesses (no RLS, unrevocable sessions, no MFA, 6 high advisories) and is world-readable. Defensible while there are no real users and no real data; it should be a deliberate decision, not a default.",
+      "status": "FOUNDER_DECISION"
+    },
+    {
+      "id": "SUPABASE-STAGING-ACCESS",
+      "action": "Provide one of the three access routes in blockers[SUPABASE-NETWORK].needed, plus the Supabase Auth variables.",
+      "why": "Every remaining Stage 01 gate item needs the real project; the engineering is complete and waiting on reachability.",
+      "status": "REQUIRED"
+    },
+    {
+      "id": "LEGAL-DOCUMENT-TEXT",
+      "action": "Publish the Terms of Service and Privacy Policy text (with counsel) at /terms and /privacy under version 2026-09-01, or bump CONSENT_VERSIONS when the text lands.",
+      "why": "Consent is captured against a version whose wording is not yet published (R-36). Fine with no real users; a launch blocker.",
+      "status": "FOUNDER_DECISION"
+    }
+  ],
+  "invariants_never_to_break": [
+    "No autonomous application submission (ADR-0016). Stage 22 is blocked by design.",
+    "No sensitive demographic attribute may reach matching, scoring, ranking or recommendation (ADR-0007).",
+    "No unlawful data acquisition: no CAPTCHA bypass, access-control circumvention or fingerprint evasion (ADR-0008).",
+    "Never run npm audit fix --force: it leaves Payload's peer range (ADR-0017).",
+    "Never skip, disable or delete a test to obtain a green run.",
+    "No integration described above its recorded status in INTEGRATION_REGISTER.md.",
+    "RLS: set tenancy with set_config(name, value, true) inside the query's transaction; FORCE ROW LEVEL SECURITY on every policied table; never guard on IS NULL alone — a recycled connection reports the empty string. Proven in tests/rls-isolation.test.ts, recorded as R-33.",
+    "Never print, log or commit DATABASE_URL / DIRECT_URL; diagnostics use describeDatabaseUrl() only.",
+    "Every new table is classified in src/lib/tenancy/rls-tables.ts and the RLS migration regenerated; the coverage test enforces it.",
+    "User-facing queries run inside requireTenant().run(tx => …); a db. call inside a run callback escapes the transaction and is a defect.",
+    "prisma migrate deploy is the only production migration path; db push is local prototyping only.",
+    "DATABASE_URL and DIRECT_URL authenticate as the SAME role: the system RLS policy is bound to the migration role; a different application role sees nothing."
+  ]
+}

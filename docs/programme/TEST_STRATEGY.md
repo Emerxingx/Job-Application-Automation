@@ -1,12 +1,26 @@
 # Test Strategy
 
 ## Current state (measured)
-- **670 tests, 0 failures, 158 suites**, 16 files, 7,668 lines. Runner:
-  `node --test` with `tsx`.
-- Coverage is concentrated in **billing, analytics, integrations and CRM** —
+
+Re-measured 2026-09-03, end of Stage 01. The baseline this document was written
+against — 670 tests, no CI, lint never run — is superseded.
+
+| | At the audit | Now |
+| --- | --- | --- |
+| Tests | 670 | **800+** with a migrated PostgreSQL available (the database suites skip with a reason without one, and throw in CI) |
+| Suites | 158 | 180+ |
+| Files / lines | 16 / 7,668 | 19 / 8,533 |
+| CI | none | 3 jobs, all required (`.github/workflows/ci.yml`) |
+| Lint | never run | 0 errors, 8 warnings, blocking at `--max-warnings=8` |
+
+Runner: `node --test` with `tsx`. Added since the audit: webhook replay and
+ordering (12), the deny-by-default edge gate (7), and the `ADR-0005` RLS
+isolation proof (10, below).
+
+- Coverage is still concentrated in **billing, analytics, integrations and CRM** —
   matching where the code is, not where the product is.
 - Thin or absent: auth, matching, applications, jobs, storage.
-- **No E2E tests.** **No CI.** **Lint has never run.**
+- **No E2E tests.**
 
 The suite is a genuine asset and the regression guard for the PostgreSQL
 migration. It is not evidence that the product works — most of it tests the
@@ -43,6 +57,18 @@ user A cannot read user B's row — **with application filters removed in the
 harness**, so the test exercises RLS specifically. Without this, tenant isolation
 is an assertion rather than a property.
 
+*Progress:* **both halves are done.** The mechanism: `tests/rls-isolation.test.ts`,
+10 assertions against a real PostgreSQL in CI. The per-table half:
+`tests/tenancy-isolation.test.ts` runs through the real Prisma client on the
+migrated schema with application filters removed — every table classified and
+forced, cross-tenant read and write, missing/malformed context, connection
+reuse asserted by backend PID, 40 parallel requests, organisation scope, and
+the tenant role's write surface (own-row column privileges; no writes to the
+roster or the organisation record). Membership authorisation negatives are in
+`tests/organizations.test.ts`, identity linkage in `tests/identity-link.test.ts`,
+sessions in `tests/sessions.test.ts`. What is NOT done: the same suite through
+the staging project's pooler (R-34).
+
 **2. AI truthfulness (Stage 03).** Given a fixed profile and evidence vault,
 assert that no generated document contains an employer, technology, date,
 credential or metric absent from the vault. Runs against both the deterministic
@@ -52,14 +78,52 @@ identical inputs produce identical scores; and an injection attempt in a job
 description cannot redirect a system prompt.
 
 ## Lint: measure, then ratchet
-ESLint is neither installed nor configured, so `npm run lint` prompts
-interactively and exits 1. The path is:
 
-1. Install ESLint; configure `next/core-web-vitals`.
-2. Run in CI with `continue-on-error` and **publish the violation count**.
-3. Plan remediation by rule class against that measured number.
-4. Flip each cleaned rule to `error`. **Never a blanket enable.**
-5. Remove `eslint: { ignoreDuringBuilds: true }` once the backlog is clear.
+Done in Stage 00 and re-baselined in Stage 01. ESLint is installed, configured as
+native flat config, and blocking in CI at `--max-warnings=8`; the count and the
+justification for every warning are in `LINT_BASELINE.md`. The last step —
+removing `eslint: { ignoreDuringBuilds: true }` from `next.config.mjs` — is
+done: it stopped meaning anything once lint became its own gate, and Next 16
+warned on the key. The plan is complete.
+
+## The database suites
+
+Since Stage 01 the transactional store is PostgreSQL, and five files need a
+real one: `rls-isolation` (mechanism; creates its own schema and role),
+`tenancy-isolation`, `organizations`, `sessions` and `identity-link` (all run
+through the migrated schema — apply the history with `npm run db:migrate:deploy`
+first).
+
+**Running them.** Set `RLS_TEST_DATABASE_URL` (any PostgreSQL 14+ the test may
+create and drop a schema and a role in) and `TENANCY_TEST_DATABASE_URL` (a
+database the migrations have been applied to; the same one is fine):
+
+```bash
+RLS_TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/jobpilot_test \
+TENANCY_TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/jobpilot_test npm test
+```
+
+Without them, those files skip with an explicit reason and the rest of the
+suite runs normally — a developer without PostgreSQL is not blocked.
+
+**They cannot be skipped where it matters.** Each file throws when its URL is
+absent and `CI=true` (or `RLS_TEST_REQUIRED=1`). CI
+supplies a `postgres:16` service container, so deleting that service fails the
+job rather than quietly turning the proof off. This is rule 1 below applied to a
+test that is *conditional* by nature: conditional must not become optional.
+
+**What it proves, and what it does not.** It proves the mechanism on a stock
+PostgreSQL: transaction-scoped context, fail-closed behaviour, write containment,
+`FORCE ROW LEVEL SECURITY`, and three specific ways RLS can be present and inert
+(`../governance/RISK_REGISTER.md` R-33). It does **not** prove the deployed
+configuration — the same assertions through the real connection pooler in its
+configured pool mode are a separate, still-outstanding Stage 01 exit condition.
+Nor does it prove any application table is protected: no policy exists on any
+real table yet.
+
+Connection reuse is asserted rather than assumed — the pooled tests compare
+`pg_backend_pid()` across checkouts — so a green run cannot mean the scenario
+never occurred.
 
 ## Rules
 1. **No test may be skipped, disabled or deleted to obtain a green run.** A

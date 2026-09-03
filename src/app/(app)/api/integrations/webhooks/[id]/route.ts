@@ -9,8 +9,7 @@
  */
 
 import { z } from 'zod';
-import { db } from '@/lib/db';
-import { requireUser } from '@/lib/auth';
+import { requireTenant } from '@/lib/tenancy/request';
 import { fail, ok, route } from '@/lib/api';
 import {
   WEBHOOK_EVENT_TYPES,
@@ -45,11 +44,11 @@ const patchSchema = z.object({
 });
 
 export const PATCH = route(async (request: Request, { params }: Params) => {
-  const user = await requireUser();
+  const { user, run } = await requireTenant();
   const { id } = await params;
   const body = patchSchema.parse(await request.json());
 
-  const existing = await db.webhookEndpoint.findFirst({ where: { id, userId: user.id } });
+  const existing = await run((tx) => tx.webhookEndpoint.findFirst({ where: { id, userId: user.id } }));
   if (!existing) return fail('Webhook endpoint not found.', 404);
 
   if (body.url) {
@@ -59,24 +58,26 @@ export const PATCH = route(async (request: Request, { params }: Params) => {
 
   const secret = body.rotateSecret ? generateWebhookSecret() : undefined;
 
-  const row = await db.webhookEndpoint.update({
-    where: { id },
-    data: {
-      ...(body.url ? { url: body.url.trim() } : {}),
-      ...(body.description !== undefined ? { description: body.description } : {}),
-      ...(body.events ? { events: JSON.stringify([...new Set(body.events)]) } : {}),
-      ...(secret ? { secret } : {}),
-      ...(body.status
-        ? {
-            status: body.status,
-            ...(body.status === 'active'
-              ? // Re-enabling starts from a clean slate; see the header note.
-                { consecutiveFailures: 0, disabledAt: null, disabledReason: null }
-              : {}),
-          }
-        : {}),
-    },
-  });
+  const row = await run((tx) =>
+    tx.webhookEndpoint.update({
+      where: { id },
+      data: {
+        ...(body.url ? { url: body.url.trim() } : {}),
+        ...(body.description !== undefined ? { description: body.description } : {}),
+        ...(body.events ? { events: JSON.stringify([...new Set(body.events)]) } : {}),
+        ...(secret ? { secret } : {}),
+        ...(body.status
+          ? {
+              status: body.status,
+              ...(body.status === 'active'
+                ? // Re-enabling starts from a clean slate; see the header note.
+                  { consecutiveFailures: 0, disabledAt: null, disabledReason: null }
+                : {}),
+            }
+          : {}),
+      },
+    }),
+  );
 
   return ok({
     endpoint: toSafeWebhookEndpoint(row),
@@ -98,12 +99,15 @@ export const PATCH = route(async (request: Request, { params }: Params) => {
  * delete when the history matters.
  */
 export const DELETE = route(async (_request: Request, { params }: Params) => {
-  const user = await requireUser();
+  const { user, run } = await requireTenant();
   const { id } = await params;
 
-  const existing = await db.webhookEndpoint.findFirst({ where: { id, userId: user.id } });
-  if (!existing) return fail('Webhook endpoint not found.', 404);
-
-  await db.webhookEndpoint.delete({ where: { id } });
+  const deleted = await run(async (tx) => {
+    const existing = await tx.webhookEndpoint.findFirst({ where: { id, userId: user.id } });
+    if (!existing) return false;
+    await tx.webhookEndpoint.delete({ where: { id } });
+    return true;
+  });
+  if (!deleted) return fail('Webhook endpoint not found.', 404);
   return ok({ ok: true });
 });

@@ -1,7 +1,6 @@
 import Link from 'next/link';
 import { MessagesSquare } from 'lucide-react';
-import { db } from '@/lib/db';
-import { requireUser } from '@/lib/auth';
+import { requireTenant } from '@/lib/tenancy/request';
 import { Card, EmptyState, PageHeader, StatusBadge, formatRelative } from '@/components/ui';
 import { InterviewPrepButton } from '@/components/interview-prep-button';
 
@@ -9,13 +8,15 @@ export const metadata = { title: 'Interview prep' };
 export const dynamic = 'force-dynamic';
 
 export default async function InterviewPrepPage() {
-  const user = await requireUser();
+  const { user, run } = await requireTenant();
 
-  const applications = await db.application.findMany({
-    where: { userId: user.id, status: { in: ['submitted', 'interviewing', 'offer'] } },
-    orderBy: { createdAt: 'desc' },
-    include: { job: true, interviewPrep: true },
-  });
+  const applications = await run((tx) =>
+    tx.application.findMany({
+      where: { userId: user.id, status: { in: ['submitted', 'interviewing', 'offer'] } },
+      orderBy: { createdAt: 'desc' },
+      include: { job: true, interviewPrep: true },
+    }),
+  );
 
   const ready = applications.filter((a) => a.interviewPrep);
   const pending = applications.filter((a) => !a.interviewPrep);

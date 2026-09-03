@@ -1,8 +1,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { ArrowLeft, Building2, Lightbulb, MessageCircleQuestion, Star } from 'lucide-react';
-import { db } from '@/lib/db';
-import { requireUser } from '@/lib/auth';
+import { requireTenant } from '@/lib/tenancy/request';
 import { parseJson } from '@/lib/types';
 import type { InterviewQuestion, StarStory } from '@/lib/types';
 import { Card } from '@/components/ui';
@@ -20,13 +19,15 @@ const CATEGORY_LABELS: Record<string, string> = {
 };
 
 export default async function PrepDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  const user = await requireUser();
+  const { user, run } = await requireTenant();
   const { id } = await params;
 
-  const application = await db.application.findFirst({
-    where: { id, userId: user.id },
-    include: { job: true, interviewPrep: true },
-  });
+  const application = await run((tx) =>
+    tx.application.findFirst({
+      where: { id, userId: user.id },
+      include: { job: true, interviewPrep: true },
+    }),
+  );
   if (!application) notFound();
 
   const prep = application.interviewPrep;

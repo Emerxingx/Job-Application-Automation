@@ -1300,7 +1300,7 @@ export async function listInvoicesForUser(userId: string, options: ListInvoicesO
       ...(options.status ? { status: options.status } : {}),
       ...(options.includeUnissued ? {} : { number: { not: null } }),
     },
-    orderBy: [{ issuedAt: 'desc' }, { createdAt: 'desc' }],
+    orderBy: [{ issuedAt: { sort: 'desc', nulls: 'last' } }, { createdAt: 'desc' }],
     take: limit,
     ...(options.cursor ? { cursor: { id: options.cursor }, skip: 1 } : {}),
     include: { lines: { orderBy: { sortOrder: 'asc' } }, taxLines: true },

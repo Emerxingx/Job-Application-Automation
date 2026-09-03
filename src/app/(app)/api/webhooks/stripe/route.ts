@@ -1,6 +1,13 @@
 import { NextResponse } from 'next/server';
 import type Stripe from 'stripe';
 import { activatePlan, setSubscriptionStatus } from '@/lib/subscription';
+import {
+  markWebhookFailed,
+  markWebhookProcessed,
+  normalizeStripeEventType,
+  recordWebhookEvent,
+  type SubjectType,
+} from '@/lib/billing/webhook-events';
 import type { BillingInterval } from '@/lib/types';
 
 /**
@@ -13,6 +20,21 @@ import type { BillingInterval } from '@/lib/types';
  * The raw body is required for signature verification, so this route opts out
  * of any body parsing and runs on Node rather than the edge (the Stripe SDK
  * needs Node crypto).
+ *
+ * EVERY VERIFIED EVENT IS RECORDED BEFORE IT IS DISPATCHED.
+ *
+ * Stripe retries until it receives a 2xx, so the same `evt_…` genuinely arrives
+ * more than once — and before Stage 01 this route dispatched on every delivery,
+ * so a replayed `checkout.session.completed` activated a plan twice. It also
+ * cannot guarantee order, so a delayed `subscription.updated(active)` could
+ * land after `subscription.deleted` and resurrect a cancelled subscription.
+ * `recordWebhookEvent` closes both: a unique key on (provider, event id) for
+ * replay, and a comparison against the newest processed event for the same
+ * subject for ordering. See src/lib/billing/webhook-events.ts.
+ *
+ * Duplicate and stale deliveries return 200. They are normal operation, not
+ * errors — answering non-2xx would make Stripe retry an event we have
+ * deliberately declined to apply.
  */
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -28,14 +50,53 @@ export async function POST(request: Request) {
   }
 
   let event: Stripe.Event;
+  let payload: string;
   try {
     const { constructWebhookEvent } = await import('@/lib/providers/payments/stripe');
-    const payload = await request.text();
+    payload = await request.text();
     event = constructWebhookEvent(payload, signature);
   } catch (error) {
     // A bad signature is an attacker or a misconfiguration; either way, refuse.
     console.error('[stripe-webhook] signature verification failed:', error);
     return NextResponse.json({ error: 'Invalid signature.' }, { status: 400 });
+  }
+
+  // Identify the subject whose transitions must stay ordered.
+  let subjectType: SubjectType | undefined;
+  let subjectId: string | undefined;
+  const object = event.data.object as { id?: unknown; subscription?: unknown };
+  if (event.type.startsWith('customer.subscription.')) {
+    subjectType = 'subscription';
+    subjectId = typeof object.id === 'string' ? object.id : undefined;
+  } else if (event.type.startsWith('invoice.')) {
+    subjectType = 'subscription';
+    subjectId = typeof object.subscription === 'string' ? object.subscription : undefined;
+  } else if (event.type === 'checkout.session.completed') {
+    subjectType = 'subscription';
+    const sub = (event.data.object as Stripe.Checkout.Session).subscription;
+    subjectId = typeof sub === 'string' ? sub : undefined;
+  }
+
+  const outcome = await recordWebhookEvent({
+    provider: 'stripe',
+    externalEventId: event.id,
+    type: normalizeStripeEventType(event.type),
+    rawType: event.type,
+    subjectType,
+    subjectId,
+    payload,
+    livemode: event.livemode,
+    // Stripe's own timestamp, in seconds. Receipt time cannot detect
+    // out-of-order delivery; this can.
+    occurredAt: new Date(event.created * 1000),
+  });
+
+  if (outcome.action !== 'process') {
+    console.info(
+      `[stripe-webhook] ${event.id} (${event.type}) not dispatched: ${outcome.action}`,
+    );
+    // 200 on purpose — see the module comment.
+    return NextResponse.json({ received: true, dispatched: false, reason: outcome.action });
   }
 
   try {
@@ -95,10 +156,19 @@ export async function POST(request: Request) {
     }
   } catch (error) {
     // Returning 500 makes Stripe retry, which is what we want for a transient
-    // database failure — the event is not lost.
+    // database failure — the event is not lost. The row is marked `failed`, and
+    // because the retry carries the SAME event id it will be recognised as a
+    // duplicate rather than double-applied.
     console.error(`[stripe-webhook] handling ${event.type} failed:`, error);
+    await markWebhookFailed(outcome.eventId, error instanceof Error ? error.message : 'unknown').catch(
+      (e) => console.error('[stripe-webhook] could not mark event failed:', e),
+    );
     return NextResponse.json({ error: 'Handler failed.' }, { status: 500 });
   }
 
-  return NextResponse.json({ received: true });
+  await markWebhookProcessed(outcome.eventId).catch((e) =>
+    console.error('[stripe-webhook] could not mark event processed:', e),
+  );
+
+  return NextResponse.json({ received: true, dispatched: true });
 }

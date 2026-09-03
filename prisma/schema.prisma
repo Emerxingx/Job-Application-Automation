@@ -1,16 +1,22 @@
 // JobPilot AI — data model
 //
-// Local dev uses SQLite. For production, change `provider` to "postgresql"
-// and point DATABASE_URL at your Postgres instance; the model definitions
-// below are portable across both.
+// PostgreSQL, with a versioned migration history under prisma/migrations/
+// (ADR-0002). `prisma db push` is a local-development convenience only and is
+// never the production path: every schema change ships as a reviewed migration.
+//
+// `url` is the transaction-mode pooler the application runs against;
+// `directUrl` is the session-mode endpoint the Prisma CLI uses for migrations,
+// which need a connection that survives across statements. Both must carry a
+// percent-encoded password — see src/lib/db-url.ts for why.
 
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "sqlite"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 // ---------------------------------------------------------------------------
@@ -39,9 +45,18 @@ model User {
   // being deleted, because invoices, payments and audit rows must be retained
   // (and they carry their own bill-to snapshot, so they still read correctly).
   anonymizedAt DateTime?
+  // Stage 01 identity fields. `emailVerifiedAt` is set by the identity provider
+  // flow (Supabase Auth, AUTH_DECISION_GATE.md) or by staff; it is never set
+  // at signup. `passwordChangedAt` lets a session issued before a password
+  // change be rejected even if its row was somehow missed by the revoke.
+  emailVerifiedAt   DateTime?
+  passwordChangedAt DateTime?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
+  sessions       Session[]
+  identities     UserIdentity[]
+  consents       ConsentRecord[]
   subscription   Subscription?
   agents         Agent[]
   resumes        Resume[]
@@ -2099,6 +2114,16 @@ model Organization {
   id                         String   @id @default(cuid())
   name                       String
   slug                       String   @unique
+  // Typed per docs/architecture/MULTITENANCY_ARCHITECTURE.md. `personal` is
+  // the workspace every candidate owns; it exists so that tenancy has exactly
+  // one shape (a row belongs to an organisation a user is a member of) rather
+  // than two (individual rows AND organisation rows).
+  type                       String   @default("personal") // personal | employer | staffing_agency | service_provider | career_consultancy | training_organization | platform
+  // Per-tenant AI processing policy (ADR-0015). The DEFAULT is the most
+  // restrictive state: a tenant whose policy nobody has set must not have its
+  // data routed to a cross-border provider. The Stage 03 AI gateway reads this
+  // and fails closed on anything it does not recognise.
+  aiProcessingPolicy         String   @default("EXTERNAL_AI_PROHIBITED") // EXTERNAL_AI_ALLOWED | EXTERNAL_AI_RESTRICTED | EXTERNAL_AI_PROHIBITED
   planId                     String?
   seats                      Int      @default(1)
   applicationsPerMonthPooled Int      @default(0)
@@ -2116,6 +2141,7 @@ model Organization {
   apiKeys     ApiKey[]
 
   @@index([status])
+  @@index([type])
 }
 
 // Joins a User to an Organization with a role.
@@ -2136,4 +2162,85 @@ model Membership {
 
   @@unique([organizationId, userId])
   @@index([userId])
+}
+
+// ---------------------------------------------------------------------------
+// Identity and sessions (Stage 01, ADR-0004 target characteristics)
+// ---------------------------------------------------------------------------
+
+// A server-side session. The cookie carries a signed JWT whose `sid` names this
+// row; the row is what makes revocation real (ADR-0004 §1). Logout, password
+// change and staff revoke set `revokedAt`, and `requireUser()` refuses any
+// session whose row is missing, revoked or past `expiresAt` — immediately,
+// with no cache in front of it. The edge gate (src/proxy.ts) still checks only
+// the signature, which is why it is a gate and not the authorisation.
+model Session {
+  id           String    @id @default(cuid())
+  userId       String
+  // How the session was established. `password` today; `supabase` once the
+  // identity provider is wired (AUTH_DECISION_GATE.md); `staff_impersonation`
+  // is reserved and never issued by the sign-in routes.
+  method       String    @default("password") // password | supabase | staff_impersonation
+  // Authentication assurance level in the identity provider's vocabulary:
+  // aal1 = single factor, aal2 = MFA satisfied. Carried so a step-up policy can
+  // be enforced on the platform side without re-deriving it.
+  assuranceLevel String  @default("aal1")
+  createdAt    DateTime  @default(now())
+  lastSeenAt   DateTime  @default(now())
+  expiresAt    DateTime
+  revokedAt    DateTime?
+  revokedReason String?  // logout | password_change | user_revoke | staff_revoke (staff revoke: no caller yet, Stage 20 console)
+  // Coarse device context for the account holder's own session list. Never a
+  // fingerprint; an IP and a user agent string, both optional.
+  ip           String?
+  userAgent    String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, revokedAt])
+  @@index([expiresAt])
+}
+
+// An external identity linked to ONE platform user (ADR-0004 §4: OAuth and the
+// managed identity provider are additional identities on one account, never a
+// parallel account namespace). `subject` is the provider's stable id — for
+// Supabase Auth it is auth.users.id — so the platform user can be resolved from
+// a verified provider token without trusting the email claim alone.
+model UserIdentity {
+  id                  String    @id @default(cuid())
+  userId              String
+  provider            String // supabase | google | microsoft | apple
+  subject             String
+  email               String?
+  emailVerified       Boolean   @default(false)
+  linkedAt            DateTime  @default(now())
+  lastAuthenticatedAt DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, subject])
+  @@index([userId])
+}
+
+// Explicit, versioned, revocable consent. One row per grant; revocation sets
+// `revokedAt` rather than deleting, so the history of what was agreed to and
+// when is preserved for the retention period. The `purpose` vocabulary is
+// owned by src/lib/consent.ts; the legal wording behind each version is a
+// founder/counsel matter (COMPLIANCE_REGISTER.md L-5) and is NOT stored here.
+model ConsentRecord {
+  id        String    @id @default(cuid())
+  userId    String
+  purpose   String // terms_of_service | privacy_policy | marketing_email | cross_border_ai_processing
+  version   String
+  grantedAt DateTime  @default(now())
+  revokedAt DateTime?
+  source    String    @default("signup") // signup | settings | staff | import
+  ip        String?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, purpose])
 }

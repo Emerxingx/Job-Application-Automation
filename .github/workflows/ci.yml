@@ -21,9 +21,13 @@ permissions:
   contents: read
 
 env:
-  # Every gate runs against a throwaway SQLite file. Stage 00 deliberately does
-  # not migrate to PostgreSQL — that is Stage 01 under ADR-0002.
-  DATABASE_URL: file:./ci.db
+  # Stage 01 moved the transactional store to PostgreSQL (ADR-0002). Every gate
+  # that touches Prisma runs against the postgres:16 service container declared
+  # on the verify job; there is no SQLite path left to fall back to. The CMS
+  # keeps a throwaway SQLite file here because it has no tenancy requirement and
+  # its PostgreSQL adapter is exercised by the build, not by a live database.
+  DATABASE_URL: postgresql://postgres:postgres@localhost:5432/jobpilot_ci
+  DIRECT_URL: postgresql://postgres:postgres@localhost:5432/jobpilot_ci
   PAYLOAD_DATABASE_URI: file:./ci-payload.db
   # Non-secret placeholders. Long enough to pass the length check and NOT equal
   # to the .env.example value, which src/lib/auth.ts rejects by value.
@@ -36,6 +40,42 @@ jobs:
     name: Verify (lint · typecheck · test · build)
     runs-on: ubuntu-latest
     timeout-minutes: 20
+
+    # tests/rls-isolation.test.ts is the ADR-0005 tenancy proof and needs a real
+    # PostgreSQL: SQLite has no row-level security, so the isolation guarantee
+    # cannot be exercised against the SQLite file the rest of the suite uses.
+    #
+    # The service exists so the proof RUNS here rather than being skipped. The
+    # test throws when CI=true and RLS_TEST_DATABASE_URL is unset, so deleting
+    # this block fails the job instead of quietly turning the proof off.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          # Throwaway credentials for a container that exists for the length of
+          # one job, is reachable only from this runner, and holds no data. Same
+          # posture as the placeholder AUTH_SECRET above: not a secret, and
+          # deliberately not written to look like one.
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: jobpilot_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d jobpilot_ci"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      # The mechanism proof (tests/rls-isolation.test.ts) creates its own
+      # throwaway schema and role, so it can share the database the migrations
+      # are applied to; the tenancy suite (tests/tenancy-isolation.test.ts) runs
+      # THROUGH the migrated schema and the real Prisma client, which is the
+      # point of it.
+      RLS_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/jobpilot_ci
+      TENANCY_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/jobpilot_ci
+
     steps:
       - uses: actions/checkout@v4
 
@@ -45,11 +85,52 @@ jobs:
           cache: npm
 
       - name: Install (from the lockfile)
-        run: npm ci
+        # `npm ci` is retried ONCE, and only for a specific known failure.
+        #
+        # esbuild's postinstall writes its binary and then immediately execs it
+        # to check `--version`. On a busy runner the write handle may not be
+        # closed yet, and the exec fails with ETXTBSY ("text file busy"). It
+        # reached this project through @esbuild-kit/core-utils -> drizzle-kit ->
+        # @payloadcms/db-*, a path no application code touches (drizzle-kit is
+        # Payload's migration CLI and never runs in production).
+        #
+        # This is an installer race, not a lockfile problem: the same lockfile
+        # installs cleanly from scratch locally, and the nested esbuild version
+        # is identical on main. A single clean retry is the standard remedy.
+        #
+        # It is deliberately NOT silent. The retry prints a loud notice, so a
+        # genuine install failure still shows up as a retry in the log rather
+        # than being smoothed away, and a second failure fails the job.
+        run: |
+          if npm ci; then
+            exit 0
+          fi
+          echo "::warning::npm ci failed on the first attempt. Cleaning node_modules and retrying once (see the ETXTBSY note in ci.yml)."
+          rm -rf node_modules
+          npm ci
 
       # --- required gates -------------------------------------------------
       # Each of these passed on a clean clone before CI existed. They are
       # required, not advisory.
+
+      # --- migration validation (ADR-0002) ---------------------------------
+      # The committed migration history must (a) apply cleanly to an empty
+      # PostgreSQL, (b) produce exactly the schema prisma/schema.prisma
+      # declares, and (c) leave `migrate status` with nothing pending. Any of
+      # the three failing means someone edited the schema without a migration,
+      # or a migration without the schema, and that is a red build here rather
+      # than a surprise on the deploy.
+      # Through the same npm scripts operators use, so the connection-string
+      # normalisation wrapper (scripts/db/with-encoded-env.mjs) is exercised
+      # on every push rather than only on the deploy that needs it.
+      - name: Apply the migration history to an empty database
+        run: npm run db:migrate:deploy
+
+      - name: Fail if the migrated database differs from the schema
+        run: npm run db:migrate:check
+
+      - name: Fail if any migration is pending or failed
+        run: npm run db:migrate:status
 
       - name: Lint
         run: npm run lint:ci
@@ -57,7 +138,7 @@ jobs:
       - name: Typecheck
         run: npx tsc --noEmit
 
-      - name: Tests
+      - name: Tests (includes the ADR-0005 RLS proof and the tenancy suite against PostgreSQL)
         run: npm test
 
       - name: Build
@@ -76,7 +157,29 @@ jobs:
           cache: npm
 
       - name: Install (from the lockfile)
-        run: npm ci
+        # `npm ci` is retried ONCE, and only for a specific known failure.
+        #
+        # esbuild's postinstall writes its binary and then immediately execs it
+        # to check `--version`. On a busy runner the write handle may not be
+        # closed yet, and the exec fails with ETXTBSY ("text file busy"). It
+        # reached this project through @esbuild-kit/core-utils -> drizzle-kit ->
+        # @payloadcms/db-*, a path no application code touches (drizzle-kit is
+        # Payload's migration CLI and never runs in production).
+        #
+        # This is an installer race, not a lockfile problem: the same lockfile
+        # installs cleanly from scratch locally, and the nested esbuild version
+        # is identical on main. A single clean retry is the standard remedy.
+        #
+        # It is deliberately NOT silent. The retry prints a loud notice, so a
+        # genuine install failure still shows up as a retry in the log rather
+        # than being smoothed away, and a second failure fails the job.
+        run: |
+          if npm ci; then
+            exit 0
+          fi
+          echo "::warning::npm ci failed on the first attempt. Cleaning node_modules and retrying once (see the ETXTBSY note in ci.yml)."
+          rm -rf node_modules
+          npm ci
 
       # importMap.js and payload-types.ts are tracked because a clean clone must
       # build without running codegen. That only works if they are in sync with

@@ -18,8 +18,8 @@
  */
 
 import { z } from 'zod';
-import { db } from '@/lib/db';
 import { requireUser } from '@/lib/auth';
+import { requireTenant } from '@/lib/tenancy/request';
 import { describeWait, fail, ok, route, tooMany } from '@/lib/api';
 import { rateLimit } from '@/lib/rate-limit';
 import { runDueDeliveries, toSafeWebhookDelivery } from '@/lib/integrations/webhooks';
@@ -31,7 +31,7 @@ const listSchema = z.object({
 });
 
 export const GET = route(async (request: Request) => {
-  const user = await requireUser();
+  const { user, run } = await requireTenant();
   const url = new URL(request.url);
   const query = listSchema.parse({
     endpointId: url.searchParams.get('endpointId') ?? undefined,
@@ -42,15 +42,17 @@ export const GET = route(async (request: Request) => {
   // Tenancy runs through the endpoint: WebhookDelivery has no userId of its
   // own, so every query here must filter on `endpoint: { userId }` or it reads
   // other customers' rows.
-  const rows = await db.webhookDelivery.findMany({
-    where: {
-      endpoint: { userId: user.id, ...(query.endpointId ? { id: query.endpointId } : {}) },
-      ...(query.status ? { status: query.status } : {}),
-    },
-    orderBy: { createdAt: 'desc' },
-    take: query.limit,
-    include: { event: { select: { type: true } } },
-  });
+  const rows = await run((tx) =>
+    tx.webhookDelivery.findMany({
+      where: {
+        endpoint: { userId: user.id, ...(query.endpointId ? { id: query.endpointId } : {}) },
+        ...(query.status ? { status: query.status } : {}),
+      },
+      orderBy: { createdAt: 'desc' },
+      take: query.limit,
+      include: { event: { select: { type: true } } },
+    }),
+  );
 
   return ok({ deliveries: rows.map(toSafeWebhookDelivery) });
 });

@@ -15,7 +15,11 @@ const nextConfig = {
     '@payloadcms/db-postgres',
     'sharp',
   ],
-  eslint: { ignoreDuringBuilds: true },
+  // There is deliberately no `eslint` key. It carried
+  // `{ ignoreDuringBuilds: true }` from before ESLint was installed at all;
+  // once CI gained a blocking lint job (ADR-0018) it stopped meaning anything,
+  // and Next 16 no longer recognises the key — it warned on every production
+  // build. Lint runs as its own gate, not as part of `next build`.
 };
 
 export default withPayload(nextConfig);

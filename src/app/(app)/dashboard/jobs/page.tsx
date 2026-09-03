@@ -1,7 +1,6 @@
 import Link from 'next/link';
 import { Search } from 'lucide-react';
-import { db } from '@/lib/db';
-import { requireUser } from '@/lib/auth';
+import { requireTenant } from '@/lib/tenancy/request';
 import { getQuota } from '@/lib/subscription';
 import { parseJson } from '@/lib/types';
 import { EmptyState, PageHeader } from '@/components/ui';
@@ -12,18 +11,22 @@ export const metadata = { title: 'Job feed' };
 export const dynamic = 'force-dynamic';
 
 export default async function JobsPage() {
-  const user = await requireUser();
+  const { user, run } = await requireTenant();
 
-  const [matches, quota, agentCount, appliedJobs] = await Promise.all([
-    db.jobMatch.findMany({
-      where: { agent: { userId: user.id }, status: { in: ['new', 'reviewed', 'queued'] } },
-      orderBy: { matchScore: 'desc' },
-      take: 100,
-      include: { job: true, agent: { select: { id: true, name: true } } },
-    }),
+  const [[matches, agentCount, appliedJobs], quota] = await Promise.all([
+    run((tx) =>
+      Promise.all([
+        tx.jobMatch.findMany({
+          where: { agent: { userId: user.id }, status: { in: ['new', 'reviewed', 'queued'] } },
+          orderBy: { matchScore: 'desc' },
+          take: 100,
+          include: { job: true, agent: { select: { id: true, name: true } } },
+        }),
+        tx.agent.count({ where: { userId: user.id } }),
+        tx.application.findMany({ where: { userId: user.id }, select: { jobId: true } }),
+      ]),
+    ),
     getQuota(user.id),
-    db.agent.count({ where: { userId: user.id } }),
-    db.application.findMany({ where: { userId: user.id }, select: { jobId: true } }),
   ]);
 
   const appliedIds = new Set(appliedJobs.map((a) => a.jobId));

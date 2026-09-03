@@ -1,5 +1,4 @@
-import { db } from '@/lib/db';
-import { requireUser } from '@/lib/auth';
+import { requireTenant } from '@/lib/tenancy/request';
 import { parseJson } from '@/lib/types';
 import type { ResumeContent } from '@/lib/types';
 import { PageHeader } from '@/components/ui';
@@ -9,12 +8,14 @@ export const metadata = { title: 'My resume' };
 export const dynamic = 'force-dynamic';
 
 export default async function ResumePage() {
-  const user = await requireUser();
+  const { user, run } = await requireTenant();
 
-  const resume = await db.resume.findFirst({
-    where: { userId: user.id, isMaster: true },
-    orderBy: { updatedAt: 'desc' },
-  });
+  const resume = await run((tx) =>
+    tx.resume.findFirst({
+      where: { userId: user.id, isMaster: true },
+      orderBy: { updatedAt: 'desc' },
+    }),
+  );
 
   const content = parseJson<ResumeContent | null>(resume?.content, null);
 

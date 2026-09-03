@@ -733,9 +733,10 @@ export interface WorkerReport {
  *
  * NOT SAFE TO RUN CONCURRENTLY WITH ITSELF. There is no claim/lock column on
  * `WebhookDelivery` (the schema has none), so two workers picking up the same
- * `pending` row would both POST it. On SQLite with one instance that cannot
- * happen. Before running two instances, add a `lockedAt`/`lockedBy` pair as
- * `AgentSchedule` already does and claim rows with a conditional update.
+ * `pending` row would both POST it. With ONE instance that cannot happen.
+ * Before running two instances, add a `lockedAt`/`lockedBy` pair as
+ * `AgentSchedule` already does and claim rows with a conditional update
+ * (ADR-0011 makes this the lease-based worker contract).
  */
 export async function runDueDeliveries(
   options: {

@@ -35,11 +35,12 @@ promoted on the strength of an observed run against the real service.
 | Manual payments | IMPLEMENTED-NOT-VALIDATED | Internal | CA | Unit-tested only |
 | Customer webhooks | IMPLEMENTED-NOT-VALIDATED | Event payloads | Customer-controlled | Delivery state machine + SSRF guard + `redirect: 'error'`. **No worker runs it** |
 
-## Communication and identity — all PLANNED
+## Communication and identity — PLANNED except where noted
 
 Gmail · Microsoft Graph mail · Google Calendar · Microsoft Calendar (Stage 11,
 `RESTRICTED`, least-privilege incremental scopes, revocation purges derived
-content) · Google/Microsoft/Apple OAuth · Enterprise SAML/OIDC + SCIM (Stage 20).
+content) · Google/Microsoft/Apple OAuth (delivered through Supabase Auth — see
+Infrastructure) · Enterprise SAML/OIDC + SCIM (Stage 20).
 
 ## Infrastructure
 
@@ -48,7 +49,8 @@ content) · Google/Microsoft/Apple OAuth · Enterprise SAML/OIDC + SCIM (Stage 2
 | Payload CMS | SANDBOX-VALIDATED | Admin renders; build verified against an empty database exercising the fallback |
 | Redis cache | SANDBOX-VALIDATED | 206 ms → 0.389 ms measured (`HANDOFF.md` §5) |
 | S3-compatible storage | PLANNED | Local filesystem today |
-| Managed PostgreSQL | PLANNED | SQLite today |
+| Managed PostgreSQL (Supabase, Canada Central) | **IMPLEMENTED-NOT-VALIDATED** | Provider switched, migrations and RLS written and proven on PostgreSQL 16 locally, in CI, and through PgBouncer in transaction mode. **Never run against the Supabase project**: unreachable from the build environment (R-34). Credentials verified present and correctly shaped only |
+| Supabase Auth (identity provider, ratified Stage 01 decision) | **IMPLEMENTED-NOT-VALIDATED** | Platform side only: token verification (`src/lib/identity/supabase.ts`), identity linkage (`src/lib/identity/link.ts`), exchange route. Exercised with locally-minted tokens of the same shape; **no real token has been verified**. Needs `SUPABASE_URL`, `SUPABASE_JWT_SECRET` (or JWKS reachability) and egress to the project host |
 | WorkBC systems | **NOT IMPLEMENTED — Level 0** | No integration exists and none is claimed (`ADR-0020`) |
 
 ## Public API

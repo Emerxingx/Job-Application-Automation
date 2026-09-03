@@ -3,13 +3,13 @@
 Live tracker. **A stage is only advanced when its exit-gate evidence is linked.**
 Status: `NOT STARTED` · `IN PROGRESS` · `BLOCKED` · `COMPLETE`.
 
-**As of 2026-09-02, no stage is complete.** The architecture baseline awaits
-founder approval; no remediation has begun.
+**As of 2026-09-03:** Stage 00 complete; Stage 01 PARTIAL (see its row and
+`STAGE01_EVIDENCE.md`).
 
 | Stage | Name | Status | Existing coverage | Evidence |
 | --- | --- | --- | --- | --- |
-| 00 | Repository, governance, evidence baseline | **IN PROGRESS** | Clean history; 670 tests; typecheck + build green; architecture baseline merged to main (`da8df5e`) | Branch `claude/stage-00-governance-remediation`; see `LINT_BASELINE.md` and Stage 00 evidence below |
-| 01 | Security, identity, orgs, multi-tenancy | NOT STARTED | bcrypt+JWT, console two-lock gate, API key handling, SSRF guard, rate limiting | — · **blocking gates: authentication decision gate (`ADR-0004`) and pooled-runtime isolation proof (`ADR-0005`)** |
+| 00 | Repository, governance, evidence baseline | **COMPLETE** | — | Merged to main as `d6ae8b3` (PR #4). CI green on `565012b`; see Stage 00 evidence below |
+| 01 | Security, identity, orgs, multi-tenancy | **PARTIAL** | PostgreSQL + 3-migration history; RLS on all 70 tables; transaction-scoped tenant context; orgs/memberships; revocable sessions; consent + security audit; Supabase identity (unvalidated) | Branch `claude/stage-01-security-identity-tenancy`, PR #13. Full evidence: [`STAGE01_EVIDENCE.md`](STAGE01_EVIDENCE.md). **Not PASS**: the staging project is unreachable from the build environment, so the Supavisor pooled proof, the staging migration rehearsal, a live region read and the Supabase Auth flows are `NOT VERIFIED` / `BLOCKED` (R-34); tenant-path adoption is partial (R-35) |
 | 02 | Candidate Digital Twin | NOT STARTED | ~12 flat `User` fields; `Resume` JSON | — |
 | 03 | Career Evidence Vault, question architecture | NOT STARTED | Prompt registry; safe interpolation | — · **required here: `PromptRegistry` → governed admin; per-tenant AI policy enforced in the gateway** |
 | 04 | Canada occupation / skills / LMI | NOT STARTED | 9-entry NOC regex in the Adzuna adapter | — |
@@ -90,12 +90,18 @@ This is a real, observed run, not an inference from local results.
 | `FieldMappings` → governed platform administration | **12** | `../adr/ADR-0003-headless-cms.md` |
 
 ## Immediate blockers to any production deployment
-1. Next.js advisories — upgrade to 16.2.6+ (`ADR-0017`).
-2. SQLite + no migrations (`ADR-0002`).
-3. No RLS; isolation by hand-written filters alone (`ADR-0005`).
-4. Stripe unvalidated and non-idempotent.
-5. No CI.
-6. Auto-apply UI promising unimplemented behaviour.
+
+Updated 2026-09-02. Three of the original six are closed; the wording of the
+remaining three is tightened to what is actually still true.
+
+| # | Blocker | State |
+| --- | --- | --- |
+| 1 | Next.js advisories (`ADR-0017`) | **CLOSED** — on `next@16.3.4`; no deployed high-severity advisory remains |
+| 2 | SQLite + no migrations (`ADR-0002`) | **CLOSED in code** — PostgreSQL, versioned history, CI-validated; the staging rehearsal is outstanding (R-34) |
+| 3 | No RLS on any real table (`ADR-0005`) | **CLOSED in code** — every table policied and forced, proven through Prisma and a transaction-mode pooler; the Supavisor run is outstanding (R-34) |
+| 4 | Stripe unvalidated and non-idempotent | **HALF CLOSED** — replay *and* ordering are closed in code and tested; live validation still outstanding (Stage 15) |
+| 5 | No CI | **CLOSED** in Stage 00 — three jobs, all required |
+| 6 | Auto-apply UI promising unimplemented behaviour | **CLOSED** in Stage 00 — control disabled and labelled |
 
 ## Open legal / compliance decisions gating stage exits
 
@@ -114,3 +120,79 @@ engineering — see `../governance/COMPLIANCE_REGISTER.md` (L-1…L-5) and
 None of the five blocks completion of the architecture baseline. A stage that
 reaches its exit gate with its question still open is **BLOCKED** at that gate
 rather than proceeding on an assumption.
+
+## Stage 01 — in progress
+
+Machine-readable state: [`AUTONOMOUS_STATUS.json`](AUTONOMOUS_STATUS.json). That
+file is authoritative over any chat transcript.
+
+| Item | State |
+| --- | --- |
+| Webhook replay **and ordering** | **DONE** — `src/lib/billing/webhook-events.ts`, wired into the Stripe route, 12 tests. Closes S-03/R-06 |
+| Deny-by-default route gate | **DONE** — `src/proxy.ts`, 9 negative tests. Closes S-02/R-08 |
+| Next 16 upgrade (`ADR-0017`) | **DONE** — `next@16.3.4`, inside Payload's peer range. Every **deployed** high-severity advisory cleared (14→11 total, high 6→3, remaining three dev-only). Closes R-03 |
+| Authentication decision gate | **DONE** — [`AUTH_DECISION_GATE.md`](AUTH_DECISION_GATE.md). Decision: **Supabase Auth**, **RATIFIED 2026-09-02** on founder attestation that the project is in `ca-central-1`. Provenance recorded: attestation, not an agent measurement |
+| RLS mechanism proof | **DONE** — `tests/rls-isolation.test.ts`, 10 assertions against a real PostgreSQL in CI (`postgres:16` service). Corrected `ADR-0005` and produced R-33. See below |
+| PostgreSQL migration (3 migrations, CI-validated) | **DONE** locally + CI; **NOT VERIFIED** on Supabase (R-34). Procedure: `../operations/DATABASE_MIGRATIONS.md` |
+| RLS on every table, generated + determinism-tested; transaction-scoped context | **DONE**; proven through Prisma on PostgreSQL 16 and PgBouncer transaction mode; **NOT VERIFIED** through Supavisor |
+| `Organization` / `Membership` wiring, personal workspaces, AI policy on the schema | **DONE** — 12 negative tests |
+| Server-side session revocation, session list, password-change revocation | **DONE** |
+| Consent capture + security audit events | **DONE** — wording pending counsel (R-36) |
+| Supabase Auth identity linkage | **IMPLEMENTED-NOT-VALIDATED** |
+| MFA / email verification / recovery / OAuth | **BLOCKED** — Supabase Auth credentials + egress |
+| Tenant-path adoption across all handlers | **PARTIAL** (R-35) — list in `STAGE01_EVIDENCE.md` §7 |
+| Supabase staging environment | `DATABASE_URL`/`DIRECT_URL` **present, correctly shaped, ca-central-1** (verified without printing); **unreachable** from the build environment — see `AUTONOMOUS_STATUS.json` → `blockers[SUPABASE-NETWORK]` |
+
+### RLS pooled-connection proof — measured, not asserted
+
+Run against a real PostgreSQL 16.13 with a non-owner role and
+`FORCE ROW LEVEL SECURITY`. Policy:
+`USING (organization_id = current_setting('app.current_organization_id', true))`.
+
+| Case | Expected | Observed |
+| --- | --- | --- |
+| Org A reads own rows | own only | own only |
+| Org B reads own rows | own only | own only |
+| Org A reads Org B row by id | 0 | 0 |
+| **Missing** tenant context | 0 (fail closed) | **0** |
+| **Invalid** tenant context | 0 (fail closed) | **0** |
+| **Session-level `SET`, connection reused, next request has no context** | — | **read the previous tenant's row** |
+| **`SET LOCAL` in transaction, same reuse** | 0 | **0** |
+
+The sixth row is the finding `ADR-0005` demanded be proven: with a session-level
+`SET`, a request carrying **no tenant context at all** read another tenant's data
+on a reused connection, and every isolated policy test still passed. The seventh
+shows transaction-scoped `SET LOCAL` closes it.
+
+**Implementation consequence:** tenancy context must be set with `SET LOCAL`
+inside the same transaction as the query. A session-level `SET` is a cross-tenant
+leak on any pooled deployment.
+
+The deployment-specific half of the `ADR-0005` gate — the *actual* Supabase
+project and pool mode — remains **BLOCKED** on a Supabase project existing.
+
+### The proof is now a committed test, and it found three more defects
+
+The table above was a one-off local run. It is now
+[`tests/rls-isolation.test.ts`](../../tests/rls-isolation.test.ts): 10 assertions
+run on every CI job against a `postgres:16` service container. Connection reuse is
+asserted via `pg_backend_pid()`, so a green run cannot mean the leak scenario
+silently did not occur, and the file **throws** rather than skipping when
+`CI=true` without a database — a conditional test must not become an optional one.
+
+Writing it surfaced three failure modes the one-off run had not, all recorded as
+**R-33** in `../governance/RISK_REGISTER.md` and folded into `ADR-0005` as an
+amendment:
+
+1. **`ENABLE ROW LEVEL SECURITY` does not bind the table's owner** — and on a
+   managed PostgreSQL the application's migration role usually *is* the owner.
+   Every policied table must also be `FORCE`d. Test 8 reproduces a total bypass
+   with a correct policy enabled.
+2. **"No tenant context" is not always `NULL`** — it is the empty string on any
+   recycled connection, so an `IS NULL` guard fires once per connection lifetime
+   and never again.
+3. **`SET`/`SET LOCAL` take no bind parameters**, so writing them literally means
+   interpolating the tenant id into SQL. `set_config($1, $2, true)` is required.
+
+`ADR-0005` point 4 was itself wrong — it specified session-scoped context "per
+connection", which is the leak. It is amended and dated.

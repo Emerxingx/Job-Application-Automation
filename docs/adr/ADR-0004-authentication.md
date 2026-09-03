@@ -1,6 +1,6 @@
 # ADR-0004 — Authentication: extend the existing implementation
 
-**Status:** Proposed · **Date:** 2026-09-02
+**Status:** Proposed · **Date:** 2026-09-02 · **Decision section superseded 2026-09-02** by `../programme/AUTH_DECISION_GATE.md` (Option B, Supabase Auth, ratified). Target characteristics below remain binding. **Stage 01 delivery (2026-09-03):** §1 server-side revocable sessions — DONE (`Session` table, `src/lib/auth.ts`); §2/§3/§4 — provider-side, IMPLEMENTED-NOT-VALIDATED on the platform side (`src/lib/identity/`), blocked on Supabase Auth reachability; §6 session list and revoke — DONE (`/api/auth/sessions`); §7 one identity, linked provider identities — DONE (`UserIdentity`); §8 CSRF tokens — NOT DONE (Stage 23); §9 console gate — retained unchanged.
 
 ## Context
 What exists (read at `35d3491`, `src/lib/auth.ts`) is better than typical:

@@ -56,6 +56,10 @@ invoke it, or the runner will hang.
 ## Consequences
 - `eslint: { ignoreDuringBuilds: true }` stays until the lint backlog is cleared,
   then is removed. Leaving it forever would make the lint gate decorative.
+  **Done in Stage 01 (2026-09-02):** the backlog was cleared to 0 errors and lint
+  became its own blocking job, so the key had nothing left to suppress. Next 16
+  no longer recognises it and warned on every production build, which is what
+  surfaced it.
 - A `npm run verify` script runs the full local gate set so contributors
   reproduce CI without guessing.
 - Branch protection on `main` requires the four gates.

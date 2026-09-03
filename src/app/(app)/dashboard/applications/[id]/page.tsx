@@ -11,8 +11,7 @@ import {
   MapPin,
   Wallet,
 } from 'lucide-react';
-import { db } from '@/lib/db';
-import { requireUser } from '@/lib/auth';
+import { requireTenant } from '@/lib/tenancy/request';
 import { listFolder } from '@/lib/storage';
 import { parseJson } from '@/lib/types';
 import type { TailoringNotes } from '@/lib/types';
@@ -31,13 +30,15 @@ export default async function ApplicationDetailPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  const user = await requireUser();
+  const { user, run } = await requireTenant();
   const { id } = await params;
 
-  const application = await db.application.findFirst({
-    where: { id, userId: user.id },
-    include: { job: true, interviewPrep: true },
-  });
+  const application = await run((tx) =>
+    tx.application.findFirst({
+      where: { id, userId: user.id },
+      include: { job: true, interviewPrep: true },
+    }),
+  );
   if (!application) notFound();
 
   const assistedFields = parseJson<AssistedField[]>(application.assistedFields, []);

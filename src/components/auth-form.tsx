@@ -124,6 +124,32 @@ export function AuthForm({
         </div>
       )}
 
+      {mode === 'signup' && (
+        <div className="flex items-start gap-3">
+          <input
+            id="acceptTerms"
+            name="acceptTerms"
+            type="checkbox"
+            required
+            aria-describedby="acceptTerms-help"
+            className="mt-1 h-4 w-4 shrink-0 rounded border-line text-brand-500 focus:ring-brand-500"
+          />
+          <label htmlFor="acceptTerms" className="text-sm text-ink">
+            I agree to the{' '}
+            <a href="/terms" className="font-semibold text-brand-500 hover:text-brand-600" target="_blank" rel="noopener">
+              Terms of Service
+            </a>{' '}
+            and{' '}
+            <a href="/privacy" className="font-semibold text-brand-500 hover:text-brand-600" target="_blank" rel="noopener">
+              Privacy Policy
+            </a>
+            <span id="acceptTerms-help" className="mt-0.5 block text-xs text-muted">
+              Required. We record the version you agreed to and when.
+            </span>
+          </label>
+        </div>
+      )}
+
       <button type="submit" disabled={loading} className="btn-primary w-full py-3">
         {loading && <Loader2 className="h-4 w-4 animate-spin" />}
         {mode === 'signup' ? 'Create account' : 'Sign in'}

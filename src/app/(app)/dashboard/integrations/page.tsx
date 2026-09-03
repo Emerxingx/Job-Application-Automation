@@ -1,6 +1,5 @@
 import { Terminal } from 'lucide-react';
-import { db } from '@/lib/db';
-import { requireUser } from '@/lib/auth';
+import { requireTenant } from '@/lib/tenancy/request';
 import { API_SCOPES, listApiKeys, type ApiScope } from '@/lib/integrations/api-keys';
 import {
   WEBHOOK_EVENT_DESCRIPTIONS,
@@ -41,24 +40,26 @@ function dateLabel(value: Date): string {
 }
 
 export default async function IntegrationsPage() {
-  const user = await requireUser();
+  const { user, run } = await requireTenant();
 
   const [keys, endpointRows] = await Promise.all([
     listApiKeys(user.id),
-    db.webhookEndpoint.findMany({
-      where: { userId: user.id },
-      orderBy: { createdAt: 'desc' },
-      include: {
-        deliveries: {
-          orderBy: { createdAt: 'desc' },
-          take: RECENT_DELIVERIES,
-          include: { event: { select: { type: true } } },
+    run((tx) =>
+      tx.webhookEndpoint.findMany({
+        where: { userId: user.id },
+        orderBy: { createdAt: 'desc' },
+        include: {
+          deliveries: {
+            orderBy: { createdAt: 'desc' },
+            take: RECENT_DELIVERIES,
+            include: { event: { select: { type: true } } },
+          },
+          // Counted separately from the five rows above: an endpoint can have
+          // dozens of queued attempts that never appear in the recent list.
+          _count: { select: { deliveries: { where: { status: 'pending' } } } },
         },
-        // Counted separately from the five rows above: an endpoint can have
-        // dozens of queued attempts that never appear in the recent list.
-        _count: { select: { deliveries: { where: { status: 'pending' } } } },
-      },
-    }),
+      }),
+    ),
   ]);
 
   const keyViews: ApiKeyView[] = keys.map((key) => ({

@@ -619,8 +619,9 @@ export async function loadApplicationRows(
  * Load one user's job matches for a range, with the keyword JSON parsed.
  *
  * `JobMatch` has no `userId` — ownership runs through its agent, so the filter
- * is on the relation. The keyword columns are JSON strings (SQLite has no
- * arrays), parsed here via the codebase's `parseJson` fallback so a malformed
+ * is on the relation. The keyword columns are JSON stored as text (a
+ * baseline-schema decision ADR-0002 defers converting; see the migration
+ * notes), parsed here via the codebase's `parseJson` fallback so a malformed
  * column yields an empty list instead of throwing mid-dashboard.
  */
 export async function loadMatchRows(

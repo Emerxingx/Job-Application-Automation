@@ -1,6 +1,6 @@
 # ADR-0002 — Operational database: PostgreSQL with versioned migrations
 
-**Status:** Proposed · **Date:** 2026-09-02
+**Status:** Proposed · **Date:** 2026-09-02 · **Implemented (Stage 01, 2026-09-03):** provider switched, history baselined as `20260903071600_baseline` plus two further migrations, CI validates the history on every push. Operating procedure: `../operations/DATABASE_MIGRATIONS.md`. The staging rehearsal against the Supabase project is outstanding — see `../programme/AUTONOMOUS_STATUS.json`.
 
 ## Context
 Measured at `35d3491`:

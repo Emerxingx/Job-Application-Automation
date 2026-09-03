@@ -289,7 +289,7 @@ export async function buildApplicationsExport(
         }
       : { userId },
     include: { job: true, agent: { select: { name: true } } },
-    orderBy: [{ appliedAt: 'desc' }, { createdAt: 'desc' }],
+    orderBy: [{ appliedAt: { sort: 'desc', nulls: 'last' } }, { createdAt: 'desc' }],
     // One past the cap, so the note can say truthfully whether anything was cut.
     take: resolved.limit + 1,
   });
@@ -563,7 +563,7 @@ export async function buildInvoicesExport(
     // Drafts have no number, no issue date and are still mutable — they are not
     // documents the customer has been given, exactly as /api/invoices decides.
     where: { userId, status: { not: 'draft' }, ...(window ? { issuedAt: window } : {}) },
-    orderBy: [{ issuedAt: 'desc' }, { createdAt: 'desc' }],
+    orderBy: [{ issuedAt: { sort: 'desc', nulls: 'last' } }, { createdAt: 'desc' }],
     take: resolved.limit + 1,
   });
 

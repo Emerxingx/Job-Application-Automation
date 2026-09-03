@@ -1,0 +1,126 @@
+# Database migrations — workflow, review standard, recovery
+
+Stage 01 replaced `prisma db push` with a versioned Prisma migration history
+(`ADR-0002`). This page is the operating procedure. It states what is
+rehearsed and what is not; nothing here is a claim of having been performed
+against the staging project until the evidence section says so.
+
+## The history
+
+| Migration | What it does | Reversible? |
+| --- | --- | --- |
+| `20260903071600_baseline` | The 67 tables of the pre-Stage-01 schema, generated with `prisma migrate diff --from-empty`, **unchanged in semantics**: same columns, defaults, nullability, uniques, indexes and foreign-key actions as the SQLite schema declared. JSON-as-text columns stay text (see "deliberately not done") | Additive on an empty database. Not reversible once data exists (drop = data loss) |
+| `20260903071914_tenancy_identity` | `Organization.type` and `Organization.aiProcessingPolicy` (default `EXTERNAL_AI_PROHIBITED`), `User.emailVerifiedAt` / `passwordChangedAt`, new `Session`, `UserIdentity`, `ConsentRecord` tables, and a hand-written, idempotent **backfill** giving every existing user a personal organisation and owner membership | Additive. Forward-fix: delete the backfilled rows by id prefix (`org_personal_`, `mem_personal_`) |
+| `20260903073000_row_level_security` | **Generated** from `src/lib/tenancy/rls-tables.ts` by `scripts/rls/generate-migration.ts`: the `app_tenant` role, context accessor functions, `ENABLE` + `FORCE ROW LEVEL SECURITY` on all 70 tables, one named `system_full_access` policy per table for the migration role, tenant policies per classification, and revocation of Supabase's REST-gateway grants where those roles exist | Reversible by design (policies and role can be dropped without touching data). A test proves the file matches the generator |
+
+`prisma/migrations/migration_lock.toml` pins the provider to PostgreSQL. There
+is no SQLite path left: Prisma's provider is not switchable at runtime, and the
+tenancy backstop needs RLS, which SQLite does not have.
+
+## Workflow
+
+```bash
+# Local development (any PostgreSQL 16; the URLs are in .env.example)
+npm run db:migrate           # prisma migrate dev — creates AND applies; needs CREATEDB for the shadow db
+npm run db:migrate -- --create-only --name <change>   # generate, then REVIEW the SQL before applying
+npm run db:migrate:deploy    # prisma migrate deploy — applies pending migrations, never generates
+npm run db:migrate:status    # what is applied / pending / failed
+npm run db:reset             # prisma migrate reset --force — LOCAL ONLY: drops and recreates
+npm run db:push              # LOCAL ONLY prototyping; never against staging or production
+```
+
+Production and staging use **only** `npm run db:migrate:deploy`, run against
+`DIRECT_URL` (the session-mode endpoint — migrations need a connection that
+survives across statements; the transaction pooler does not guarantee that).
+The application itself uses `DATABASE_URL` (transaction pooler, port 6543).
+
+The `db:*` scripts wrap the Prisma CLI in `scripts/db/with-encoded-env.mjs`,
+which percent-encodes the password in both variables for the child process
+(the CLI reads `DIRECT_URL` raw and rejects a reserved character with "invalid
+port number"). `npx prisma …` called directly is not wrapped.
+
+**Role constraint.** The RLS migration creates each table's
+`system_full_access` policy `TO current_user` — the role that runs the
+migration. `DATABASE_URL` must therefore log in as that same role; a different
+application role would have no policy on any forced table and every system
+query would return nothing. `tests/tenancy-isolation.test.ts` asserts this
+against whichever database it runs on. On Supabase both URLs use
+`postgres.<ref>`.
+
+CI (`.github/workflows/ci.yml`) applies the whole history to an empty
+PostgreSQL, then fails if the result differs from `prisma/schema.prisma`
+(`migrate diff --exit-code`) or if `migrate status` reports anything pending or
+failed. That is the "reviewed, reproducible history" property enforced on
+every push, not asserted in a document.
+
+## Review standard for every new migration
+
+From `ADR-0002`, restated as the checklist a reviewer works through:
+
+1. **Read the SQL**, not the Prisma diff. Prisma's generated statements are
+   usually right and occasionally destructive in ways the diff summary hides
+   (a column rename is a DROP and an ADD).
+2. **Classify it**: additive (new table/column/index), transforming (backfill,
+   type change), or destructive (drop, narrow). Anything but additive needs a
+   written recovery note in the migration file itself, as the backfill in
+   `tenancy_identity` has.
+3. **Prefer expand-and-contract** for anything transforming: add, backfill,
+   verify, switch reads, drop later in a separate migration. This keeps a
+   recovery window open.
+4. **Every new table is classified in `src/lib/tenancy/rls-tables.ts`** and the
+   RLS migration regenerated (or a new one generated for just that table).
+   The coverage test fails until this is done, on purpose.
+5. **Lock behaviour**: `ALTER TABLE … ADD COLUMN` with a default is cheap on
+   PostgreSQL 11+; adding a `NOT NULL` column without a default, or rewriting
+   a type, rewrites the table. Say so in the PR if the table is large.
+6. **Restore point before deploy** (below), always.
+
+## Recovery and forward-fix plan
+
+Prisma has no down migrations; a forward migration is not automatically
+reversible. Recovery therefore means one of:
+
+| Situation | Action |
+| --- | --- |
+| Migration failed part-way (`db:migrate:status` shows a failed migration) | Read the error. If the failing statement is safe to re-run, fix the SQL and `prisma migrate resolve --rolled-back <name>` then deploy again. Prisma wraps each migration in a transaction on PostgreSQL, so a failed migration leaves the schema as it was — verify with `migrate diff` before assuming |
+| Migration applied but wrong (bad backfill, wrong default) | **Forward-fix**: a new migration that corrects the data or schema. Never edit an applied migration file; Prisma checksums them and a changed file is a failed history |
+| Migration applied and destroyed data | Restore from the pre-migration restore point (Supabase: point-in-time recovery to the timestamp taken immediately before `migrate deploy`), then forward-fix the migration before re-running |
+| Need to reproduce a past schema state | `prisma migrate deploy` up to that migration on an empty database — the history is deterministic; the RLS migration is additionally reproducible from its generator |
+
+**Before every staging or production deploy:**
+1. Take a restore point and record its timestamp in the deploy note (Supabase
+   PITR; on self-managed PostgreSQL, `pg_dump` the database).
+2. `prisma migrate status` — nothing failed.
+3. `npm run db:migrate:deploy` against `DIRECT_URL`.
+4. `npm run db:migrate:check` — no drift.
+5. Run `tests/tenancy-isolation.test.ts` against the deployed database
+   (`TENANCY_TEST_DATABASE_URL`) — RLS coverage and isolation on the real
+   schema.
+
+A **restore rehearsal** — actually restoring a Supabase project to a point in
+time and verifying the result — is a Stage 23 gate and has **not** been
+performed. It cannot be performed from this build environment (see below).
+
+## Rehearsal record
+
+| Rehearsal | Where | Result |
+| --- | --- | --- |
+| Full history applied to an empty PostgreSQL 16.13 | Local cluster (`jobpilot_dev`, `jobpilot_test`), 2026-09-03 | Applied; `migrate diff` in both directions reports no difference; `migrate status` clean |
+| Backfill exercised with a pre-existing user | Local, 2026-09-03 | A user created before `tenancy_identity` received `org_personal_<id>` / `mem_personal_<id>` with role `owner`, policy `EXTERNAL_AI_PROHIBITED`; re-running is a no-op |
+| RLS coverage after the history | Local, 2026-09-03 | 70/70 tables enabled and forced; 128 policies (70 system + 58 tenant); `app_tenant` is NOLOGIN, NOBYPASSRLS, NOSUPERUSER |
+| Same history in CI | GitHub Actions `postgres:16` service | Enforced by the three migration-validation steps in `ci.yml` on every push |
+| **Against the Supabase staging project** | — | **NOT PERFORMED.** The build environment's egress policy does not relay raw TCP, so neither pooler port (6543, 5432) is reachable; the HTTPS endpoint is policy-denied (403). Recorded in `AUTONOMOUS_STATUS.json` as a blocker with the exact requirement |
+
+## Deliberately not done in the baseline
+
+`ADR-0002` anticipated converting the JSON-as-text columns (`scoreBreakdown`,
+`matchedKeywords`, `modelParameters`, …) to native `Json`. The baseline keeps
+them as `TEXT` on purpose: the ADR's own rule is that the existing schema is
+baselined *unchanged*, and the conversion changes the Prisma client's types for
+every reader of those columns (which all go through `parseJson` today). It is
+an expand-and-contract change for a later migration, not a baseline edit.
+
+Likewise, `DateTime` columns are `TIMESTAMP(3)` without time zone — Prisma's
+default mapping, storing UTC. Changing to `timestamptz` is a rewrite of 232
+columns and is not a Stage 01 concern; it is noted so nobody mistakes the
+current mapping for an oversight.
