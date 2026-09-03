@@ -2,7 +2,7 @@
 
 Recorded 2026-09-03 on branch `claude/stage-07-eligibility-engine`, stacked
 on Stage 06 (PR #18) → 05 (#17) → 04 (#16) → 03 (#15) → 02 (#14) → 01 (#13,
-PARTIAL). Every line was run or read; nothing is PASS on the strength of a
+PARTIAL). Draft PR #19. Every line was run or read; nothing is PASS on the strength of a
 mock, a skipped test or a document. This stage's honest centre: **hard gates
 now run before scoring and an ineligible posting never reaches a candidate's
 feed; the gates are as good as the facts on both sides, and two of the six
