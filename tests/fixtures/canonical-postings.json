@@ -1,0 +1,623 @@
+{
+  "$comment": "Stage 06 normalisation goldens. Hand-written postings in the shapes real sources produce (a careers page, two aggregators, a board), with the canonical fields each MUST yield. A change in any expected value is a behaviour change to be reviewed, not a fixture to be regenerated.",
+  "cases": [
+    {
+      "name": "careers page: bracketed qualifier, requisition id, postal code, sectioned requirements",
+      "posting": {
+        "source": "mock",
+        "externalId": "c1",
+        "title": "Senior Data Analyst (Remote) - Req #4521",
+        "company": "Maple Analytics Inc.",
+        "location": "Toronto, ON M5V 2T6",
+        "country": "CA",
+        "workMode": "hybrid",
+        "jobType": "full_time",
+        "salaryCurrency": "CAD",
+        "applyUrl": "https://maple.example/jobs/4521",
+        "applyMethod": "external",
+        "postedAt": "2026-09-01T00:00:00.000Z",
+        "requirements": [],
+        "skills": [],
+        "description": "About the role\nWe need someone with 3+ years of experience in SQL and Python. A Bachelor's degree in Statistics or a related field is required.\nRequirements\n- Strong SQL and Tableau skills\n- Experience with dbt is an asset\n- Bilingual (English/French) preferred\nMust be legally authorized to work in Canada. We are unable to sponsor visas at this time.\nBenefits\nHealth and dental."
+      },
+      "expected": {
+        "normalizedTitle": "senior data analyst",
+        "normalizedCompany": "maple analytics",
+        "postalRegion": "CA-ON/toronto",
+        "requiredSkills": [
+          "python",
+          "sql",
+          "statistics",
+          "tableau"
+        ],
+        "preferredSkills": [
+          "bilingual",
+          "dbt",
+          "french"
+        ],
+        "educationRequirements": [
+          "bachelors degree"
+        ],
+        "certificationRequirements": [],
+        "experienceYearsMin": 3,
+        "experienceYearsMax": null,
+        "languageRequirements": [
+          "bilingual",
+          "english",
+          "french"
+        ],
+        "workAuthorization": "authorization_required",
+        "sponsorship": "not_offered"
+      }
+    },
+    {
+      "name": "aggregator copy of the same posting: reformatted, truncated, province spelled out, legal suffix dropped",
+      "posting": {
+        "source": "adzuna",
+        "externalId": "a9",
+        "title": "Senior Data Analyst",
+        "company": "Maple Analytics",
+        "location": "Toronto, Ontario, Canada",
+        "country": "CA",
+        "workMode": "hybrid",
+        "jobType": "full_time",
+        "salaryCurrency": "CAD",
+        "applyUrl": "https://aggregator.example/a9",
+        "applyMethod": "external",
+        "postedAt": "2026-09-02T00:00:00.000Z",
+        "requirements": [],
+        "skills": [],
+        "description": "Senior Data Analyst at Maple Analytics. 3+ years experience in SQL and Python; Bachelor's in Statistics required. Strong SQL and Tableau skills. dbt an asset. Bilingual English French preferred. Must be legally authorized to work in Canada; unable to sponsor visas."
+      },
+      "expected": {
+        "normalizedTitle": "senior data analyst",
+        "normalizedCompany": "maple analytics",
+        "postalRegion": "CA-ON/toronto",
+        "requiredSkills": [
+          "python",
+          "sql",
+          "statistics",
+          "tableau"
+        ],
+        "preferredSkills": [
+          "bilingual",
+          "dbt",
+          "french"
+        ],
+        "educationRequirements": [
+          "bachelors"
+        ],
+        "certificationRequirements": [],
+        "experienceYearsMin": 3,
+        "experienceYearsMax": null,
+        "languageRequirements": [
+          "bilingual",
+          "english",
+          "french"
+        ],
+        "workAuthorization": "authorization_required",
+        "sponsorship": "not_offered"
+      },
+      "sameJobAs": "c1"
+    },
+    {
+      "name": "US posting: state and zip, clearance, year range, certification, sponsorship offered",
+      "posting": {
+        "source": "mock",
+        "externalId": "u1",
+        "title": "Staff Software Engineer | Acme Corp",
+        "company": "Acme Corp",
+        "location": "Austin, TX 78701",
+        "country": "US",
+        "workMode": "onsite",
+        "jobType": "full_time",
+        "salaryCurrency": "USD",
+        "applyUrl": "https://acme.example/jobs/1",
+        "applyMethod": "ats_form",
+        "postedAt": "2026-09-01T00:00:00.000Z",
+        "requirements": [
+          "5-8 years with Go and Kubernetes"
+        ],
+        "skills": [
+          "go",
+          "kubernetes"
+        ],
+        "description": "Security clearance required. AWS Certified Solutions Architect a plus. Visa sponsorship available."
+      },
+      "expected": {
+        "normalizedTitle": "staff software engineer",
+        "normalizedCompany": "acme",
+        "postalRegion": "US-TX/austin",
+        "requiredSkills": [
+          "go",
+          "kubernetes"
+        ],
+        "preferredSkills": [
+          "aws"
+        ],
+        "educationRequirements": [],
+        "certificationRequirements": [
+          "aws certified solutions architect"
+        ],
+        "experienceYearsMin": 5,
+        "experienceYearsMax": 8,
+        "languageRequirements": [],
+        "workAuthorization": "security_clearance_required",
+        "sponsorship": "offered"
+      }
+    },
+    {
+      "name": "remote posting with a country suffix; nothing stated about authorisation or sponsorship",
+      "posting": {
+        "source": "mock",
+        "externalId": "r1",
+        "title": "Registered Nurse - Remote",
+        "company": "Northern Health Group",
+        "location": "Remote - Canada",
+        "country": "CA",
+        "workMode": "remote",
+        "jobType": "part_time",
+        "salaryCurrency": "CAD",
+        "applyUrl": "https://nh.example/rn",
+        "applyMethod": "external",
+        "postedAt": "2026-09-01T00:00:00.000Z",
+        "requirements": [],
+        "skills": [],
+        "description": "RN with current BLS. French is an asset."
+      },
+      "expected": {
+        "normalizedTitle": "registered nurse",
+        "normalizedCompany": "northern health group",
+        "postalRegion": "remote",
+        "requiredSkills": [
+          "bls"
+        ],
+        "preferredSkills": [
+          "french"
+        ],
+        "educationRequirements": [],
+        "certificationRequirements": [
+          "bls",
+          "rn"
+        ],
+        "experienceYearsMin": null,
+        "experienceYearsMax": null,
+        "languageRequirements": [
+          "french"
+        ],
+        "workAuthorization": null,
+        "sponsorship": "unknown"
+      }
+    },
+    {
+      "name": "unparseable location stays null; citizenship requirement; a 'no sponsorship' phrasing",
+      "posting": {
+        "source": "mock",
+        "externalId": "x1",
+        "title": "Policy Advisor",
+        "company": "The Crown Agency of Canada",
+        "location": "Somewhere Unknown",
+        "country": "CA",
+        "workMode": "onsite",
+        "jobType": "contract",
+        "salaryCurrency": "CAD",
+        "applyUrl": "https://gov.example/x1",
+        "applyMethod": "external",
+        "postedAt": "2026-09-01T00:00:00.000Z",
+        "requirements": [],
+        "skills": [],
+        "description": "Canadian citizenship or permanent residence is required. This position does not offer sponsorship. Master's degree in Public Policy preferred; 2 years experience."
+      },
+      "expected": {
+        "normalizedTitle": "policy advisor",
+        "normalizedCompany": "crown agency of canada",
+        "postalRegion": null,
+        "requiredSkills": [],
+        "preferredSkills": [],
+        "educationRequirements": [
+          "masters degree"
+        ],
+        "certificationRequirements": [],
+        "experienceYearsMin": 2,
+        "experienceYearsMax": null,
+        "languageRequirements": [],
+        "workAuthorization": "citizenship_or_pr_required",
+        "sponsorship": "not_offered"
+      }
+    },
+    {
+      "name": "same title and employer, same city, different role: a distinct job (different skill fingerprint)",
+      "posting": {
+        "source": "mock",
+        "externalId": "d1",
+        "title": "Senior Data Analyst",
+        "company": "Maple Analytics Inc.",
+        "location": "Toronto, ON",
+        "country": "CA",
+        "workMode": "hybrid",
+        "jobType": "full_time",
+        "salaryCurrency": "CAD",
+        "applyUrl": "https://maple.example/jobs/4599",
+        "applyMethod": "external",
+        "postedAt": "2026-09-01T00:00:00.000Z",
+        "requirements": [],
+        "skills": [],
+        "description": "Marketing analytics team. Requirements\n- Google Analytics and Looker\n- SEO reporting"
+      },
+      "expected": {
+        "normalizedTitle": "senior data analyst",
+        "normalizedCompany": "maple analytics",
+        "postalRegion": "CA-ON/toronto",
+        "requiredSkills": [
+          "google analytics",
+          "looker",
+          "seo"
+        ],
+        "preferredSkills": [],
+        "educationRequirements": [],
+        "certificationRequirements": [],
+        "experienceYearsMin": null,
+        "experienceYearsMax": null,
+        "languageRequirements": [],
+        "workAuthorization": null,
+        "sponsorship": "unknown"
+      },
+      "differentJobFrom": "c1"
+    },
+    {
+      "name": "board copy with the location and employer repeated in the title and a job id",
+      "posting": {
+        "source": "adzuna",
+        "externalId": "b7",
+        "title": "Staff Software Engineer - Austin, TX - Acme Corp (Job ID 88231)",
+        "company": "Acme Corporation",
+        "location": "Austin, Texas",
+        "country": "US",
+        "workMode": "onsite",
+        "jobType": "full_time",
+        "salaryCurrency": "USD",
+        "applyUrl": "https://board.example/b7",
+        "applyMethod": "external",
+        "postedAt": "2026-09-03T00:00:00.000Z",
+        "requirements": [],
+        "skills": [],
+        "description": "5-8 years with Go and Kubernetes. Security clearance required. AWS Certified Solutions Architect a plus. Visa sponsorship available."
+      },
+      "expected": {
+        "normalizedTitle": "staff software engineer",
+        "normalizedCompany": "acme",
+        "postalRegion": "US-TX/austin",
+        "requiredSkills": [
+          "go",
+          "kubernetes"
+        ],
+        "preferredSkills": [
+          "aws"
+        ],
+        "educationRequirements": [],
+        "certificationRequirements": [
+          "aws certified solutions architect"
+        ],
+        "experienceYearsMin": 5,
+        "experienceYearsMax": 8,
+        "languageRequirements": [],
+        "workAuthorization": "security_clearance_required",
+        "sponsorship": "offered"
+      },
+      "sameJobAs": "u1"
+    },
+    {
+      "name": "same posting, different city: a distinct job",
+      "posting": {
+        "source": "mock",
+        "externalId": "v1",
+        "title": "Staff Software Engineer",
+        "company": "Acme Corp",
+        "location": "Denver, CO",
+        "country": "US",
+        "workMode": "onsite",
+        "jobType": "full_time",
+        "salaryCurrency": "USD",
+        "applyUrl": "https://acme.example/jobs/2",
+        "applyMethod": "ats_form",
+        "postedAt": "2026-09-01T00:00:00.000Z",
+        "requirements": [
+          "5-8 years with Go and Kubernetes"
+        ],
+        "skills": [
+          "go",
+          "kubernetes"
+        ],
+        "description": "Security clearance required. AWS Certified Solutions Architect a plus. Visa sponsorship available."
+      },
+      "expected": {
+        "normalizedTitle": "staff software engineer",
+        "normalizedCompany": "acme",
+        "postalRegion": "US-CO/denver",
+        "requiredSkills": [
+          "go",
+          "kubernetes"
+        ],
+        "preferredSkills": [
+          "aws"
+        ],
+        "educationRequirements": [],
+        "certificationRequirements": [
+          "aws certified solutions architect"
+        ],
+        "experienceYearsMin": 5,
+        "experienceYearsMax": 8,
+        "languageRequirements": [],
+        "workAuthorization": "security_clearance_required",
+        "sponsorship": "offered"
+      },
+      "differentJobFrom": "u1"
+    },
+    {
+      "name": "undisclosed employer, no vocabulary skills: a WEAK identity that never merges (retail manager)",
+      "posting": {
+        "salaryCurrency": "CAD",
+        "applyMethod": "external",
+        "postedAt": "2026-09-01T00:00:00.000Z",
+        "requirements": [],
+        "skills": [],
+        "source": "adzuna",
+        "externalId": "w1",
+        "title": "Manager",
+        "company": "Employer not disclosed",
+        "location": "Toronto, ON",
+        "country": "CA",
+        "workMode": "onsite",
+        "jobType": "full_time",
+        "applyUrl": "https://agg.example/w1",
+        "description": "Run the store floor and coach the team."
+      },
+      "expected": {
+        "normalizedTitle": "manager",
+        "normalizedCompany": "employer not disclosed",
+        "postalRegion": "CA-ON/toronto",
+        "requiredSkills": [],
+        "preferredSkills": [],
+        "educationRequirements": [],
+        "certificationRequirements": [],
+        "experienceYearsMin": null,
+        "experienceYearsMax": null,
+        "languageRequirements": [],
+        "workAuthorization": null,
+        "sponsorship": "unknown"
+      },
+      "differentJobFrom": "w2"
+    },
+    {
+      "name": "undisclosed employer, no vocabulary skills: the other manager (hospital ward)",
+      "posting": {
+        "salaryCurrency": "CAD",
+        "applyMethod": "external",
+        "postedAt": "2026-09-01T00:00:00.000Z",
+        "requirements": [],
+        "skills": [],
+        "source": "adzuna",
+        "externalId": "w2",
+        "title": "Manager",
+        "company": "Employer not disclosed",
+        "location": "Toronto, ON",
+        "country": "CA",
+        "workMode": "onsite",
+        "jobType": "full_time",
+        "applyUrl": "https://agg.example/w2",
+        "description": "Lead the ward's nursing staff."
+      },
+      "expected": {
+        "normalizedTitle": "manager",
+        "normalizedCompany": "employer not disclosed",
+        "postalRegion": "CA-ON/toronto",
+        "requiredSkills": [],
+        "preferredSkills": [],
+        "educationRequirements": [],
+        "certificationRequirements": [],
+        "experienceYearsMin": null,
+        "experienceYearsMax": null,
+        "languageRequirements": [],
+        "workAuthorization": null,
+        "sponsorship": "unknown"
+      }
+    },
+    {
+      "name": "unparseable location: weak identity, never merged with the other unparseable one",
+      "posting": {
+        "salaryCurrency": "CAD",
+        "applyMethod": "external",
+        "postedAt": "2026-09-01T00:00:00.000Z",
+        "requirements": [],
+        "skills": [],
+        "source": "mock",
+        "externalId": "y1",
+        "title": "Field Technician",
+        "company": "Northwind Utilities",
+        "location": "Somewhere",
+        "country": "CA",
+        "workMode": "onsite",
+        "jobType": "full_time",
+        "applyUrl": "https://nw.example/y1",
+        "description": "Linux and networking."
+      },
+      "expected": {
+        "normalizedTitle": "field technician",
+        "normalizedCompany": "northwind utilities",
+        "postalRegion": null,
+        "requiredSkills": [
+          "linux"
+        ],
+        "preferredSkills": [],
+        "educationRequirements": [],
+        "certificationRequirements": [],
+        "experienceYearsMin": null,
+        "experienceYearsMax": null,
+        "languageRequirements": [],
+        "workAuthorization": null,
+        "sponsorship": "unknown"
+      },
+      "differentJobFrom": "y2"
+    },
+    {
+      "name": "unparseable location: the other one",
+      "posting": {
+        "salaryCurrency": "CAD",
+        "applyMethod": "external",
+        "postedAt": "2026-09-01T00:00:00.000Z",
+        "requirements": [],
+        "skills": [],
+        "source": "mock",
+        "externalId": "y2",
+        "title": "Field Technician",
+        "company": "Northwind Utilities",
+        "location": "Elsewhere entirely",
+        "country": "CA",
+        "workMode": "onsite",
+        "jobType": "full_time",
+        "applyUrl": "https://nw.example/y2",
+        "description": "Linux and networking."
+      },
+      "expected": {
+        "normalizedTitle": "field technician",
+        "normalizedCompany": "northwind utilities",
+        "postalRegion": null,
+        "requiredSkills": [
+          "linux"
+        ],
+        "preferredSkills": [],
+        "educationRequirements": [],
+        "certificationRequirements": [],
+        "experienceYearsMin": null,
+        "experienceYearsMax": null,
+        "languageRequirements": [],
+        "workAuthorization": null,
+        "sponsorship": "unknown"
+      }
+    },
+    {
+      "name": "remote in Canada vs remote in the US: the country is part of the identity",
+      "posting": {
+        "salaryCurrency": "CAD",
+        "applyMethod": "external",
+        "postedAt": "2026-09-01T00:00:00.000Z",
+        "requirements": [],
+        "skills": [
+          "go",
+          "kubernetes"
+        ],
+        "source": "mock",
+        "externalId": "z1",
+        "title": "Staff Software Engineer",
+        "company": "Acme Corp",
+        "location": "Remote",
+        "country": "CA",
+        "workMode": "remote",
+        "jobType": "full_time",
+        "applyUrl": "https://acme.example/z1",
+        "description": "Go and Kubernetes."
+      },
+      "expected": {
+        "normalizedTitle": "staff software engineer",
+        "normalizedCompany": "acme",
+        "postalRegion": "remote",
+        "requiredSkills": [
+          "go",
+          "kubernetes"
+        ],
+        "preferredSkills": [],
+        "educationRequirements": [],
+        "certificationRequirements": [],
+        "experienceYearsMin": null,
+        "experienceYearsMax": null,
+        "languageRequirements": [],
+        "workAuthorization": null,
+        "sponsorship": "unknown"
+      },
+      "differentJobFrom": "z2"
+    },
+    {
+      "name": "remote in the US",
+      "posting": {
+        "salaryCurrency": "USD",
+        "applyMethod": "external",
+        "postedAt": "2026-09-01T00:00:00.000Z",
+        "requirements": [],
+        "skills": [
+          "go",
+          "kubernetes"
+        ],
+        "source": "mock",
+        "externalId": "z2",
+        "title": "Staff Software Engineer",
+        "company": "Acme Corp",
+        "location": "Remote",
+        "country": "US",
+        "workMode": "remote",
+        "jobType": "full_time",
+        "applyUrl": "https://acme.example/z2",
+        "description": "Go and Kubernetes."
+      },
+      "expected": {
+        "normalizedTitle": "staff software engineer",
+        "normalizedCompany": "acme",
+        "postalRegion": "remote",
+        "requiredSkills": [
+          "go",
+          "kubernetes"
+        ],
+        "preferredSkills": [],
+        "educationRequirements": [],
+        "certificationRequirements": [],
+        "experienceYearsMin": null,
+        "experienceYearsMax": null,
+        "languageRequirements": [],
+        "workAuthorization": null,
+        "sponsorship": "unknown"
+      }
+    },
+    {
+      "name": "negated and preferred statements do not become requirements; heading content on the same line counts; a state abbreviation is not a degree",
+      "posting": {
+        "salaryCurrency": "CAD",
+        "applyMethod": "external",
+        "postedAt": "2026-09-01T00:00:00.000Z",
+        "requirements": [],
+        "skills": [],
+        "source": "mock",
+        "externalId": "n1",
+        "title": "Sr. Analyst",
+        "company": "Canada Life",
+        "location": "Hybrid - Toronto, ON",
+        "country": "CA",
+        "workMode": "hybrid",
+        "jobType": "full_time",
+        "applyUrl": "https://cl.example/n1",
+        "description": "Requirements: SQL, Python and Tableau.\nPreferred: Looker. Requirements: Excel.\nCanadian citizenship is not required. No security clearance required. Secret clearance is an asset. Our office is in Boston, MA. Established 1847 years ago. Bachelor’s degree required. We sponsor work visas."
+      },
+      "expected": {
+        "normalizedTitle": "senior analyst",
+        "normalizedCompany": "canada life",
+        "postalRegion": "CA-ON/toronto",
+        "requiredSkills": [
+          "excel",
+          "python",
+          "sql",
+          "tableau"
+        ],
+        "preferredSkills": [
+          "looker"
+        ],
+        "educationRequirements": [
+          "bachelors degree"
+        ],
+        "certificationRequirements": [],
+        "experienceYearsMin": null,
+        "experienceYearsMax": null,
+        "languageRequirements": [],
+        "workAuthorization": null,
+        "sponsorship": "offered"
+      }
+    }
+  ]
+}

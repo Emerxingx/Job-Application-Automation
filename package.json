@@ -18,6 +18,8 @@
     "db:migrate:check": "node scripts/db/with-encoded-env.mjs prisma migrate diff --from-url \"$DIRECT_URL\" --to-schema-datamodel prisma/schema.prisma --exit-code",
     "db:push": "node scripts/db/with-encoded-env.mjs prisma db push",
     "db:seed": "tsx prisma/seed.ts",
+    "jobs:freshness": "node scripts/db/with-encoded-env.mjs tsx scripts/jobs/freshness.ts",
+    "jobs:canonicalize": "node scripts/db/with-encoded-env.mjs tsx scripts/jobs/canonicalize.ts",
     "db:reset": "node scripts/db/with-encoded-env.mjs prisma migrate reset --force",
     "postinstall": "prisma generate",
     "cms:types": "node scripts/payload-cli.mjs generate:types",

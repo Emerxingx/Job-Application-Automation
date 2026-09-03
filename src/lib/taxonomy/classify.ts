@@ -1,5 +1,6 @@
 import type { Job, Prisma } from '@prisma/client';
 import { db } from '../db';
+import { occupationFamily } from '@/lib/jobs/canonical';
 import { inferNocCode } from './fallback';
 
 /**
@@ -146,12 +147,21 @@ export async function classifyStoredJob(job: Pick<Job, 'id' | 'title' | 'occupat
   const loaded = await client.occupation.count({ where: { level: 'unit' } });
   if (loaded === 0) return null;
   const classified = await classifyTitle(job.title, client);
+  const nocCode = classified.confidence === 'high' ? (classified.nocCode ?? job.nocCode) : (job.nocCode ?? classified.nocCode);
+  // Stage 06: the canonical job carries the SOC code alongside the NOC code
+  // (through the occupation's own codes, i.e. the loaded crosswalk) and the
+  // NOC broad category as its occupation family. Both are null until known.
+  const soc = classified.occupationId
+    ? await client.occupationCode.findFirst({ where: { occupationId: classified.occupationId, scheme: { startsWith: 'SOC' } }, select: { code: true } })
+    : null;
   await client.job.update({
     where: { id: job.id },
     data: {
       occupationId: classified.occupationId,
       occupationSource: classified.method,
-      nocCode: classified.confidence === 'high' ? (classified.nocCode ?? job.nocCode) : (job.nocCode ?? classified.nocCode),
+      nocCode,
+      socCode: soc?.code ?? null,
+      occupationFamily: occupationFamily(nocCode),
     },
   });
   return classified;

@@ -2,12 +2,12 @@
   "$comment": "Machine-readable controller for the autonomous build programme. Authoritative over any chat transcript: if this file and a conversation disagree, this file wins. Updated at every stage checkpoint.",
   "schema_version": 1,
   "updated_at": "2026-09-03",
-  "current_stage": "05",
+  "current_stage": "06",
   "last_completed_stage": "00",
-  "current_branch": "claude/stage-05-job-source-connectors",
-  "current_head": "930f9aca19ad72b4d3dc0a03a1254e46f70fff3e",
+  "current_branch": "claude/stage-06-normalization-dedup-freshness",
+  "current_head": "17092639dea543f68727fe93a2a17d953068ece0",
   "current_head_meaning": "SHA of the last commit whose full gate set was verified locally (lint, typecheck, tests, build). Set by the status-sync commit that immediately follows it, so it names a real, verified commit rather than the one it is written in.",
-  "current_pr": "https://github.com/Emerxingx/Job-Application-Automation/pull/17",
+  "current_pr": "https://github.com/Emerxingx/Job-Application-Automation/pull/18",
   "main_head": "d6ae8b3a9180b529abe06f23417515432c0a7f0e",
   "run_complete": false,
   "stage_status": {
@@ -17,7 +17,7 @@
     "03": "PASS_ENGINEERING_EXIT_BLOCKED_L3",
     "04": "PASS_ENGINEERING_EXIT_BLOCKED_L2",
     "05": "PASS_ENGINEERING_EXIT_PARTIAL",
-    "06": "NOT_STARTED",
+    "06": "PASS_ENGINEERING_EXIT_PARTIAL",
     "07": "NOT_STARTED",
     "08": "NOT_STARTED",
     "09": "NOT_STARTED",
@@ -319,5 +319,28 @@
       "Staging rehearsal (NOT VERIFIED — R-34)"
     ],
     "verdict": "Stage 05 passes every engineering gate reachable from this environment and is PARTIAL at its exit: the live-source conditions are blocked on credentials the build does not hold. The register shows Adzuna disabled with an empty legal basis until a person fills it. Merge posture inherited from the stack."
+  },
+  "stage_06_progress": {
+    "schema_and_migrations": "DONE locally — fifteen canonical columns on Job, JobProvenance, indexes, provenance backfill (20260903130000); generated RLS (20260903130100, 100/100 forced); NOT VERIFIED on Supabase (R-34)",
+    "canonical_model": "DONE — src/lib/jobs/canonical.ts (pure, deterministic): normalised title (seniority kept), company, postal region, required/preferred skills, education, certifications, experience range, languages, work-authorisation statement, sponsorship (unknown by default), occupation family + SOC via the spine; every field golden-tested on eight fixture postings",
+    "deduplication": "DONE — one Job per canonicalHash (title, company, country, region, vocabulary skills); weak identities never merge; resolution by provenance, then hash (never a closed job), then create; primary source owns columns and is adopted when the register row is gone; measured on the labelled set: precision 1.000 / recall 1.000 over 105 pairs with five hard negatives; NOT MEASURED on real traffic (no credentialed source)",
+    "freshness": "DONE as a mechanism — per-source staleness with lastCheckedAt progress, closure and doubt only when no source still lists the job, unknown never inferred as closed; closed jobs leave the feed, dashboard and v1 match feed; POST /api/console/sources/:key/refresh and npm run jobs:freshness; NO SCHEDULER (Stage 24)",
+    "backfill": "DONE — provenance by SQL in the migration; canonical columns by npm run jobs:canonicalize (idempotent, resumable)",
+    "independent_review": "DONE — 2 HIGH (tenant-path include of the system-only register broke every job page; placeholder identities merged unrelated postings), 7 MEDIUM (company normalisation, per-source doubt, sweep progress, closed-job revival, negation in authorisation/sponsorship, heading content, v1 feed), 9 LOW; every HIGH and MEDIUM fixed with a test, LOW fixed or documented; STAGE06_EVIDENCE.md §9"
+  },
+  "stage_06_exit_gate": {
+    "met": [
+      "Canonical model live: every listed field on Job, derived on capture",
+      "Acceptance: the same posting from two sources is one job with two provenance records (database test)",
+      "Dedup measured on a labelled fixture set (precision 1.000, recall 1.000, 105 pairs, five hard negatives), re-computed and asserted on every run",
+      "Freshness mechanism proven: per-source closure, unknown recorded as unknown, closed jobs leave the feed",
+      "Full gate set green with the documented command only: lint 0/8, typecheck 0, 942/942 tests (0 skipped), build 0"
+    ],
+    "not_met": [
+      "Dedup observed on real traffic (no credentialed source — inherits the Stage 05 blocker)",
+      "Freshness running on a schedule (no scheduler exists; Stage 24)",
+      "Staging rehearsal (NOT VERIFIED — R-34)"
+    ],
+    "verdict": "Stage 06 passes every engineering gate and is PARTIAL at its exit on the same cause as Stage 05 (nothing real flows yet) and on the absence of a scheduler. Merge posture inherited from the stack."
   }
 }

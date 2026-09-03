@@ -150,12 +150,14 @@ and location are not evaluated as pass/fail gates, so a candidate can be scored
 92% for a role they are legally ineligible for.
 **Remediation:** Stage 07, ahead of Stage 08.
 
-### G-13 — Job model is too thin for the canonical schema · PARTIAL
+### G-13 — Job model is too thin for the canonical schema · CLOSED (Stage 06, engineering)
 §10 of the brief requires ~35 canonical fields. `Job` has ~15 and only 3 code
 references. Absent: `normalized_title`, `occupation_family`, `SOC`, `postal_region`,
 `first_seen`/`last_seen`, `active_state`/`closed_at`, `source_hash`,
 `canonical_hash`, separated `required_skills`/`preferred_skills`, education,
 certification and experience requirements, language, sponsorship.
+
+**Stage 06:** every listed field exists on `Job` and is derived on capture by `src/lib/jobs/canonical.ts`; `JobProvenance` carries every source; dedup on `canonicalHash` is measured on a labelled fixture set (`STAGE06_EVIDENCE.md` §4). Not yet observed on real traffic (no credentialed source) — that observation is the remaining gap.
 
 No deduplication and no freshness/closure detection exist. `nocCode` is inferred
 from a 9-entry title regex table in the Adzuna adapter — reasonable as a

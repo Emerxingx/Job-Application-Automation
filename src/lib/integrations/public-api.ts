@@ -392,6 +392,9 @@ const PUBLIC_JOB_SELECT = {
   requirements: true,
   nocCode: true,
   postedAt: true,
+  // Stage 06: lifecycle, so a client can tell a closed posting from an open one.
+  activeState: true,
+  closedAt: true,
 } as const;
 
 /**
@@ -411,14 +414,14 @@ export async function listJobsForApi(
     ...(filters.status ? { status: filters.status } : {}),
     ...(filters.minScore !== undefined ? { matchScore: { gte: filters.minScore } } : {}),
     ...(filters.since ? { createdAt: { gte: filters.since } } : {}),
-    ...(filters.country || filters.workMode
-      ? {
-          job: {
-            ...(filters.country ? { country: filters.country } : {}),
-            ...(filters.workMode ? { workMode: filters.workMode } : {}),
-          },
-        }
-      : {}),
+    // Stage 06: a posting every source has stopped listing is closed and
+    // leaves the match feed; `unknown` (a source that cannot tell) stays and
+    // is visible on the job's `activeState`.
+    job: {
+      activeState: { not: 'closed' },
+      ...(filters.country ? { country: filters.country } : {}),
+      ...(filters.workMode ? { workMode: filters.workMode } : {}),
+    },
   };
 
   const [total, rows] = await db.$transaction([

@@ -214,3 +214,16 @@ export async function recordSourcePolicy(key: string, record: SourcePolicyRecord
     return after;
   });
 }
+
+/**
+ * Display names for source ids, on the system client. The register is
+ * system-only (governance and credential NAMES live on it), so a tenant-path
+ * page resolves the one column it may show through this, never by including
+ * the relation (Stage 06 review H1).
+ */
+export async function sourceNamesFor(ids: string[]): Promise<Map<string, string>> {
+  const unique = [...new Set(ids)];
+  if (unique.length === 0) return new Map();
+  const rows = await db.jobSource.findMany({ where: { id: { in: unique } }, select: { id: true, name: true } });
+  return new Map(rows.map((r) => [r.id, r.name]));
+}
