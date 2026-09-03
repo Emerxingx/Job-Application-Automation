@@ -49,7 +49,8 @@ categories and residency.
 | Supabase Auth records | **Same region as the project database**, in the project's Postgres `auth` schema | Founder attestation, citing Supabase's regions and Auth documentation | 2026-09-02 |
 | Supabase Auth technical residency gate | **SATISFIED** | `../programme/AUTH_DECISION_GATE.md` §6 | 2026-09-02 |
 | Verified independently by engineering | **NO** | `supabase.com` is blocked by this environment's egress proxy; the claim is recorded as an attestation, not as a measurement | — |
-| Region confirmed from the provisioned project itself | **NOT YET** | Required before the Stage 01 exit gate; see `AUTH_DECISION_GATE.md` §6.5 | — |
+| Region confirmed from the provisioned project itself | **PARTIAL** — confirmed from the **connection endpoint** (the pooler host of the provisioned credential is `aws-0-ca-central-1.pooler.supabase.com`, read from the variable's shape without printing it); **not** from a live query, because the project is unreachable from the build environment (R-34) | `AUTH_DECISION_GATE.md` §6.5 names the endpoint as an acceptable source; a live `SELECT` remains outstanding | 2026-09-03 |
+| Consent capture | **IMPLEMENTED** — explicit, versioned, revocable records (`ConsentRecord`) for Terms of Service and Privacy Policy at signup; each grant and revocation audited | `src/lib/consent.ts`; the document **wording** is pending counsel (R-36, L-5) | 2026-09-03 |
 
 ### What this settles, and what it does not
 

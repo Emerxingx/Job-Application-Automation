@@ -1,7 +1,6 @@
 import Link from 'next/link';
 import { FolderTree, MapPin } from 'lucide-react';
-import { db } from '@/lib/db';
-import { requireUser } from '@/lib/auth';
+import { requireTenant } from '@/lib/tenancy/request';
 import {
   Card,
   EmptyState,
@@ -16,13 +15,15 @@ export const metadata = { title: 'Applications' };
 export const dynamic = 'force-dynamic';
 
 export default async function ApplicationsPage() {
-  const user = await requireUser();
+  const { user, run } = await requireTenant();
 
-  const applications = await db.application.findMany({
-    where: { userId: user.id },
-    orderBy: { createdAt: 'desc' },
-    include: { job: true },
-  });
+  const applications = await run((tx) =>
+    tx.application.findMany({
+      where: { userId: user.id },
+      orderBy: { createdAt: 'desc' },
+      include: { job: true },
+    }),
+  );
 
   const submitted = applications.filter((a) => a.status === 'submitted').length;
   const interviewing = applications.filter((a) =>

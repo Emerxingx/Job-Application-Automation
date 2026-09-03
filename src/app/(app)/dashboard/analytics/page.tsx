@@ -1,7 +1,6 @@
 import Link from 'next/link';
 import { BarChart3, KeyRound, Radar, Sparkles, Timer } from 'lucide-react';
-import { db } from '@/lib/db';
-import { requireUser } from '@/lib/auth';
+import { requireTenant } from '@/lib/tenancy/request';
 import { loadApplicationMetrics, loadMatchMetrics } from '@/lib/analytics/metrics';
 import {
   formatDurationHours,
@@ -84,11 +83,11 @@ export default async function AnalyticsPage({
 }: {
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 }) {
-  const user = await requireUser();
+  const { user, run } = await requireTenant();
   const params = await searchParams;
   const period = resolvePeriod(parsePeriod(params.period), { since: user.createdAt });
 
-  const [applications, matches, previousApplications, previousMatches, lifetime, agentCount] =
+  const [applications, matches, previousApplications, previousMatches, [lifetime, agentCount]] =
     await Promise.all([
       loadApplicationMetrics(user.id, {
         range: period.range,
@@ -114,8 +113,12 @@ export default async function AnalyticsPage({
             limit: 1,
           })
         : null,
-      db.application.count({ where: { userId: user.id } }),
-      db.agent.count({ where: { userId: user.id } }),
+      run((tx) =>
+        Promise.all([
+          tx.application.count({ where: { userId: user.id } }),
+          tx.agent.count({ where: { userId: user.id } }),
+        ]),
+      ),
     ]);
 
   const totals = applications.totals;

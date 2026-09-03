@@ -85,6 +85,9 @@ let admin: Client;
  */
 const configured = new WeakSet<PoolClient>();
 
+/** Every server backend PID any test has touched, to tell pristine from recycled. */
+const seenBackends = new Set<number>();
+
 async function checkout(): Promise<{ client: PoolClient; pid: number }> {
   const client = await pool.connect();
   if (!configured.has(client)) {
@@ -97,6 +100,7 @@ async function checkout(): Promise<{ client: PoolClient; pid: number }> {
   }
   try {
     const { rows } = await client.query<{ pid: number }>('SELECT pg_backend_pid() AS pid');
+    seenBackends.add(rows[0].pid);
     return { client, pid: rows[0].pid };
   } catch (error) {
     // Without this, one failing query strands the only connection in a max:1
@@ -278,14 +282,24 @@ describe('ADR-0005 — PostgreSQL row-level security is a real tenancy backstop'
   });
 
   it('4 — a request with no tenant context sees nothing, and "no context" is not always NULL', async () => {
-    // A pristine connection has never heard of the setting, so it reads NULL.
+    // A pristine connection has never heard of the setting, so it reads NULL —
+    // when it really is pristine. Through a transaction-mode pooler a "new"
+    // client connection is routinely served by a RECYCLED server backend, on
+    // which the setting has already existed, and then it reads ''. Which of
+    // the two states a request sees is therefore not under the application's
+    // control, and that is the whole point of this test: both must fail
+    // closed. The backend PID decides which assertion applies.
     const pristine = new Client({ connectionString: CONNECTION_STRING });
     await pristine.connect();
     try {
-      const { rows } = await pristine.query<{ ctx: string | null }>(
-        `SELECT current_setting('app.user_id', true) AS ctx`,
+      const { rows } = await pristine.query<{ ctx: string | null; pid: number }>(
+        `SELECT current_setting('app.user_id', true) AS ctx, pg_backend_pid() AS pid`,
       );
-      assert.equal(rows[0].ctx, null, 'never set on this connection reads as NULL');
+      if (seenBackends.has(rows[0].pid)) {
+        assert.equal(rows[0].ctx, '', 'a recycled backend (pooler) reports the empty string');
+      } else {
+        assert.equal(rows[0].ctx, null, 'never set on this backend reads as NULL');
+      }
     } finally {
       await pristine.end();
     }

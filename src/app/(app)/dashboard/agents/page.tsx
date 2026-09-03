@@ -1,7 +1,6 @@
 import Link from 'next/link';
 import { Plus, Radar } from 'lucide-react';
-import { db } from '@/lib/db';
-import { requireUser } from '@/lib/auth';
+import { requireTenant } from '@/lib/tenancy/request';
 import { parseJson } from '@/lib/types';
 import { Card, EmptyState, PageHeader, StatusBadge, formatRelative } from '@/components/ui';
 import { ScanButton } from '@/components/scan-button';
@@ -11,13 +10,15 @@ export const metadata = { title: 'Job agents' };
 export const dynamic = 'force-dynamic';
 
 export default async function AgentsPage() {
-  const user = await requireUser();
+  const { user, run } = await requireTenant();
 
-  const agents = await db.agent.findMany({
-    where: { userId: user.id },
-    orderBy: { createdAt: 'desc' },
-    include: { _count: { select: { matches: true, applications: true } } },
-  });
+  const agents = await run((tx) =>
+    tx.agent.findMany({
+      where: { userId: user.id },
+      orderBy: { createdAt: 'desc' },
+      include: { _count: { select: { matches: true, applications: true } } },
+    }),
+  );
 
   const maxAgents = user.subscription?.plan.maxAgents ?? 1;
   const atLimit = agents.length >= maxAgents;

@@ -1,5 +1,4 @@
-import { db } from '@/lib/db';
-import { requireUser } from '@/lib/auth';
+import { requireTenant } from '@/lib/tenancy/request';
 import { getQuota } from '@/lib/subscription';
 import { parseJson } from '@/lib/types';
 import { Card, Meter, PageHeader, StatusBadge } from '@/components/ui';
@@ -9,10 +8,11 @@ export const metadata = { title: 'Plan & billing' };
 export const dynamic = 'force-dynamic';
 
 export default async function BillingPage() {
-  const user = await requireUser();
+  const { user, run } = await requireTenant();
 
+  // Plan is reference data, readable on the tenant path.
   const [plans, quota] = await Promise.all([
-    db.plan.findMany({ orderBy: { sortOrder: 'asc' } }),
+    run((tx) => tx.plan.findMany({ orderBy: { sortOrder: 'asc' } })),
     getQuota(user.id),
   ]);
 

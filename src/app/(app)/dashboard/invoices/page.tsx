@@ -1,7 +1,6 @@
 import Link from 'next/link';
 import { CalendarClock, CreditCard, Receipt } from 'lucide-react';
-import { db } from '@/lib/db';
-import { requireUser } from '@/lib/auth';
+import { requireTenant } from '@/lib/tenancy/request';
 import {
   formatCents,
   formatPeriod,
@@ -51,20 +50,24 @@ function rowStatus(invoice: {
 }
 
 export default async function InvoicesPage() {
-  const user = await requireUser();
+  const { user, run } = await requireTenant();
 
-  const [invoices, spendByCurrency, subscription] = await Promise.all([
+  const [invoices, [spendByCurrency, subscription]] = await Promise.all([
     listInvoicesForUser(user.id, { limit: PAGE_LIMIT }),
-    // Lifetime spend is money that actually moved, so it reads the payment and
-    // refund caches rather than the invoiced total — a voided or credited
-    // invoice was never a cost to this customer.
-    db.invoice.groupBy({
-      by: ['currency'],
-      where: { userId: user.id, number: { not: null } },
-      _sum: { amountPaidCents: true, amountRefundedCents: true },
-      _count: { _all: true },
-    }),
-    db.subscription.findUnique({ where: { userId: user.id }, include: { plan: true } }),
+    run((tx) =>
+      Promise.all([
+        // Lifetime spend is money that actually moved, so it reads the payment and
+        // refund caches rather than the invoiced total — a voided or credited
+        // invoice was never a cost to this customer.
+        tx.invoice.groupBy({
+          by: ['currency'],
+          where: { userId: user.id, number: { not: null } },
+          _sum: { amountPaidCents: true, amountRefundedCents: true },
+          _count: { _all: true },
+        }),
+        tx.subscription.findUnique({ where: { userId: user.id }, include: { plan: true } }),
+      ]),
+    ),
   ]);
 
   const rows: InvoiceRowView[] = invoices.map((invoice) => {

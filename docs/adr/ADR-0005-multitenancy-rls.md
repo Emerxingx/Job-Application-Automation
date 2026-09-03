@@ -94,12 +94,33 @@ RLS is the backstop. Three of the four corrections above describe ways the
 backstop can be present and inert, which is exactly why the application filters
 stay.
 
+### Implemented — 2026-09-03
+
+- Policies exist on **every** table (`prisma/migrations/20260903073000_row_level_security`),
+  generated from a committed classification (`src/lib/tenancy/rls-tables.ts`)
+  so that a table nobody classified fails a test rather than shipping open.
+  Each table is `ENABLE` + `FORCE`; the migration role's bypass is a named
+  `system_full_access` policy per table, not superuser status.
+- Context is transaction-scoped: `src/lib/tenancy/context.ts` runs
+  `SET LOCAL ROLE app_tenant` and `set_config(…, TRUE)` as the first statements
+  of a Prisma interactive transaction; ids are validated before they become a
+  setting value.
+- The negative suite this ADR mandates is `tests/tenancy-isolation.test.ts`:
+  through the real Prisma client with application filters removed — cross-tenant
+  read and write, missing/malformed/unknown context, connection reuse (PID
+  asserted), 40 concurrent requests, organisation scope, owner bypass, reference
+  and system tables. Membership authorisation negatives are in
+  `tests/organizations.test.ts`.
+- Application adoption: request handlers reach the tenant path through
+  `requireTenant()` (`src/lib/tenancy/request.ts`). Adoption is tracked in
+  `../programme/STAGE01_EVIDENCE.md`; handlers still on the system client are
+  protected by their application filters only, exactly as before.
+
 ### Still outstanding
-The proof establishes the mechanism on a stock PostgreSQL. It does not establish
-the deployed configuration. The pooled-runtime proof this ADR requires — the same
-assertions through the real connection pooler, in the pool mode actually
-configured — needs the provisioned project and remains a Stage 01 exit-gate
-condition.
+The pooled-runtime proof has been run through a real transaction-mode pooler
+(PgBouncer 1.22, locally) but **not** through Supavisor on the staging project:
+the build environment cannot open a TCP connection to it. That deployment-
+specific half of this ADR's gate remains open and is recorded as a blocker.
 
 ## Revisit when
 A tenant needs physical isolation for contractual or public-sector reasons —

@@ -1,6 +1,5 @@
 import { z } from 'zod';
-import { db } from '@/lib/db';
-import { requireUser } from '@/lib/auth';
+import { requireTenant } from '@/lib/tenancy/request';
 import { renderResumeText } from '@/lib/resume-render';
 import { ok, route } from '@/lib/api';
 
@@ -37,25 +36,30 @@ const resumeSchema = z.object({
 });
 
 export const PUT = route(async (request: Request) => {
-  const user = await requireUser();
+  const { user, run } = await requireTenant();
   const content = resumeSchema.parse(await request.json());
 
-  const existing = await db.resume.findFirst({ where: { userId: user.id, isMaster: true } });
   const data = {
     content: JSON.stringify(content),
     rawText: renderResumeText(content),
   };
 
-  const resume = existing
-    ? await db.resume.update({ where: { id: existing.id }, data })
-    : await db.resume.create({
-        data: { userId: user.id, label: 'Master Resume', isMaster: true, ...data },
-      });
+  // Tenant path: every query below runs under the user's RLS context, and the
+  // userId filters stay (ADR-0005 — the backstop does not excuse the filter).
+  const resume = await run(async (tx) => {
+    const existing = await tx.resume.findFirst({ where: { userId: user.id, isMaster: true } });
+    const saved = existing
+      ? await tx.resume.update({ where: { id: existing.id }, data })
+      : await tx.resume.create({
+          data: { userId: user.id, label: 'Master Resume', isMaster: true, ...data },
+        });
 
-  // Saving a resume for the first time completes onboarding.
-  if (!user.onboardedAt) {
-    await db.user.update({ where: { id: user.id }, data: { onboardedAt: new Date() } });
-  }
+    // Saving a resume for the first time completes onboarding.
+    if (!user.onboardedAt) {
+      await tx.user.update({ where: { id: user.id }, data: { onboardedAt: new Date() } });
+    }
+    return saved;
+  });
 
   return ok({ resumeId: resume.id });
 });

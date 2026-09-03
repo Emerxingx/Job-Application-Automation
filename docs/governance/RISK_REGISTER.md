@@ -6,10 +6,10 @@ Scored **Likelihood × Impact** (1–5). Owner is the stage that closes it.
 
 | ID | Risk | L | I | S | Mitigation | Stage |
 | --- | --- | --- | --- | --- | --- | --- |
-| R-01 | **Cross-tenant data leak.** Isolation is 63 hand-written filters. One omission exposes another org's candidates, case notes or placements. **Still open** — but the backstop's mechanism is no longer unproven: `tests/rls-isolation.test.ts` runs 10 assertions against a real PostgreSQL in CI (see R-33) | 4 | 5 | 20 | RLS backstop + permanent negative-authorization suite. Mechanism proven; policies on real tables and the deployment-specific proof still outstanding | 01 |
+| R-01 | **Cross-tenant data leak.** Isolation was 63 hand-written filters. **Reduced in Stage 01**: RLS policies on every table (`ENABLE`+`FORCE`, generated from a committed classification), transaction-scoped context, and a negative suite through the real Prisma client with filters removed (`tests/tenancy-isolation.test.ts`). Residual: handlers not yet on the tenant path rely on their filter alone (R-35), and the proof has not run through the staging project's pooler (R-34) | 2 | 5 | 10 | Complete tenant-path adoption; run the suite against Supavisor once reachable | 02 |
 | R-02 | **AI fabricates candidate facts.** No evidence grounding exists. A fabricated claim on a submitted résumé is a career-damaging, trust-destroying failure | 4 | 5 | 20 | Career Evidence Vault; generation accepts evidence refs only; truthfulness suite | 03 |
 | R-03 | **Deployed Next.js advisories.** Proxy/middleware bypass, SSRF, cache poisoning, XSS, DoS on a version with no in-band patch | 4 | 5 | 20 | Upgrade to 16.2.6+, inside Payload's peer range. **Never `audit fix --force`** | 01 |
-| R-04 | **No migrations + SQLite.** No reproducible schema, no recovery path, no RLS capability | 5 | 4 | 20 | PostgreSQL + baseline migration `0001` + the `ADR-0002` production migration standard (restore points and recovery plans; Prisma emits no down migrations) | 01 |
+| R-04 | ~~**No migrations + SQLite.**~~ **CLOSED in Stage 01** — PostgreSQL provider, three-migration history baselined from the existing schema, CI applies it to an empty database and fails on drift; procedure and recovery in `../operations/DATABASE_MIGRATIONS.md`. Residual: the staging rehearsal and a restore rehearsal are outstanding (R-34, Stage 23) | — | — | — | Done | 01 |
 
 ## High (10–15)
 
@@ -17,7 +17,7 @@ Scored **Likelihood × Impact** (1–5). Owner is the stage that closes it.
 | --- | --- | --- | --- | --- | --- | --- |
 | R-05 | **Sensitive demographics influence outcomes.** No fields yet, so no defect — but nothing prevents someone adding `gender` to `User`, after which every `SELECT *` and profile serialisation carries it into scoring and prompts | 3 | 5 | 15 | Separate schema and grants **before** any such field exists | 02 |
 | R-06 | **Stripe unvalidated.** Revenue-critical path never run live. **Idempotency AND ordering now closed in Stage 01** (`webhook-events.ts`, 12 tests); live validation still outstanding | 4 | 3 | 12 | Live test-mode E2E | 15 |
-| R-07 | **Session theft persists 30 days.** Stateless JWT; logout deletes the cookie only | 3 | 4 | 12 | Server-side sessions with immediate revocation | 01 |
+| R-07 | ~~**Session theft persists 30 days.**~~ **CLOSED in Stage 01** — sessions are rows; logout, password change, the account holder's own revoke and a staff revoke take effect on the next request, with no cache. A pre-Stage-01 token (no `sid`) is refused outright. Residual: the edge gate still checks only the signature, by design | — | — | — | Done | 01 |
 | R-08 | ~~**New route ships unauthenticated.**~~ **CLOSED in Stage 01** — `src/middleware.ts` denies by default; 7 negative tests including a lookalike-prefix test that caught a real fail-open bug (`/administrative-reports` matched `/admin`) | — | — | — | Done | 01 |
 | R-09 | **Silent job loss.** No queue; two designed schedulers have no runner. In an automation product, silent loss destroys trust faster than an outage | 4 | 4 | 16 | Outbox + lease workers + dead-letter + admin visibility | 01/05 |
 | R-10 | **Unlawful acquisition.** Commercial pressure to scrape prohibited sources | 3 | 5 | 15 | `SOURCE_ACCESS_POLICY.md`; per-source legal basis recorded before enablement; absolute prohibitions | 05 |
@@ -142,3 +142,52 @@ deployment-specific proof `ADR-0005` also requires — the same assertions throu
 the real connection pooler in its configured pool mode — needs the provisioned
 project and is tracked as `SUPABASE-PROJECT` in
 `../programme/AUTONOMOUS_STATUS.json`.
+
+## R-34 — the build environment cannot reach the staging database (open, Stage 01)
+
+`DATABASE_URL` and `DIRECT_URL` for the Supabase staging project are present
+and correctly shaped (transaction pooler on 6543 with `pgbouncer=true`,
+session endpoint on 5432, host in `ca-central-1` — verified without reading
+the values). But the environment's egress proxy relays HTTPS only, the
+project's HTTPS host is policy-denied (403 on CONNECT), and the pooler needs
+raw TCP, which the gateway accepts and then black-holes (the PostgreSQL
+`SSLRequest` never receives a reply; a plain startup gets a reset). Direct TCP
+to the pooler times out.
+
+Consequence: every proof that needs the *real* project — migration rehearsal
+against Supabase, the pooled-runtime proof through Supavisor, region read from
+a live query, Supabase Auth token exchange — is `NOT VERIFIED`, not `PASS`.
+The mechanism, the migrations, the policies and the Prisma path are proven on
+PostgreSQL 16 and through PgBouncer in transaction mode locally and in CI.
+
+Mitigation: the exact requirement is recorded in `../programme/AUTONOMOUS_STATUS.json`
+(allow TCP egress to the pooler host on 5432 and 6543, or run the recorded
+commands from a network that has it, or add the connection strings as GitHub
+Actions secrets so CI can run the same suites against staging). Owner:
+founder / environment administrator.
+
+## R-35 — tenant-path adoption is partial (open, Stage 01 → 02)
+
+RLS protects a query only when the query runs on the tenant path
+(`requireTenant()` → `run(tx => …)`). Stage 01 converted the candidate-facing
+API routes and dashboard pages that query Prisma directly; the exact list of
+what is and is not on the tenant path is in `../programme/STAGE01_EVIDENCE.md`.
+Handlers still on the system client — chiefly those that go through library
+functions such as billing, exports, the scanner and the apply engine — are
+protected by their `where: { userId }` filters exactly as before Stage 01: no
+regression, but no backstop either. Two failure modes remain possible until
+adoption is complete: a forgotten filter in a library function, and a `db.`
+call written inside a `run` callback (which silently escapes the transaction).
+Mitigation: continue adoption as each library area is touched in Stages 02–10,
+and add a lint rule or test that flags `db.` inside `run` callbacks (Stage 02).
+
+## R-36 — the legal documents behind the consent records are not yet written (open)
+
+Signup now records versioned consent to the Terms of Service and Privacy
+Policy (`ConsentRecord`, version `2026-09-01`), and `/terms` and `/privacy`
+exist so that consent is informed. Their **text is pending founder and
+counsel** (L-5 and the `ADR-0015` disclosure obligations); the pages say so
+explicitly and show the version identifier. A user who signs up today has
+agreed to a document whose wording is not published — acceptable while there
+are no real users, not acceptable at launch. Owner: founder + counsel; must be
+resolved before any real signup (Stage 24 gate at the latest).

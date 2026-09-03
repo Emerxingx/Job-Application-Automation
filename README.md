@@ -29,11 +29,12 @@ behind the target architecture. `HANDOFF.md` remains the prior engineering hando
 ## Quick start
 
 ```bash
-npm install          # installs deps and generates the Prisma client
-cp .env.example .env # defaults work as-is; no API keys required
-npm run db:push      # create the SQLite database
-npm run db:seed      # load plans + a demo account
-npm run dev          # http://localhost:3000
+npm install            # installs deps and generates the Prisma client
+cp .env.example .env   # defaults work as-is; no API keys required
+createdb jobpilot_dev  # any local PostgreSQL 16 (see .env.example for the URL)
+npm run db:migrate:deploy   # apply the versioned migration history
+npm run db:seed        # load plans + a demo account
+npm run dev            # http://localhost:3000
 ```
 
 **Demo account:** `demo@jobpilot.ai` / `demo1234`
@@ -91,10 +92,11 @@ src/
     ├── services/             scanner + applicator pipelines
     ├── storage.ts            application folder generation
     ├── subscription.ts       plans, quota, billing periods
-    └── auth.ts               JWT session cookies
+    ├── auth.ts               server-side revocable sessions (signed cookie names a Session row)
+    └── tenancy/              organisations, memberships, RLS classification and tenant context
 ```
 
-**Stack:** Next.js 15 (App Router) · TypeScript · Tailwind · Prisma · SQLite (dev) / Postgres (prod)
+**Stack:** Next.js 16 (App Router) · TypeScript · Tailwind · Prisma · PostgreSQL (row-level security as the tenancy backstop)
 
 ### The provider layer
 
@@ -126,7 +128,8 @@ an application.
 
 ## Deploying
 
-1. Set `provider = "postgresql"` in `prisma/schema.prisma` and point `DATABASE_URL` at Postgres.
+1. Point `DATABASE_URL` at the transaction pooler and `DIRECT_URL` at the session endpoint of a
+   managed PostgreSQL, then `npx prisma migrate deploy` (see `DEPLOYMENT.md` §1).
 2. Set a strong `AUTH_SECRET` (32+ characters). The app refuses to start in production without one.
 3. Point `STORAGE_ROOT` at durable storage (or object storage) — application documents are also
    kept in the database, so downloads still work on an ephemeral filesystem.

@@ -1,6 +1,5 @@
 import { z } from 'zod';
-import { db } from '@/lib/db';
-import { requireUser } from '@/lib/auth';
+import { requireTenant } from '@/lib/tenancy/request';
 import { fail, ok, route } from '@/lib/api';
 
 const patchSchema = z.object({
@@ -15,24 +14,29 @@ const patchSchema = z.object({
 type Params = { params: Promise<{ id: string }> };
 
 export const PATCH = route(async (request: Request, { params }: Params) => {
-  const user = await requireUser();
+  const { user, run } = await requireTenant();
   const { id } = await params;
   const body = patchSchema.parse(await request.json());
 
-  const existing = await db.agent.findFirst({ where: { id, userId: user.id } });
-  if (!existing) return fail('Agent not found.', 404);
-
-  const agent = await db.agent.update({ where: { id }, data: body });
+  const agent = await run(async (tx) => {
+    const existing = await tx.agent.findFirst({ where: { id, userId: user.id } });
+    if (!existing) return null;
+    return tx.agent.update({ where: { id }, data: body });
+  });
+  if (!agent) return fail('Agent not found.', 404);
   return ok({ agent });
 });
 
 export const DELETE = route(async (_request: Request, { params }: Params) => {
-  const user = await requireUser();
+  const { user, run } = await requireTenant();
   const { id } = await params;
 
-  const existing = await db.agent.findFirst({ where: { id, userId: user.id } });
-  if (!existing) return fail('Agent not found.', 404);
-
-  await db.agent.delete({ where: { id } });
+  const deleted = await run(async (tx) => {
+    const existing = await tx.agent.findFirst({ where: { id, userId: user.id } });
+    if (!existing) return false;
+    await tx.agent.delete({ where: { id } });
+    return true;
+  });
+  if (!deleted) return fail('Agent not found.', 404);
   return ok({ ok: true });
 });

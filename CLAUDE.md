@@ -26,29 +26,40 @@ remediation has begun.**
 npm ci                # install from the lockfile
 npm run dev           # http://localhost:3000
 npx tsc --noEmit      # typecheck  — PASSES
-npm test              # 689 tests  — PASSES (699 with RLS_TEST_DATABASE_URL set)
+npm test              # 754 tests  — PASSES with the two database URLs below set; the
+                      #   database suites skip WITH A REASON without them and THROW
+                      #   when CI=true, so CI cannot pass by skipping them
 npm run build         # production — PASSES
 npm run lint          # eslint directly — 0 errors, 8 warnings (baseline)
 npm run lint:ci       # blocking variant: --max-warnings=8
 npm run verify        # lint:ci + typecheck + test + build (the CI gate set)
 
-# tests/rls-isolation.test.ts needs a real PostgreSQL (SQLite has no RLS). It
-# skips with a reason when this is unset, and THROWS when CI=true and it is
-# unset, so CI cannot pass by skipping it.
-RLS_TEST_DATABASE_URL=postgresql://postgres@127.0.0.1:5432/postgres npm test
+# The database is PostgreSQL 16 (no SQLite path exists any more). Point both
+# at a database that has had `npm run db:migrate:deploy` run against it:
+#   tests/rls-isolation.test.ts     — raw mechanism proof (creates its own schema)
+#   tests/tenancy-isolation.test.ts — the migrated schema through the real Prisma client
+#   tests/organizations.test.ts, tests/sessions.test.ts
+RLS_TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/jobpilot_test \
+TENANCY_TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/jobpilot_test npm test
 
-npm run db:push       # schema sync (NOT migrations — none exist)
-npm run db:seed       # plans + demo account
-npm run cms:importmap # regenerate the tracked Payload import map
-npm run cms:types     # regenerate payload-types.ts
+npm run db:migrate:deploy  # apply the versioned history (the ONLY production path)
+npm run db:migrate         # local: create + apply a migration (needs CREATEDB for the shadow db)
+npm run db:migrate:status
+npm run db:seed            # plans + demo account (+ its personal workspace and consent)
+npm run db:push            # LOCAL prototyping only — never staging or production
+npm run cms:importmap      # regenerate the tracked Payload import map
+npm run cms:types          # regenerate payload-types.ts
 ```
 
 ## Things that will surprise you
 
-1. **The database is SQLite, and there are no migrations.** `prisma/migrations/`
-   does not exist; the workflow is `db push`. A comment says to switch the
-   provider for production — Prisma's `provider` is not env-switchable, so that
-   is an unversioned manual edit. `ADR-0002` replaces this.
+1. **The database is PostgreSQL with a versioned migration history** since
+   Stage 01 (`ADR-0002`). Three migrations under `prisma/migrations/`; CI applies
+   them to an empty database and fails on drift. `DATABASE_URL` is the
+   transaction pooler, `DIRECT_URL` the session endpoint for migrations. The RLS
+   migration is **generated** from `src/lib/tenancy/rls-tables.ts` — regenerate
+   it, never hand-edit it (a test compares the two). Procedure and recovery:
+   `docs/operations/DATABASE_MIGRATIONS.md`.
 
 2. **ESLint was never installed until Stage 00.** The
    `eslint: { ignoreDuringBuilds: true }` leftover in `next.config.mjs` is gone —
@@ -62,12 +73,13 @@ npm run cms:types     # regenerate payload-types.ts
    `set-state-in-effect` sites; each was analysed and none is a defect. See
    `docs/programme/LINT_BASELINE.md`.
 
-3. **34 of 68 Prisma models have no application code references.** Some are
+3. **Many Prisma models still have no application code references.** Some are
    nested-write models genuinely in use (`InvoiceLine`, `PaymentAllocation`,
-   `DocumentSequence`). Most are designed-but-unwired — including
-   `Organization`, `Membership` (multi-tenancy is schema-only), `AgentSchedule`
-   (a complete scheduler with no scheduler), and `WebhookEvent` (idempotency
-   that is never applied). Check before assuming a model does something.
+   `DocumentSequence`). Others are designed-but-unwired — `AgentSchedule` (a
+   complete scheduler with no scheduler) is the clearest. Stage 01 wired
+   `Organization` / `Membership` (every user owns a personal workspace) and
+   `WebhookEvent` (replay and ordering). Check before assuming a model does
+   something.
 
 4. **Nothing applies autonomously, and the UI now says so.** `scanner.ts` reads
    `autoApplyThreshold` only to increment a counter, and no scheduler exists
@@ -80,20 +92,38 @@ npm run cms:types     # regenerate payload-types.ts
    content, in its **own** database (`PAYLOAD_DATABASE_URI`). Deliberate.
    Nothing in the CMS reads or writes a Prisma table. Keep it that way.
 
-6. **Tenant isolation is 63 hand-written `where: { userId }` clauses.** No RLS
-   policy exists on any real table. Omitting one is a cross-account leak. Until
-   `ADR-0005` lands, **check the filter on every query you write.**
-   `tests/rls-isolation.test.ts` proves the RLS *mechanism* against a real
-   PostgreSQL — it does not protect a single application table yet, and must not
-   be read as though it does.
+6. **Tenant isolation is application filters PLUS row-level security, and the
+   backstop only covers the tenant path.** Every table is `ENABLE`+`FORCE` RLS
+   with policies for the `app_tenant` role. Request handlers reach that role only
+   through `requireTenant()` → `run(tx => …)` (`src/lib/tenancy/request.ts`);
+   anything still on the module-level `db` client runs as the system role and
+   is protected by its `where: { userId }` filter alone. So: **keep the filter on
+   every query, and put user-facing queries inside `run`.** A query on `db` from
+   inside a `run` callback silently escapes the transaction — the one mistake
+   the design cannot catch mechanically. Never set session-level `SET`; only
+   `set_config(…, TRUE)` inside the transaction (R-33).
 
-7. **`npm run cms:*` temporarily rewrites `package.json`.** `scripts/payload-cli.mjs`
+7. **Sessions are rows.** The cookie is a signed JWT whose `sid` names a
+   `Session` row; `requireUser()` refuses a revoked, expired or password-epoch-
+   stale row on every request, with no cache. `src/proxy.ts` checks only the
+   signature (it cannot reach the database) — it is a gate, not the authority.
+   A signature-valid token without `sid` (pre-Stage-01) is refused.
+
+8. **The Supabase staging project is NOT reachable from the Claude build
+   environment.** `DATABASE_URL`/`DIRECT_URL` are present and correctly shaped
+   (verified without printing them), but the egress proxy relays only HTTPS and
+   the pooler needs raw TCP. Never print those variables. Everything that needs
+   the real project is tracked as a blocker in `AUTONOMOUS_STATUS.json`; do not
+   mark it done on the strength of local PostgreSQL or PgBouncer runs.
+
+9. **`npm run cms:*` temporarily rewrites `package.json`.** `scripts/payload-cli.mjs`
    flips `"type": "module"` for the duration of the call and restores it, including
    on Ctrl-C. If a crash leaves it set, `git checkout package.json`.
 
-8. **No integration has been validated against a live service.** Stripe, Adzuna,
-   Anthropic, PayPal and ATS submission are all `IMPLEMENTED-NOT-VALIDATED`.
-   Code existing is not evidence of working.
+10. **No integration has been validated against a live service.** Stripe, Adzuna,
+    Anthropic, PayPal, ATS submission, **Supabase Auth and the managed PostgreSQL
+    itself** are all `IMPLEMENTED-NOT-VALIDATED`. Code existing is not evidence of
+    working.
 
 ## Conventions worth preserving
 
@@ -110,6 +140,11 @@ npm run cms:types     # regenerate payload-types.ts
   pattern for any new admin surface.
 - **Scrub-in-place erasure.** Personal data is nulled; invoices, payments and
   audit rows are retained and carry their own bill-to snapshot.
+- **Security events go to `AuditLog` through `src/lib/security-audit.ts`**, never
+  with a secret, a token or a request body; a failed sign-in stores only a digest
+  of the address. Match that when adding events.
+- **Every new table is classified in `src/lib/tenancy/rls-tables.ts`** before it
+  ships; the coverage test fails until it is.
 - **In-source commentary explains *why*.** Match that standard.
 
 ## Hard rules
@@ -125,8 +160,10 @@ npm run cms:types     # regenerate payload-types.ts
    a finding.
 6. **Never run `npm audit fix --force`.** It installs `next@15.5.25`, which is
    outside Payload's peer range. Follow `ADR-0017`.
-7. `importMap.js` and `payload-types.ts` are **generated**. Regenerate them; never
-   hand-edit.
+7. `importMap.js`, `payload-types.ts` and the `row_level_security` migration are
+   **generated**. Regenerate them; never hand-edit.
+8. **Never print, log or commit `DATABASE_URL` / `DIRECT_URL`.** Diagnostics use
+   `describeDatabaseUrl()` (redacted host, port, mode) and nothing else.
 
 ## Dependency constraint you must know
 `@payloadcms/next@3.88.0` declares:

@@ -12,8 +12,7 @@
  * test that failed must not leave six hours of background attempts behind it.
  */
 
-import { db } from '@/lib/db';
-import { requireUser } from '@/lib/auth';
+import { requireTenant } from '@/lib/tenancy/request';
 import { describeWait, fail, ok, route, tooMany } from '@/lib/api';
 import { rateLimit } from '@/lib/rate-limit';
 import { WEBHOOK_SIGNATURE_HEADER, sendTestEvent } from '@/lib/integrations/webhooks';
@@ -29,7 +28,7 @@ type Params = { params: Promise<{ id: string }> };
 const TEST_LIMIT = { limit: 10, windowSeconds: 60 };
 
 export const POST = route(async (_request: Request, { params }: Params) => {
-  const user = await requireUser();
+  const { user, run } = await requireTenant();
   const { id } = await params;
 
   const limit = rateLimit('webhook_test', user.id, TEST_LIMIT);
@@ -40,7 +39,9 @@ export const POST = route(async (_request: Request, { params }: Params) => {
     );
   }
 
-  const endpoint = await db.webhookEndpoint.findFirst({ where: { id, userId: user.id } });
+  // The lookup runs on the tenant path; the outbound request below stays
+  // outside the transaction.
+  const endpoint = await run((tx) => tx.webhookEndpoint.findFirst({ where: { id, userId: user.id } }));
   if (!endpoint) return fail('Webhook endpoint not found.', 404);
 
   const result = await sendTestEvent({

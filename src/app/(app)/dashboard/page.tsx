@@ -1,5 +1,4 @@
-import { db } from '@/lib/db';
-import { requireUser } from '@/lib/auth';
+import { requireTenant } from '@/lib/tenancy/request';
 import { getQuota } from '@/lib/subscription';
 import { getDashboardLayout } from '@/lib/cms';
 import { PageHeader } from '@/components/ui';
@@ -25,30 +24,36 @@ export const dynamic = 'force-dynamic';
  * and src/cms/blocks-dashboard.ts for what each widget exposes to editors.
  */
 export default async function DashboardPage() {
-  const user = await requireUser();
+  const { user, run } = await requireTenant();
 
-  const [layout, quota, agentCount, applicationCount, topMatches, events, submittedCount, interviewCount] =
+  // The CMS layout and the quota come from library paths; the user's own rows
+  // load together on the tenant path.
+  const [layout, quota, [agentCount, applicationCount, topMatches, events, submittedCount, interviewCount]] =
     await Promise.all([
       getDashboardLayout(),
       getQuota(user.id),
-      db.agent.count({ where: { userId: user.id } }),
-      db.application.count({ where: { userId: user.id } }),
-      db.jobMatch.findMany({
-        where: { agent: { userId: user.id }, status: 'new' },
-        orderBy: { matchScore: 'desc' },
-        // The widget slices to its configured count; load enough for the max.
-        take: 10,
-        include: { job: true },
-      }),
-      db.activityEvent.findMany({
-        where: { userId: user.id },
-        orderBy: { createdAt: 'desc' },
-        take: 20,
-      }),
-      db.application.count({ where: { userId: user.id, status: 'submitted' } }),
-      db.application.count({
-        where: { userId: user.id, status: { in: ['interviewing', 'offer'] } },
-      }),
+      run((tx) =>
+        Promise.all([
+          tx.agent.count({ where: { userId: user.id } }),
+          tx.application.count({ where: { userId: user.id } }),
+          tx.jobMatch.findMany({
+            where: { agent: { userId: user.id }, status: 'new' },
+            orderBy: { matchScore: 'desc' },
+            // The widget slices to its configured count; load enough for the max.
+            take: 10,
+            include: { job: true },
+          }),
+          tx.activityEvent.findMany({
+            where: { userId: user.id },
+            orderBy: { createdAt: 'desc' },
+            take: 20,
+          }),
+          tx.application.count({ where: { userId: user.id, status: 'submitted' } }),
+          tx.application.count({
+            where: { userId: user.id, status: { in: ['interviewing', 'offer'] } },
+          }),
+        ]),
+      ),
     ]);
 
   const data: DashboardData = {

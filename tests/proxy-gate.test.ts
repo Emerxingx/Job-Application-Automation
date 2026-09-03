@@ -62,6 +62,28 @@ describe('proxy (edge gate) public surface — deny by default', () => {
     assert.equal(isPublicPath('/api/auth/signup'), true);
     // Logout must work with an expired cookie or a user cannot clear it.
     assert.equal(isPublicPath('/api/auth/logout'), true);
+    // A provider-token exchange has no session yet, by definition.
+    assert.equal(isPublicPath('/api/auth/exchange'), true);
+    // The documents the signup consent refers to must be readable first.
+    assert.equal(isPublicPath('/terms'), true);
+    assert.equal(isPublicPath('/privacy'), true);
+  });
+
+  it('protects the account-security and organisation surfaces added in Stage 01', () => {
+    for (const p of [
+      '/api/auth/sessions',
+      '/api/auth/sessions/abc',
+      '/api/auth/password',
+      '/api/organizations',
+      '/api/organizations/org_1/members',
+      '/api/organizations/org_1/invitation',
+      // Lookalikes of the newly public prefixes stay closed.
+      '/terms-of-service',
+      '/privacy-settings',
+      '/api/auth/exchange-keys',
+    ]) {
+      assert.equal(isPublicPath(p), false, `${p} must require a session`);
+    }
   });
 
   it('allows surfaces that authenticate by another mechanism', () => {

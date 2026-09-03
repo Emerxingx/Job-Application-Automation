@@ -8,7 +8,7 @@ All are **Proposed** pending founder approval of the architecture baseline.
 | 0001 | Modular monolith | One deployable, module boundaries, event seams. No microservices/K8s | Easy — seams designed in |
 | 0002 | PostgreSQL + migrations | Replace SQLite; baseline existing schema as `0001`; managed, Canadian | **Hard** — do early |
 | 0003 | **Keep Payload, do not migrate to Strapi** | Working, zero extra services, correct boundary already; migration buys nothing the product needs | Moderate — coupling is 3 modules |
-| 0004 | Extend existing auth | Keep bcrypt/JWT + console gate; add revocable sessions, verification, MFA, OAuth | Moderate |
+| 0004 | Authentication — **decided at the Stage 01 gate: Supabase Auth** (`../programme/AUTH_DECISION_GATE.md`, ratified 2026-09-02) | Console gate and roles retained; platform issues its own revocable sessions after the provider authenticates; provider identities linked to one user | Moderate — cheapest before the first real user |
 | 0005 | RBAC + ABAC + RLS | Isolation enforced twice; app filters kept, RLS as backstop | **Hard** |
 | 0006 | Task-shaped AI gateway | `generate/structuredOutput/embed/classify/rank`; model routing; `ai_runs` traceability | Easy |
 | 0007 | Sensitive-data isolation | Separate schema, separate grants; unreachable from any decision path | **Hard** — design in from Stage 02 |

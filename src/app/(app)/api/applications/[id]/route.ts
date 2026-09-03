@@ -1,6 +1,5 @@
 import { z } from 'zod';
-import { db } from '@/lib/db';
-import { requireUser } from '@/lib/auth';
+import { requireTenant } from '@/lib/tenancy/request';
 import { fail, ok, route } from '@/lib/api';
 
 const schema = z.object({
@@ -14,24 +13,26 @@ type Params = { params: Promise<{ id: string }> };
 
 /** Update the outcome of an application as the applicant hears back. */
 export const PATCH = route(async (request: Request, { params }: Params) => {
-  const user = await requireUser();
+  const { user, run } = await requireTenant();
   const { id } = await params;
   const body = schema.parse(await request.json());
 
-  const existing = await db.application.findFirst({ where: { id, userId: user.id } });
-  if (!existing) return fail('Application not found.', 404);
-
-  const application = await db.application.update({
-    where: { id },
-    data: {
-      ...body,
-      // Stamp the response date the first time the status moves past submitted.
-      respondedAt:
-        body.status && body.status !== 'submitted' && !existing.respondedAt
-          ? new Date()
-          : existing.respondedAt,
-    },
+  const application = await run(async (tx) => {
+    const existing = await tx.application.findFirst({ where: { id, userId: user.id } });
+    if (!existing) return null;
+    return tx.application.update({
+      where: { id },
+      data: {
+        ...body,
+        // Stamp the response date the first time the status moves past submitted.
+        respondedAt:
+          body.status && body.status !== 'submitted' && !existing.respondedAt
+            ? new Date()
+            : existing.respondedAt,
+      },
+    });
   });
+  if (!application) return fail('Application not found.', 404);
 
   return ok({ application });
 });

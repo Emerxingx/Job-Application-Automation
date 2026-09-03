@@ -87,7 +87,7 @@ export const MANAGED_PLATFORM_METRICS: readonly string[] = [
   'active_users',
 ];
 
-/** SQLite binds one variable per column; chunk inserts well under the limit. */
+/** PostgreSQL caps bind parameters at 65535 per statement; chunk inserts well under it. */
 const INSERT_CHUNK = 100;
 
 // ---------------------------------------------------------------------------

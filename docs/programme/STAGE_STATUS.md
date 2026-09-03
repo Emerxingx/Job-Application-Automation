@@ -3,13 +3,13 @@
 Live tracker. **A stage is only advanced when its exit-gate evidence is linked.**
 Status: `NOT STARTED` · `IN PROGRESS` · `BLOCKED` · `COMPLETE`.
 
-**As of 2026-09-02, no stage is complete.** The architecture baseline awaits
-founder approval; no remediation has begun.
+**As of 2026-09-03:** Stage 00 complete; Stage 01 PARTIAL (see its row and
+`STAGE01_EVIDENCE.md`).
 
 | Stage | Name | Status | Existing coverage | Evidence |
 | --- | --- | --- | --- | --- |
 | 00 | Repository, governance, evidence baseline | **COMPLETE** | — | Merged to main as `d6ae8b3` (PR #4). CI green on `565012b`; see Stage 00 evidence below |
-| 01 | Security, identity, orgs, multi-tenancy | **IN PROGRESS** | bcrypt+JWT, console two-lock gate, API key handling, SSRF guard, rate limiting | Branch `claude/stage-01-security-identity-tenancy`. Done: webhook replay+ordering, deny-by-default edge gate, Next 16 upgrade, **authentication decision gate — now RATIFIED**, **RLS mechanism proof in CI**. Blocked: everything needing a reachable Supabase project. See `AUTH_DECISION_GATE.md` and `AUTONOMOUS_STATUS.json` |
+| 01 | Security, identity, orgs, multi-tenancy | **PARTIAL** | PostgreSQL + 3-migration history; RLS on all 70 tables; transaction-scoped tenant context; orgs/memberships; revocable sessions; consent + security audit; Supabase identity (unvalidated) | Branch `claude/stage-01-security-identity-tenancy`, PR #13. Full evidence: [`STAGE01_EVIDENCE.md`](STAGE01_EVIDENCE.md). **Not PASS**: the staging project is unreachable from the build environment, so the Supavisor pooled proof, the staging migration rehearsal, a live region read and the Supabase Auth flows are `NOT VERIFIED` / `BLOCKED` (R-34); tenant-path adoption is partial (R-35) |
 | 02 | Candidate Digital Twin | NOT STARTED | ~12 flat `User` fields; `Resume` JSON | — |
 | 03 | Career Evidence Vault, question architecture | NOT STARTED | Prompt registry; safe interpolation | — · **required here: `PromptRegistry` → governed admin; per-tenant AI policy enforced in the gateway** |
 | 04 | Canada occupation / skills / LMI | NOT STARTED | 9-entry NOC regex in the Adzuna adapter | — |
@@ -97,8 +97,8 @@ remaining three is tightened to what is actually still true.
 | # | Blocker | State |
 | --- | --- | --- |
 | 1 | Next.js advisories (`ADR-0017`) | **CLOSED** — on `next@16.3.4`; no deployed high-severity advisory remains |
-| 2 | SQLite + no migrations (`ADR-0002`) | **OPEN** — blocked on a reachable Supabase project |
-| 3 | No RLS on any real table (`ADR-0005`) | **OPEN** — the mechanism is proven in CI; no policy exists on an application table |
+| 2 | SQLite + no migrations (`ADR-0002`) | **CLOSED in code** — PostgreSQL, versioned history, CI-validated; the staging rehearsal is outstanding (R-34) |
+| 3 | No RLS on any real table (`ADR-0005`) | **CLOSED in code** — every table policied and forced, proven through Prisma and a transaction-mode pooler; the Supavisor run is outstanding (R-34) |
 | 4 | Stripe unvalidated and non-idempotent | **HALF CLOSED** — replay *and* ordering are closed in code and tested; live validation still outstanding (Stage 15) |
 | 5 | No CI | **CLOSED** in Stage 00 — three jobs, all required |
 | 6 | Auto-apply UI promising unimplemented behaviour | **CLOSED** in Stage 00 — control disabled and labelled |
@@ -133,7 +133,15 @@ file is authoritative over any chat transcript.
 | Next 16 upgrade (`ADR-0017`) | **DONE** — `next@16.3.4`, inside Payload's peer range. Every **deployed** high-severity advisory cleared (14→11 total, high 6→3, remaining three dev-only). Closes R-03 |
 | Authentication decision gate | **DONE** — [`AUTH_DECISION_GATE.md`](AUTH_DECISION_GATE.md). Decision: **Supabase Auth**, **RATIFIED 2026-09-02** on founder attestation that the project is in `ca-central-1`. Provenance recorded: attestation, not an agent measurement |
 | RLS mechanism proof | **DONE** — `tests/rls-isolation.test.ts`, 10 assertions against a real PostgreSQL in CI (`postgres:16` service). Corrected `ADR-0005` and produced R-33. See below |
-| PostgreSQL migration · RLS policies on real tables · `Organization`/`Membership` wiring · session revocation · MFA / email verification / recovery / OAuth · consent + audit | **BLOCKED (CREDENTIAL)** — no Supabase project or connection string is reachable from the build environment. See `AUTONOMOUS_STATUS.json` → `blockers[SUPABASE-PROJECT]` |
+| PostgreSQL migration (3 migrations, CI-validated) | **DONE** locally + CI; **NOT VERIFIED** on Supabase (R-34). Procedure: `../operations/DATABASE_MIGRATIONS.md` |
+| RLS on every table, generated + determinism-tested; transaction-scoped context | **DONE**; proven through Prisma on PostgreSQL 16 and PgBouncer transaction mode; **NOT VERIFIED** through Supavisor |
+| `Organization` / `Membership` wiring, personal workspaces, AI policy on the schema | **DONE** — 12 negative tests |
+| Server-side session revocation, session list, password-change revocation | **DONE** |
+| Consent capture + security audit events | **DONE** — wording pending counsel (R-36) |
+| Supabase Auth identity linkage | **IMPLEMENTED-NOT-VALIDATED** |
+| MFA / email verification / recovery / OAuth | **BLOCKED** — Supabase Auth credentials + egress |
+| Tenant-path adoption across all handlers | **PARTIAL** (R-35) — list in `STAGE01_EVIDENCE.md` §7 |
+| Supabase staging environment | `DATABASE_URL`/`DIRECT_URL` **present, correctly shaped, ca-central-1** (verified without printing); **unreachable** from the build environment — see `AUTONOMOUS_STATUS.json` → `blockers[SUPABASE-NETWORK]` |
 
 ### RLS pooled-connection proof — measured, not asserted
 

@@ -56,8 +56,16 @@ const PUBLIC_PREFIXES = [
   // would make it impossible to ever obtain a session.
   '/login',
   '/signup',
+  // The documents the signup consent refers to must be readable before an
+  // account exists, or the consent is not informed.
+  '/terms',
+  '/privacy',
   '/api/auth/login',
   '/api/auth/signup',
+  // Exchanges a verified identity-provider token for a platform session; by
+  // definition the caller has no session yet. The route verifies the token's
+  // signature, issuer and audience before trusting a single claim.
+  '/api/auth/exchange',
   // Logout must work even with an expired or malformed cookie, or a user can be
   // stuck holding a session they cannot clear.
   '/api/auth/logout',

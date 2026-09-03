@@ -1,6 +1,5 @@
 import { z } from 'zod';
-import { db } from '@/lib/db';
-import { requireUser } from '@/lib/auth';
+import { requireTenant } from '@/lib/tenancy/request';
 import { ok, route } from '@/lib/api';
 
 const schema = z.object({
@@ -15,23 +14,25 @@ const schema = z.object({
 });
 
 export const PUT = route(async (request: Request) => {
-  const user = await requireUser();
+  const { user, run } = await requireTenant();
   const body = schema.parse(await request.json());
 
   // Email is the login identity and is intentionally not editable here.
-  await db.user.update({
-    where: { id: user.id },
-    data: {
-      fullName: body.fullName.trim(),
-      phone: body.phone || null,
-      city: body.city || null,
-      country: body.country,
-      headline: body.headline || null,
-      linkedinUrl: body.linkedinUrl || null,
-      portfolioUrl: body.portfolioUrl || null,
-      workAuth: body.workAuth || null,
-    },
-  });
+  await run((tx) =>
+    tx.user.update({
+      where: { id: user.id },
+      data: {
+        fullName: body.fullName.trim(),
+        phone: body.phone || null,
+        city: body.city || null,
+        country: body.country,
+        headline: body.headline || null,
+        linkedinUrl: body.linkedinUrl || null,
+        portfolioUrl: body.portfolioUrl || null,
+        workAuth: body.workAuth || null,
+      },
+    }),
+  );
 
   return ok({ ok: true });
 });

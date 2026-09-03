@@ -16,21 +16,34 @@ architecture baseline (`docs/programme/CURRENT_BASELINE.md` §5) records the kno
 weaknesses openly rather than implying they are absent. As of the Stage 00
 baseline:
 
-- **Known dependency advisories.** `npm audit` reports 14 (1 low, 7 moderate,
-  6 high). The dominant contributor is `next@15.4.11`, which has no in-band patch
-  — it is the final 15.4.x release. The supported remediation is Next 16.2.6+,
-  inside Payload's declared peer range, scheduled as **Stage 01** work under
-  `docs/adr/ADR-0017-dependency-remediation.md`.
-- **Tenant isolation** is currently enforced by application-level query filters
-  only. Row-Level Security is Stage 01 (`ADR-0005`).
-- **Sessions are not yet revocable** server-side. Stage 01 (`ADR-0004`).
-- **MFA is not yet available.** Stage 01.
+- **Known dependency advisories.** `npm audit` reports 8 (1 low, 7 moderate,
+  **0 high**). The remaining moderates are dev-only tooling chains
+  (`docs/adr/ADR-0017-dependency-remediation.md`).
+- **Tenant isolation** is enforced by application-level query filters **and**,
+  since Stage 01, by PostgreSQL row-level security on every table with a
+  transaction-scoped tenant context (`ADR-0005`). Request handlers that have not
+  yet been moved onto the tenant path are protected by their filters alone;
+  the list is in `docs/programme/STAGE01_EVIDENCE.md`. The RLS proof has been
+  run through a transaction-mode pooler locally but **not yet against the
+  staging project's pooler**.
+- **Sessions are revocable** server-side since Stage 01: logout, password
+  change and the account holder's session list revoke immediately (`ADR-0004`).
+- **MFA, email verification, account recovery and OAuth are not yet
+  available.** They are delivered by Supabase Auth under the ratified Stage 01
+  decision; the platform side is implemented but unvalidated, and the provider
+  flows are blocked on credentials and network reachability.
+- **CSRF** relies on `sameSite: lax` cookies; per-request tokens on
+  state-changing routes are Stage 23.
 
 Do not deploy this to production against real user data in its current state.
 
 ## What is already in place
 
 - Passwords hashed with bcrypt.
+- Security and account events (sign-in success and failure, sign-out, session
+  revocation, password change, consent, organisation membership changes) are
+  written to an append-only audit table without secrets; failed sign-ins record
+  only a digest of the address.
 - `AUTH_SECRET` is rejected **by value** if it matches the `.env.example`
   placeholder, and the application refuses to start in production without a real
   one. `PAYLOAD_SECRET` is deliberately separate.

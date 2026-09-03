@@ -10,31 +10,31 @@ database.
 
 ## 1. Database — required
 
-Local development uses SQLite, which will not survive on a serverless host: the
-filesystem is read-only at runtime and `/tmp` is discarded between invocations.
+The transactional store is **PostgreSQL only** (`ADR-0002`); SQLite was removed
+in Stage 01 because the tenancy backstop is row-level security, which SQLite
+does not have. Two connection strings are required:
 
-Prisma resolves the datasource provider at generate time and **rejects
-`env()` for the `provider` field** (verified with `prisma validate`), so this is
-a one-line schema edit rather than a configuration switch:
+| Variable | Used by | On Supabase |
+| --- | --- | --- |
+| `DATABASE_URL` | the application at runtime | the **transaction-mode pooler**, port 6543, with `?pgbouncer=true` |
+| `DIRECT_URL` | `prisma migrate` | the session-mode pooler or direct host, port 5432 |
 
-```prisma
-// prisma/schema.prisma
-datasource db {
-  provider = "postgresql"   // was "sqlite"
-  url      = env("DATABASE_URL")
-}
-```
+A password containing URL-reserved characters is handled: both values are
+percent-encoded by `src/lib/db-url.ts` before any parser sees them.
 
-The rest of the schema is already portable — it validates cleanly against
-PostgreSQL with no other changes. Then:
+Schema changes are **versioned migrations**, never `db push`:
 
 ```bash
-DATABASE_URL="postgresql://…" npx prisma db push
-DATABASE_URL="postgresql://…" npm run db:seed   # seeds the three plans
+DIRECT_URL="postgresql://…:5432/…" npx prisma migrate deploy   # apply the history
+npx prisma migrate diff --from-url "$DIRECT_URL" --to-schema-datamodel prisma/schema.prisma --exit-code
+DATABASE_URL="postgresql://…" npm run db:seed                  # seeds the three plans + demo account
 ```
 
-The seed is what creates the Starter / Professional / Executive plan rows. A
-deployment without it has no plans for checkout to reference.
+Take a restore point before every `migrate deploy`; the full procedure,
+review standard and recovery plan are in
+`docs/operations/DATABASE_MIGRATIONS.md`. The seed is what creates the
+Starter / Professional / Executive plan rows. A deployment without it has no
+plans for checkout to reference.
 
 ## 2. Application folders — decide before launch
 
@@ -121,9 +121,10 @@ page overrides the hero live, and deleting it restores the built-in copy.
   on self-service password resets.
 - Uploaded media is written to `media/` on local disk — the same
   persistent-storage caveat as `storage/` in section 2 applies.
-- SQLite is fine for a single instance. For Postgres, swap `sqliteAdapter` for
-  the already-installed `@payloadcms/db-postgres` in `src/payload.config.ts`
-  and point `PAYLOAD_DATABASE_URI` at the connection string.
+- The CMS adapter is chosen from `PAYLOAD_DATABASE_URI`'s scheme: a `file:`
+  path selects SQLite (local only); a `postgres://` / `postgresql://` URL
+  selects PostgreSQL. Production uses a **separate logical database** on the
+  same managed instance as `DATABASE_URL` — never the same database.
 
 ### Regenerating CMS artifacts
 

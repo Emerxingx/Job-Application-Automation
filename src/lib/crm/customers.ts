@@ -435,10 +435,16 @@ function buildWhere(filters: CustomerListFilters) {
   if (filters.search) {
     const q = filters.search.trim();
     if (q) {
-      // SQLite's LIKE is case-insensitive for ASCII, which is why there is no
-      // `mode: 'insensitive'` here — the SQLite connector does not generate it.
+      // PostgreSQL's LIKE is case-sensitive, so the search must say so
+      // explicitly. (SQLite's was case-insensitive for ASCII by default, which
+      // is why this was absent before the Stage 01 migration — a silent
+      // behaviour change, not a syntax one.)
       and.push({
-        OR: [{ email: { contains: q } }, { fullName: { contains: q } }, { city: { contains: q } }],
+        OR: [
+          { email: { contains: q, mode: 'insensitive' } },
+          { fullName: { contains: q, mode: 'insensitive' } },
+          { city: { contains: q, mode: 'insensitive' } },
+        ],
       });
     }
   }

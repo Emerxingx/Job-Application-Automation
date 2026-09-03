@@ -1,7 +1,6 @@
 import Link from 'next/link';
 import { Download, Files } from 'lucide-react';
-import { db } from '@/lib/db';
-import { requireUser } from '@/lib/auth';
+import { requireTenant } from '@/lib/tenancy/request';
 import { formatCents } from '@/lib/billing/invoice';
 import { Card, EmptyState, PageHeader } from '@/components/ui';
 import { ExportButton } from '@/components/export-button';
@@ -65,40 +64,42 @@ function dateLabel(value: Date): string {
 }
 
 export default async function DocumentsPage() {
-  const user = await requireUser();
+  const { user, run } = await requireTenant();
 
-  const [applications, resumes, invoices] = await Promise.all([
-    db.application.findMany({
-      where: { userId: user.id },
-      orderBy: { createdAt: 'desc' },
-      take: APPLICATION_LIMIT,
-      select: {
-        id: true,
-        createdAt: true,
-        appliedAt: true,
-        folderPath: true,
-        tailoredResume: true,
-        coverLetter: true,
-        job: { select: { title: true, company: true } },
-        interviewPrep: { select: { id: true, createdAt: true, status: true } },
-      },
-    }),
-    db.resume.findMany({ where: { userId: user.id }, orderBy: { updatedAt: 'desc' } }),
-    db.invoice.findMany({
-      where: { userId: user.id, number: { not: null } },
-      orderBy: [{ issuedAt: 'desc' }, { createdAt: 'desc' }],
-      take: INVOICE_LIMIT,
-      select: {
-        id: true,
-        number: true,
-        issuedAt: true,
-        createdAt: true,
-        planName: true,
-        currency: true,
-        totalCents: true,
-      },
-    }),
-  ]);
+  const [applications, resumes, invoices] = await run((tx) =>
+    Promise.all([
+      tx.application.findMany({
+        where: { userId: user.id },
+        orderBy: { createdAt: 'desc' },
+        take: APPLICATION_LIMIT,
+        select: {
+          id: true,
+          createdAt: true,
+          appliedAt: true,
+          folderPath: true,
+          tailoredResume: true,
+          coverLetter: true,
+          job: { select: { title: true, company: true } },
+          interviewPrep: { select: { id: true, createdAt: true, status: true } },
+        },
+      }),
+      tx.resume.findMany({ where: { userId: user.id }, orderBy: { updatedAt: 'desc' } }),
+      tx.invoice.findMany({
+        where: { userId: user.id, number: { not: null } },
+        orderBy: [{ issuedAt: { sort: 'desc', nulls: 'last' } }, { createdAt: 'desc' }],
+        take: INVOICE_LIMIT,
+        select: {
+          id: true,
+          number: true,
+          issuedAt: true,
+          createdAt: true,
+          planName: true,
+          currency: true,
+          totalCents: true,
+        },
+      }),
+    ]),
+  );
 
   const rows: DocumentRowView[] = [];
 

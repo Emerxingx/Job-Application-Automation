@@ -1,6 +1,5 @@
 import { z } from 'zod';
-import { db } from '@/lib/db';
-import { requireUser } from '@/lib/auth';
+import { requireTenant } from '@/lib/tenancy/request';
 import { getAIProvider } from '@/lib/providers';
 import { toJobContext } from '@/lib/services/scanner';
 import { parseJson } from '@/lib/types';
@@ -12,7 +11,7 @@ const schema = z.object({ applicationId: z.string().min(1) });
 
 /** Generate (or regenerate) the interview preparation pack for an application. */
 export const POST = route(async (request: Request) => {
-  const user = await requireUser();
+  const { user, run } = await requireTenant();
 
   // Each pack is a full generation, so it is metered like the other AI calls.
   const limit = rateLimit('interviewPrep', user.id, LIMITS.interviewPrep);
@@ -25,16 +24,22 @@ export const POST = route(async (request: Request) => {
 
   const body = schema.parse(await request.json());
 
-  const application = await db.application.findFirst({
-    where: { id: body.applicationId, userId: user.id },
-    include: { job: true },
+  // Reads on the tenant path; the AI call happens OUTSIDE the transaction so a
+  // slow provider never holds a pooled connection.
+  const loaded = await run(async (tx) => {
+    const application = await tx.application.findFirst({
+      where: { id: body.applicationId, userId: user.id },
+      include: { job: true },
+    });
+    if (!application) return null;
+    const resume = await tx.resume.findFirst({
+      where: { userId: user.id, isMaster: true },
+      orderBy: { updatedAt: 'desc' },
+    });
+    return { application, resume };
   });
-  if (!application) return fail('Application not found.', 404);
-
-  const resume = await db.resume.findFirst({
-    where: { userId: user.id, isMaster: true },
-    orderBy: { updatedAt: 'desc' },
-  });
+  if (!loaded) return fail('Application not found.', 404);
+  const { application, resume } = loaded;
   const resumeContent = parseJson<ResumeContent | null>(resume?.content, null);
   if (!resumeContent) return fail('Add your resume before preparing for interviews.', 400);
 
@@ -51,19 +56,21 @@ export const POST = route(async (request: Request) => {
     status: 'ready',
   };
 
-  const prep = await db.interviewPrep.upsert({
-    where: { applicationId: application.id },
-    create: { userId: user.id, applicationId: application.id, ...data },
-    update: data,
-  });
-
-  await db.activityEvent.create({
-    data: {
-      userId: user.id,
-      type: 'prep',
-      message: `Interview prep ready for ${application.job.title} at ${application.job.company}.`,
-      meta: JSON.stringify({ applicationId: application.id }),
-    },
+  const prep = await run(async (tx) => {
+    const saved = await tx.interviewPrep.upsert({
+      where: { applicationId: application.id },
+      create: { userId: user.id, applicationId: application.id, ...data },
+      update: data,
+    });
+    await tx.activityEvent.create({
+      data: {
+        userId: user.id,
+        type: 'prep',
+        message: `Interview prep ready for ${application.job.title} at ${application.job.company}.`,
+        meta: JSON.stringify({ applicationId: application.id }),
+      },
+    });
+    return saved;
   });
 
   return ok({ prepId: prep.id });

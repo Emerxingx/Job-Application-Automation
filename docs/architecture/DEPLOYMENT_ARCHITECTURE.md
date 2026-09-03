@@ -44,8 +44,33 @@ tenancy context can leak between requests (`ADR-0005`).
 | **Session-mode pooler** | A connection is held for the client's session; a session-level `SET` persists and **can bind to a later user** if the client is reused | Not used for request traffic without transaction-scoped context |
 | **Transaction-mode pooler** | A connection is returned to the pool per transaction; only `SET LOCAL` **inside the transaction** is safe | **Intended default for request traffic**, with transaction-scoped context mandatory |
 
-**Selection is confirmed in Stage 01 and recorded here with its evidence.** Until
-then this table states intent, not a settled configuration.
+**Selection — recorded in Stage 01 (2026-09-03).** The application runs against
+the **transaction-mode pooler** (`DATABASE_URL`, port 6543, `?pgbouncer=true`);
+migrations run against the **session-mode endpoint** (`DIRECT_URL`, port 5432).
+Both endpoints of the staging project were verified by shape from the
+provisioned credentials without reading their values: the pooler host is in
+`ca-central-1`, the ports and the `pgbouncer=true` parameter match the modes
+above. Tenant context is established only with `set_config(name, value, TRUE)`
+inside the query's own transaction, plus `SET LOCAL ROLE app_tenant`
+(`src/lib/tenancy/context.ts`).
+
+Evidence for the pooled runtime, honestly bounded:
+
+| Proof | Pooler | Result |
+| --- | --- | --- |
+| `tests/tenancy-isolation.test.ts` (real Prisma client, migrated schema, filters removed, connection reuse asserted by backend PID, 40 concurrent cross-tenant requests) | Direct PostgreSQL 16 (CI service) | pass, every push |
+| Same suite plus the membership and session suites | **PgBouncer 1.22, `pool_mode = transaction`, `default_pool_size = 4`** (local, 2026-09-03) | 28/28 pass |
+| Same, followed by the raw mechanism proof, all through the same pooler | PgBouncer transaction mode | 22/22 pass |
+| Same suite through **Supavisor on the staging project** | — | **NOT RUN** — the build environment cannot open a TCP connection to the pooler (egress policy). This remains the open half of the `ADR-0005` gate |
+
+A finding from the pooled run, recorded because it is exactly the leak class
+`ADR-0005` warns about: the raw mechanism proof (which deliberately uses
+session-level `SET ROLE` and `SET search_path` on its own connection) leaked
+that session state **across processes** through the transaction pooler into a
+concurrently running test, whose unqualified raw query then resolved the wrong
+schema. Prisma's own queries are schema-qualified and unaffected; the one raw
+query in the suite was qualified in response. The application never sets
+session-level state.
 
 Consequences carried into implementation:
 - Every request path sets tenancy context with `SET LOCAL` inside the transaction
@@ -56,8 +81,10 @@ Consequences carried into implementation:
   Stage 01 pooled-runtime isolation proof** before deployment.
 
 ## Environments
-`local` (SQLite acceptable, mocks) → `preview` (per-PR, seeded) → `staging`
-(production-like, real sandbox credentials) → `production`.
+`local` (PostgreSQL 16, mocks) → `preview` (per-PR, seeded) → `staging`
+(Supabase `job-application-automation-staging`, Canada Central, real sandbox
+credentials) → `production`. SQLite is no longer an option for the
+transactional store at any tier.
 
 ## Deployment requirements
 - Migrations run as a **separate, gated step** before the application rolls —

@@ -10,8 +10,7 @@
  */
 
 import { z } from 'zod';
-import { db } from '@/lib/db';
-import { requireUser } from '@/lib/auth';
+import { requireTenant } from '@/lib/tenancy/request';
 import { fail, ok, route } from '@/lib/api';
 import {
   WEBHOOK_API_VERSION,
@@ -26,11 +25,13 @@ import {
 const MAX_ENDPOINTS_PER_USER = 10;
 
 export const GET = route(async () => {
-  const user = await requireUser();
-  const rows = await db.webhookEndpoint.findMany({
-    where: { userId: user.id },
-    orderBy: { createdAt: 'desc' },
-  });
+  const { user, run } = await requireTenant();
+  const rows = await run((tx) =>
+    tx.webhookEndpoint.findMany({
+      where: { userId: user.id },
+      orderBy: { createdAt: 'desc' },
+    }),
+  );
 
   return ok({
     endpoints: rows.map(toSafeWebhookEndpoint),
@@ -65,32 +66,36 @@ const createSchema = z.object({
 });
 
 export const POST = route(async (request: Request) => {
-  const user = await requireUser();
+  const { user, run } = await requireTenant();
   const body = createSchema.parse(await request.json());
 
   const url = validateWebhookUrl(body.url);
   if (!url.ok) return fail(url.message, 422);
 
-  const count = await db.webhookEndpoint.count({ where: { userId: user.id } });
-  if (count >= MAX_ENDPOINTS_PER_USER) {
+  const secret = generateWebhookSecret();
+  // The ceiling check and the insert share one tenant transaction; `null`
+  // means the ceiling was hit.
+  const row = await run(async (tx) => {
+    const count = await tx.webhookEndpoint.count({ where: { userId: user.id } });
+    if (count >= MAX_ENDPOINTS_PER_USER) return null;
+    return tx.webhookEndpoint.create({
+      data: {
+        userId: user.id,
+        url: body.url.trim(),
+        description: body.description ?? '',
+        secret,
+        events: JSON.stringify([...new Set(body.events)]),
+        status: 'active',
+        apiVersion: WEBHOOK_API_VERSION,
+      },
+    });
+  });
+  if (!row) {
     return fail(
       `You already have ${MAX_ENDPOINTS_PER_USER} webhook endpoints. Remove one before adding another.`,
       409,
     );
   }
-
-  const secret = generateWebhookSecret();
-  const row = await db.webhookEndpoint.create({
-    data: {
-      userId: user.id,
-      url: body.url.trim(),
-      description: body.description ?? '',
-      secret,
-      events: JSON.stringify([...new Set(body.events)]),
-      status: 'active',
-      apiVersion: WEBHOOK_API_VERSION,
-    },
-  });
 
   return ok(
     {

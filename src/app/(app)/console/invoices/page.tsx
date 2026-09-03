@@ -71,13 +71,12 @@ export default async function ConsoleInvoicesPage({
   // has passed, which is the queue collections actually works.
   if (overdue) and.push({ status: 'open', dueAt: { lt: now } });
   if (q) {
-    // SQLite's LIKE is case-insensitive for ASCII, which is why there is no
-    // `mode: 'insensitive'` here — the SQLite connector does not emit it.
+    // PostgreSQL's LIKE is case-sensitive; say so, or "acme" misses "Acme".
     and.push({
       OR: [
-        { number: { contains: q } },
-        { user: { email: { contains: q } } },
-        { user: { fullName: { contains: q } } },
+        { number: { contains: q, mode: 'insensitive' } },
+        { user: { email: { contains: q, mode: 'insensitive' } } },
+        { user: { fullName: { contains: q, mode: 'insensitive' } } },
       ],
     });
   }
@@ -88,9 +87,10 @@ export default async function ConsoleInvoicesPage({
       db.invoice.count({ where }),
       db.invoice.findMany({
         where,
-        // Drafts carry no issue date; SQLite sorts NULLs last on DESC, so they
-        // fall to the bottom rather than crowding the top of the queue.
-        orderBy: [{ issuedAt: 'desc' }, { createdAt: 'desc' }],
+        // Drafts carry no issue date. PostgreSQL sorts NULLs FIRST on DESC,
+        // so `nulls: 'last'` is what keeps drafts at the bottom of the queue
+        // instead of crowding the top (SQLite happened to do this by default).
+        orderBy: [{ issuedAt: { sort: 'desc', nulls: 'last' } }, { createdAt: 'desc' }],
         skip: (page - 1) * PAGE_SIZE,
         take: PAGE_SIZE,
         select: {
