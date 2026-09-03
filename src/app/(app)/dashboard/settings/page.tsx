@@ -5,15 +5,28 @@ import { loadPreferences, loadWorkAuthorization } from '@/lib/candidate/preferen
 import { Card, PageHeader } from '@/components/ui';
 import { SettingsForm } from '@/components/settings-form';
 import { JobPreferencesForm, WorkAuthorizationForm } from '@/components/job-preferences-form';
+import { MailboxConnections, type ConnectionView, type ScopeView } from '@/components/mailbox-connections';
+import { listConnections } from '@/lib/mailbox/service';
+import { SCOPE_INVENTORY } from '@/lib/mailbox/providers/types';
 
 export const metadata = { title: 'Settings' };
 export const dynamic = 'force-dynamic';
 
-export default async function SettingsPage() {
+export default async function SettingsPage({ searchParams }: { searchParams: Promise<{ mailbox?: string }> }) {
   const { user, run } = await requireTenant();
-  const [preferences, workAuthorization] = await run((tx) =>
-    Promise.all([loadPreferences(tx, user.id), loadWorkAuthorization(tx, user.id)]),
+  const [preferences, workAuthorization, connections] = await run((tx) =>
+    Promise.all([loadPreferences(tx, user.id), loadWorkAuthorization(tx, user.id), listConnections(tx, user.id)]),
   );
+  const { mailbox: mailboxNotice } = await searchParams;
+  // Stage 11: connections (never a token) and the scope inventory, so what is asked for is what is shown.
+  const fmt = (d: Date) => d.toLocaleString('en-CA', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  const connectionViews: ConnectionView[] = connections.map((c) => ({ id: c.id, provider: c.provider, kind: c.kind, accountEmail: c.accountEmail, scopes: parseJson<string[]>(c.scopes, []), status: c.status, connectedLabel: fmt(c.connectedAt), lastSyncLabel: c.lastSyncAt ? fmt(c.lastSyncAt) : null, errorCode: c.errorCode }));
+  const scopeViews: ScopeView[] = [
+    { provider: 'google', kind: 'mail', scopes: [...SCOPE_INVENTORY.google.mail.metadata], label: 'Google Mail', what: 'Files employer email by sender, subject and date. Gmail metadata scope: it cannot return a message body at all.' },
+    { provider: 'google', kind: 'calendar', scopes: [...SCOPE_INVENTORY.google.calendar.metadata], label: 'Google Calendar', what: 'Reads event titles, times and attendees to spot interviews.' },
+    { provider: 'microsoft', kind: 'mail', scopes: [...SCOPE_INVENTORY.microsoft.mail.metadata], label: 'Microsoft Mail', what: 'Files employer email by sender, subject and date. Mail.ReadBasic: it cannot return a message body at all.' },
+    { provider: 'microsoft', kind: 'calendar', scopes: [...SCOPE_INVENTORY.microsoft.calendar.metadata], label: 'Microsoft Calendar', what: 'Reads event titles, times and attendees to spot interviews.' },
+  ];
   const join = (json: string | undefined) => parseJson<string[]>(json, []).join(', ');
 
   return (
@@ -77,6 +90,8 @@ export default async function SettingsPage() {
           Open self-identification
         </Link>
       </Card>
+
+      <MailboxConnections connections={connectionViews} scopes={scopeViews} notice={mailboxNotice ?? null} />
 
       <Card className="mt-6 max-w-2xl p-6">
         <h2 className="font-semibold text-ink">Your data</h2>

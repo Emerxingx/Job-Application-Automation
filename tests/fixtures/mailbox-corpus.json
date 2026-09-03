@@ -1,0 +1,414 @@
+{
+  "$comment": "Stage 11 association corpus. Folders are three applications of one applicant (pat@gmail.com); threads are labelled with the expected folder (or null), the expected status, and the expected detections. Subjects only — no bodies exist anywhere in this corpus.",
+  "applicant": "pat@gmail.com",
+  "folders": [
+    {
+      "applicationId": "app_maple",
+      "company": "Maple Analytics Inc.",
+      "normalizedCompany": "maple analytics",
+      "jobTitle": "Senior Data Analyst",
+      "contactEmails": [
+        "riley@mapleanalytics.ca"
+      ],
+      "appliedAt": "2026-08-20T10:00:00Z",
+      "atsVendor": "greenhouse"
+    },
+    {
+      "applicationId": "app_birch",
+      "company": "Birch Financial",
+      "normalizedCompany": "birch financial",
+      "jobTitle": "Data Analyst",
+      "contactEmails": [],
+      "appliedAt": "2026-08-25T09:00:00Z",
+      "atsVendor": null
+    },
+    {
+      "applicationId": "app_cedar",
+      "company": "Cedar Health Systems",
+      "normalizedCompany": "cedar health",
+      "jobTitle": "Reporting Analyst",
+      "contactEmails": [
+        "talent@cedarhealth.org"
+      ],
+      "appliedAt": "2026-08-28T15:00:00Z",
+      "atsVendor": "workday"
+    }
+  ],
+  "threads": [
+    {
+      "id": "t01",
+      "subject": "Your application to Maple Analytics — Senior Data Analyst",
+      "from": "no-reply@greenhouse-mail.io",
+      "participants": [
+        "no-reply@greenhouse-mail.io",
+        "pat@gmail.com"
+      ],
+      "lastMessageAt": "2026-08-20T10:05:00Z",
+      "hasCalendarInvite": false,
+      "expected": "app_maple",
+      "status": "auto",
+      "interview": false,
+      "offer": false
+    },
+    {
+      "id": "t02",
+      "subject": "Interview availability — Senior Data Analyst at Maple Analytics",
+      "from": "riley@mapleanalytics.ca",
+      "participants": [
+        "riley@mapleanalytics.ca",
+        "pat@gmail.com"
+      ],
+      "lastMessageAt": "2026-08-24T14:00:00Z",
+      "hasCalendarInvite": false,
+      "expected": "app_maple",
+      "status": "auto",
+      "interview": true,
+      "offer": false
+    },
+    {
+      "id": "t03",
+      "subject": "Invitation: Phone screen with Maple Analytics",
+      "from": "riley@mapleanalytics.ca",
+      "participants": [
+        "riley@mapleanalytics.ca",
+        "pat@gmail.com"
+      ],
+      "lastMessageAt": "2026-08-25T09:30:00Z",
+      "hasCalendarInvite": true,
+      "expected": "app_maple",
+      "status": "auto",
+      "interview": true,
+      "offer": false
+    },
+    {
+      "id": "t04",
+      "subject": "Re: Interview availability",
+      "from": "riley@mapleanalytics.ca",
+      "participants": [
+        "riley@mapleanalytics.ca",
+        "pat@gmail.com"
+      ],
+      "lastMessageAt": "2026-08-26T11:00:00Z",
+      "hasCalendarInvite": false,
+      "expected": "app_maple",
+      "status": "auto",
+      "interview": true,
+      "offer": false
+    },
+    {
+      "id": "t05",
+      "subject": "Offer letter — Maple Analytics",
+      "from": "people@mapleanalytics.ca",
+      "participants": [
+        "people@mapleanalytics.ca",
+        "pat@gmail.com"
+      ],
+      "lastMessageAt": "2026-09-01T16:00:00Z",
+      "hasCalendarInvite": false,
+      "expected": "app_maple",
+      "status": "auto",
+      "interview": false,
+      "offer": true
+    },
+    {
+      "id": "t06",
+      "subject": "Thank you for applying to Birch Financial",
+      "from": "careers@birchfinancial.com",
+      "participants": [
+        "careers@birchfinancial.com",
+        "pat@gmail.com"
+      ],
+      "lastMessageAt": "2026-08-25T09:10:00Z",
+      "hasCalendarInvite": false,
+      "expected": "app_birch",
+      "status": "auto",
+      "interview": false,
+      "offer": false
+    },
+    {
+      "id": "t07",
+      "subject": "Data Analyst — next steps",
+      "from": "hiring@birchfinancial.com",
+      "participants": [
+        "hiring@birchfinancial.com",
+        "pat@gmail.com"
+      ],
+      "lastMessageAt": "2026-08-29T13:00:00Z",
+      "hasCalendarInvite": false,
+      "expected": "app_birch",
+      "status": "auto",
+      "interview": false,
+      "offer": false
+    },
+    {
+      "id": "t08",
+      "subject": "Birch Financial: schedule your conversation",
+      "from": "hiring@birchfinancial.com",
+      "participants": [
+        "hiring@birchfinancial.com",
+        "pat@gmail.com"
+      ],
+      "lastMessageAt": "2026-08-30T10:00:00Z",
+      "hasCalendarInvite": true,
+      "expected": "app_birch",
+      "status": "auto",
+      "interview": true,
+      "offer": false
+    },
+    {
+      "id": "t09",
+      "subject": "Cedar Health Systems — Reporting Analyst application received",
+      "from": "cedarhealth@myworkday.com",
+      "participants": [
+        "cedarhealth@myworkday.com",
+        "pat@gmail.com"
+      ],
+      "lastMessageAt": "2026-08-28T15:05:00Z",
+      "hasCalendarInvite": false,
+      "expected": "app_cedar",
+      "status": "auto",
+      "interview": false,
+      "offer": false
+    },
+    {
+      "id": "t10",
+      "subject": "Reporting Analyst interview — Cedar Health",
+      "from": "talent@cedarhealth.org",
+      "participants": [
+        "talent@cedarhealth.org",
+        "pat@gmail.com"
+      ],
+      "lastMessageAt": "2026-09-02T09:00:00Z",
+      "hasCalendarInvite": false,
+      "expected": "app_cedar",
+      "status": "auto",
+      "interview": true,
+      "offer": false
+    },
+    {
+      "id": "t11",
+      "subject": "Quick question about your availability",
+      "from": "talent@cedarhealth.org",
+      "participants": [
+        "talent@cedarhealth.org",
+        "pat@gmail.com"
+      ],
+      "lastMessageAt": "2026-09-02T12:00:00Z",
+      "hasCalendarInvite": false,
+      "expected": "app_cedar",
+      "status": "auto",
+      "interview": false,
+      "offer": false
+    },
+    {
+      "id": "t12",
+      "subject": "Following up",
+      "from": "someone@mapleanalytics.ca",
+      "participants": [
+        "someone@mapleanalytics.ca",
+        "pat@gmail.com"
+      ],
+      "lastMessageAt": "2026-08-27T08:00:00Z",
+      "hasCalendarInvite": false,
+      "expected": "app_maple",
+      "status": "pending",
+      "interview": false,
+      "offer": false
+    },
+    {
+      "id": "t13",
+      "subject": "Data Analyst opportunity",
+      "from": "no-reply@hire.lever.co",
+      "participants": [
+        "no-reply@hire.lever.co",
+        "pat@gmail.com"
+      ],
+      "lastMessageAt": "2026-08-27T08:00:00Z",
+      "hasCalendarInvite": false,
+      "expected": "app_birch",
+      "status": "pending",
+      "interview": false,
+      "offer": false
+    },
+    {
+      "id": "t14",
+      "subject": "Analyst role",
+      "from": "recruiter@agencytalent.com",
+      "participants": [
+        "recruiter@agencytalent.com",
+        "pat@gmail.com"
+      ],
+      "lastMessageAt": "2026-08-27T08:00:00Z",
+      "hasCalendarInvite": false,
+      "expected": null,
+      "status": "none",
+      "interview": false,
+      "offer": false
+    },
+    {
+      "id": "t15",
+      "subject": "Maple Analytics newsletter — September insights",
+      "from": "news@mapleanalytics.ca",
+      "participants": [
+        "news@mapleanalytics.ca",
+        "pat@gmail.com"
+      ],
+      "lastMessageAt": "2026-08-15T08:00:00Z",
+      "hasCalendarInvite": false,
+      "expected": null,
+      "status": "none",
+      "interview": false,
+      "offer": false
+    },
+    {
+      "id": "t16",
+      "subject": "Special offer: 20% off Birch Financial planning tools",
+      "from": "promo@birchfinancial.com",
+      "participants": [
+        "promo@birchfinancial.com",
+        "pat@gmail.com"
+      ],
+      "lastMessageAt": "2026-08-10T08:00:00Z",
+      "hasCalendarInvite": false,
+      "expected": null,
+      "status": "none",
+      "interview": false,
+      "offer": false
+    },
+    {
+      "id": "t17",
+      "subject": "Your Amazon order has shipped",
+      "from": "ship-confirm@amazon.ca",
+      "participants": [
+        "ship-confirm@amazon.ca",
+        "pat@gmail.com"
+      ],
+      "lastMessageAt": "2026-08-29T08:00:00Z",
+      "hasCalendarInvite": false,
+      "expected": null,
+      "status": "none",
+      "interview": false,
+      "offer": false
+    },
+    {
+      "id": "t18",
+      "subject": "Dentist appointment reminder",
+      "from": "office@smiledental.ca",
+      "participants": [
+        "office@smiledental.ca",
+        "pat@gmail.com"
+      ],
+      "lastMessageAt": "2026-08-29T08:00:00Z",
+      "hasCalendarInvite": true,
+      "expected": null,
+      "status": "none",
+      "interview": true,
+      "offer": false
+    },
+    {
+      "id": "t19",
+      "subject": "Maplewood Condos — open house this weekend",
+      "from": "sales@maplewoodcondos.ca",
+      "participants": [
+        "sales@maplewoodcondos.ca",
+        "pat@gmail.com"
+      ],
+      "lastMessageAt": "2026-08-29T08:00:00Z",
+      "hasCalendarInvite": false,
+      "expected": null,
+      "status": "none",
+      "interview": false,
+      "offer": false
+    },
+    {
+      "id": "t20",
+      "subject": "Interview tips from our career coaches",
+      "from": "hello@careerboost.io",
+      "participants": [
+        "hello@careerboost.io",
+        "pat@gmail.com"
+      ],
+      "lastMessageAt": "2026-08-29T08:00:00Z",
+      "hasCalendarInvite": false,
+      "expected": null,
+      "status": "none",
+      "interview": true,
+      "offer": false
+    },
+    {
+      "id": "t21",
+      "subject": "Re: Senior Data Analyst — references",
+      "from": "pat@gmail.com",
+      "participants": [
+        "pat@gmail.com",
+        "riley@mapleanalytics.ca"
+      ],
+      "lastMessageAt": "2026-08-31T08:00:00Z",
+      "hasCalendarInvite": false,
+      "expected": "app_maple",
+      "status": "auto",
+      "interview": false,
+      "offer": false
+    },
+    {
+      "id": "t22",
+      "subject": "Application update",
+      "from": "no-reply@greenhouse-mail.io",
+      "participants": [
+        "no-reply@greenhouse-mail.io",
+        "pat@gmail.com"
+      ],
+      "lastMessageAt": "2026-08-30T08:00:00Z",
+      "hasCalendarInvite": false,
+      "expected": null,
+      "status": "none",
+      "interview": false,
+      "offer": false
+    },
+    {
+      "id": "t23",
+      "subject": "Cedar Health Systems compensation details",
+      "from": "talent@cedarhealth.org",
+      "participants": [
+        "talent@cedarhealth.org",
+        "pat@gmail.com"
+      ],
+      "lastMessageAt": "2026-09-03T08:00:00Z",
+      "hasCalendarInvite": false,
+      "expected": "app_cedar",
+      "status": "auto",
+      "interview": false,
+      "offer": true
+    },
+    {
+      "id": "t24",
+      "subject": "Data Analyst",
+      "from": "someone@example.com",
+      "participants": [
+        "someone@example.com",
+        "pat@gmail.com"
+      ],
+      "lastMessageAt": "2026-08-26T08:00:00Z",
+      "hasCalendarInvite": false,
+      "expected": null,
+      "status": "none",
+      "interview": false,
+      "offer": false
+    },
+    {
+      "id": "t25",
+      "subject": "Interview request",
+      "from": "recruiting@birchfinancial.com",
+      "participants": [
+        "recruiting@birchfinancial.com",
+        "pat@gmail.com"
+      ],
+      "lastMessageAt": "2026-08-29T10:00:00Z",
+      "hasCalendarInvite": false,
+      "expected": "app_birch",
+      "status": "pending",
+      "interview": true,
+      "offer": false
+    }
+  ]
+}

@@ -37,6 +37,8 @@ against the staging project until the evidence section says so.
 | `20260903170200_document_versions_truncate_guard` | Stage 09 review: statement-level `BEFORE TRUNCATE` guard on `DocumentVersion` | Reversible (drop the trigger and the function) |
 | `20260903180000_application_folder` | Stage 10: `Application` outcome, rejection, offer and `lastActivityAt` columns (defaults; no backfill needed); six child tables (`ApplicationStatusHistory`, `ApplicationContact`, `ApplicationInterview`, `ApplicationAssessment`, `ApplicationFollowUp`, `ApplicationNote`) cascading from the application | Additive. Reversible (drop tables and columns) |
 | `20260903180100_rls_crm_tables` | Generated policies (manifest `RLS_MANIFESTS[9]`): the six folder tables user-owned (`userId`) | Reversible |
+| `20260903190000_mailbox_intelligence` | Stage 11: `MailboxConnection`, `MailboxSecret` (AES-256-GCM ciphertext, no plaintext column exists), `EmailThread`, `EmailMessageRef`, `CalendarEventRef` (references only — no body column exists); `IntegrationEvent.connectionId` | Additive. Reversible (drop tables and column) |
+| `20260903190100_rls_mailbox_tables` | Generated policies (manifest `RLS_MANIFESTS[10]`): the connection and the four reference tables user-owned; `MailboxSecret` SYSTEM-ONLY (no tenant policy at all — the tenant role cannot read a token) | Reversible |
 
 
 `prisma/migrations/migration_lock.toml` pins the provider to PostgreSQL. There

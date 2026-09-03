@@ -20,6 +20,9 @@ export const CONSENT_PURPOSES = [
   'privacy_policy',
   'marketing_email',
   'cross_border_ai_processing',
+  // Stage 11: one grant per connection kind; recorded before an OAuth flow starts.
+  'mailbox_sync',
+  'calendar_sync',
 ] as const;
 export type ConsentPurpose = (typeof CONSENT_PURPOSES)[number];
 
@@ -34,6 +37,8 @@ export const CONSENT_VERSIONS: Record<ConsentPurpose, string> = {
   // path may record this consent while the legal question is open, so the
   // version is a sentinel the gateway (Stage 03) will refuse.
   cross_border_ai_processing: 'PENDING-L-3',
+  mailbox_sync: '2026-09-03',
+  calendar_sync: '2026-09-03',
 };
 
 export function isConsentPurpose(value: unknown): value is ConsentPurpose {

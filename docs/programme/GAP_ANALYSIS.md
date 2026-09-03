@@ -173,11 +173,22 @@ thread linkage, interviews, assessments, follow-ups, offer, rejection, structure
 outcome, full status history.
 **Stage 10:** contacts, interviews, assessments, follow-ups, notes, the offer, the rejection and a structured outcome on one record; a status machine as data with history on every move; every write audited without content; a completeness checklist against the acceptance question (`STAGE10_EVIDENCE.md`, ADR-0024). Remaining: email thread linkage (Stage 11); per-view read auditing (stated); a real end-to-end application to evidence (no credentialed source).
 
-### G-15 — No email or calendar intelligence · NOT IMPLEMENTED
-Gmail, Microsoft Graph, Google Calendar, Microsoft Calendar all absent. This is
-the highest-value candidate capability not yet started, and the one with the
+### G-15 — No email or calendar intelligence · CLOSED (Stage 11, engineering) — BLOCKED on provider credentials
+Gmail, Microsoft Graph, Google Calendar, Microsoft Calendar were all absent. This
+was the highest-value candidate capability not yet started, and the one with the
 largest privacy surface (OAuth scopes, mailbox content, retention).
-**Remediation:** Stage 11, gated on Stage 01 consent and Stage 05 storage.
+**Stage 11:** metadata-only scopes by construction (`gmail.metadata`,
+`Mail.ReadBasic`; a content-scope grant is refused), per-connection versioned
+consent, AES-256-GCM tokens in a system-only table, references and never a
+body, an explainable thresholded association (P = R = 1.00 on the labelled
+corpus; a doubtful match is a suggestion, never auto-filed), interview and
+offer detection from the subject and the invite flag, a purging revocation,
+a 180-day prune, and a leakage proof (`STAGE11_EVIDENCE.md`, ADR-0025).
+Remaining: **neither Google nor Microsoft has been called** — no client
+credentials exist in this environment, so both adapters are
+IMPLEMENTED-NOT-VALIDATED and the exit gate is BLOCKED (CREDENTIAL);
+AI over mailbox content is NOT IMPLEMENTED by design until a consent design
+for it exists (L-3).
 
 ### G-16 — Documents: no DOCX, no version history · CLOSED (Stage 09)
 `pdfkit` produced PDFs and resumes rendered to text. Absent: DOCX, ATS-structure

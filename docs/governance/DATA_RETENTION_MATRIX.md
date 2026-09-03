@@ -20,9 +20,9 @@ so they still read correctly after erasure. `User.anonymizedAt` marks this.
 | **Submitted document versions** | CONFIDENTIAL | **7 years** | — | Candidates must be able to retrieve what was sent on their behalf |
 | Applications & Job Folders | CONFIDENTIAL | 7 years | — | Immutable submitted artefacts |
 | Folder children — status history, contacts, interviews, assessments, follow-ups, notes (Stage 10) | CONFIDENTIAL | With the application (7 years) | Cascade from the application and from the user (erasure) | Contact names and emails are personal data of third parties; audit rows carry ids and kinds only |
+| Mailbox OAuth tokens — `MailboxSecret` (Stage 11) | RESTRICTED | Until revocation | Revoke (deleted in the same transaction as the purge); erasure | AES-256-GCM under `MAILBOX_ENCRYPTION_KEY`; system-only table with no tenant policy; decrypted only by the sync service |
+| Mailbox and calendar references — `EmailThread`, `EmailMessageRef`, `CalendarEventRef`, `IntegrationEvent` (Stage 11) | RESTRICTED | 180 days from the last message unless filed or confirmed, then with the application; purged on revocation | Revoke; erasure; the sweep's prune | Subject, participants, dates, invite flag, event title/organiser/attendees only — **no body is stored or requested**; participants are personal data of third parties |
 | Job postings & snapshots | INTERNAL | 3 years after `closed_at` | Closure | Snapshots immutable while a referencing application exists |
-| Mailbox content | **RESTRICTED** | **90 days**, or immediately on disconnect | Disconnect / revocation | Revocation purges derived content |
-| Calendar events | RESTRICTED | 90 days | Disconnect | |
 | Case notes & assessments | **RESTRICTED** | **Per service-provider contract** (7 years typical) | Contract | Provider policy overrides platform default |
 | Employment outcomes & retention | CONFIDENTIAL | Per contract | Contract | Programme reporting obligations |
 | Employer pipelines & submissions | CONFIDENTIAL | 3 years | — | |
