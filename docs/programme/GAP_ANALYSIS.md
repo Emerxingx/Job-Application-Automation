@@ -223,7 +223,7 @@ spine, the loaders and the gate; no dataset is ingested until L-2 is recorded.**
 adapter (Adzuna, unvalidated). The brief's `JobSourceConnector` requires eight
 methods including `detectClosed()`, `refresh()`, `healthCheck()` and
 `getApplicationRoute()`. The existing interface is a good seed but is not the
-target shape.
+target shape. **Stage 05 (2026-09-03) built the target shape** — `JobSourceConnector`, register, gate, pipeline, contract suite — with the mock and Adzuna behind it; Adzuna is still unvalidated and disabled.
 **Remediation:** Stage 05. See `ADR-0008`.
 
 ---

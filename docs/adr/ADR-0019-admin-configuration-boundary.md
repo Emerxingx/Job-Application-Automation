@@ -1,6 +1,6 @@
 # ADR-0019 — Admin configuration boundary
 
-**Status:** Proposed · **Date:** 2026-09-02 · **First Tier-1 migration done (Stage 03, 2026-09-03):** `PromptRegistry` left the CMS. It is `PromptVersion` in the transactional database, administered at `/console/prompts` (admin role, step-up re-authentication, approval, evaluation-gated promotion, rollback, retirement, an audit row per change). `AtsRulesets` (Stage 05) and `FieldMappings` (Stage 12) follow the same pattern. Evidence: `../programme/STAGE03_EVIDENCE.md` §5.
+**Status:** Proposed · **Date:** 2026-09-02 · **First Tier-1 migration done (Stage 03, 2026-09-03):** `PromptRegistry` left the CMS. It is `PromptVersion` in the transactional database, administered at `/console/prompts` (admin role, step-up re-authentication, approval, evaluation-gated promotion, rollback, retirement, an audit row per change). `AtsRulesets` followed in Stage 05 (`AtsRuleset`, `/console/ats-rulesets`: draft → second-admin approval → active with rollback, step-up, audit; the CMS's "heavy stealth" option is gone — ADR-0008). `FieldMappings` (Stage 12) is the last. Evidence: `../programme/STAGE03_EVIDENCE.md` §5.
 
 ## Context
 The founder is non-technical and must be able to run normal business operations

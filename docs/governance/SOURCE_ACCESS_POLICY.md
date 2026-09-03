@@ -50,8 +50,28 @@ Before any connector is enabled, this table is completed:
 | Retention | Per `DATA_RETENTION_MATRIX.md` |
 | Approval | Who approved enablement, and when |
 
-*(No connector is currently enabled under this policy. Adzuna is implemented but
-unvalidated and its record must be completed in Stage 05.)*
+**Enforced in code since Stage 05 (2026-09-03).** Every connector has a
+`JobSource` row (`src/lib/connectors/registry.ts`); `requireEnabledSource()`
+is the only way the pipeline obtains a connector, and it refuses a source that
+is disabled, whose record is incomplete (legal basis, terms review, approval,
+retention reference) or whose credentials are absent — each refusal is itself
+a recorded run. Recording and enabling are admin actions at `/console/sources`,
+step-up re-authenticated and audited. Credentials are referenced by
+environment-variable NAME only.
+
+| Field | Built-in synthetic catalogue (`mock`) | Adzuna (`adzuna`) |
+| --- | --- | --- |
+| Source name | Built-in synthetic catalogue | Adzuna search API |
+| Legal basis | Synthetic data shipped in the repository; no external access, no third-party terms | **UNRECORDED** — the API terms have not been reviewed; the field is empty in the register and stays so until a person records it |
+| Terms reviewed | not applicable (recorded as "repository") | — |
+| `robots.txt` position | not applicable — no network access | not applicable — documented API, no crawling |
+| Rate limits | none | **to record** from the API terms; enforced by the adapter's call cap (5 titles × 3 locations per search) until then |
+| Attribution required | no | **yes** (the API terms require it); text to record |
+| Data categories | synthetic postings | job postings (CA/US): title, company, location, snippet description, salary where stated, apply link |
+| Personal data | none | none retrieved (postings only; queries carry search criteria, never candidate identity) |
+| Retention | `DATA_RETENTION_MATRIX.md` — Job postings & snapshots | same |
+| Approval | enabled by default (the reason a clean clone boots); recorded as "repository" | **none** — `disabled`; enabling requires the record above and `ADZUNA_APP_ID` / `ADZUNA_APP_KEY` present |
+| Validation status | not applicable | `IMPLEMENTED-NOT-VALIDATED`: contract suite passed on a recorded-shape fixture; **never called with a live key** |
 
 ## Taxonomy licensing
 NOC, TEER, OaSIS, the Canadian Skills and Competencies Taxonomy and O*NET each

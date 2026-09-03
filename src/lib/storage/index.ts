@@ -1,6 +1,9 @@
-import { promises as fs } from 'fs';
 import path from 'path';
-import type { TailoringNotes } from './types';
+import type { TailoringNotes } from '../types';
+import type { StorageProvider } from './provider';
+import { LocalStorageProvider } from './local';
+
+export type { StorageProvider, StoredObject } from './provider';
 
 /**
  * Application folder generation.
@@ -10,17 +13,45 @@ import type { TailoringNotes } from './types';
  * and a summary of what the tailoring changed. This is a promise of the
  * product — the applicant can always see exactly what was sent on their behalf.
  *
- * Layout:
- *   storage/<userId>/applications/<YYYY-MM>/<company>-<title>-<id>/
+ * Layout (a key prefix, whatever the store):
+ *   <userId>/applications/<YYYY-MM>/<company>-<title>-<id>/
  *     ├── README.md              overview + index
  *     ├── job-description.md     posting as captured
  *     ├── resume.txt             the tailored resume that was submitted
  *     ├── cover-letter.txt       the cover letter that was submitted
  *     └── tailoring-report.md    what changed and why
+ *
+ * Stage 05 (ADR-0015): the bytes live behind a StorageProvider. The local
+ * filesystem is the default and needs nothing; STORAGE_PROVIDER=s3 selects an
+ * S3-compatible store whose region must be on the residency allow-list, with
+ * warn-and-degrade to local when its configuration is incomplete.
  */
 
-function storageRoot(): string {
-  return process.env.STORAGE_ROOT || path.join(process.cwd(), 'storage');
+let provider: StorageProvider | null = null;
+
+export async function getStorageProvider(): Promise<StorageProvider> {
+  if (provider) return provider;
+  const configured = (process.env.STORAGE_PROVIDER || 'local').toLowerCase();
+  if (configured === 's3') {
+    // Imported lazily so the signer never loads in local deployments.
+    const { readS3Config, S3StorageProvider } = await import('./s3');
+    const config = readS3Config();
+    if (!config) {
+      console.warn('[storage] STORAGE_PROVIDER=s3 but STORAGE_S3_* is incomplete; using the local filesystem.');
+    } else {
+      provider = new S3StorageProvider(config);
+      return provider;
+    }
+  } else if (configured !== 'local') {
+    console.warn(`[storage] STORAGE_PROVIDER="${configured}" is not implemented; using the local filesystem.`);
+  }
+  provider = new LocalStorageProvider();
+  return provider;
+}
+
+/** Test seam. */
+export function resetStorageProvider(): void {
+  provider = null;
 }
 
 /** Filesystem-safe slug. */
@@ -76,18 +107,17 @@ export interface FolderFile {
 export async function createApplicationFolder(input: FolderInput): Promise<string> {
   const month = input.appliedAt.toISOString().slice(0, 7); // YYYY-MM
   const folderName = `${slug(input.job.company)}-${slug(input.job.title)}-${input.applicationId.slice(-6)}`;
-  const relative = path.join('applications', month, folderName);
-  const absolute = path.join(storageRoot(), input.userId, relative);
+  const relative = path.posix.join('applications', month, folderName);
+  const prefix = path.posix.join(input.userId, relative);
+  const store = await getStorageProvider();
 
   try {
-    await fs.mkdir(absolute, { recursive: true });
-
     await Promise.all([
-      fs.writeFile(path.join(absolute, 'README.md'), renderReadme(input), 'utf8'),
-      fs.writeFile(path.join(absolute, 'job-description.md'), renderJobDescription(input), 'utf8'),
-      fs.writeFile(path.join(absolute, 'resume.txt'), input.resumeText, 'utf8'),
-      fs.writeFile(path.join(absolute, 'cover-letter.txt'), input.coverLetter, 'utf8'),
-      fs.writeFile(path.join(absolute, 'tailoring-report.md'), renderTailoringReport(input), 'utf8'),
+      store.put(`${prefix}/README.md`, renderReadme(input)),
+      store.put(`${prefix}/job-description.md`, renderJobDescription(input)),
+      store.put(`${prefix}/resume.txt`, input.resumeText),
+      store.put(`${prefix}/cover-letter.txt`, input.coverLetter),
+      store.put(`${prefix}/tailoring-report.md`, renderTailoringReport(input)),
     ]);
 
     return relative;
@@ -110,23 +140,10 @@ export async function listFolder(userId: string, relative: string): Promise<Fold
   };
 
   try {
-    const absolute = path.join(storageRoot(), userId, relative);
-    const entries = await fs.readdir(absolute, { withFileTypes: true });
-
-    const files = await Promise.all(
-      entries
-        .filter((e) => e.isFile())
-        .map(async (e) => {
-          const stat = await fs.stat(path.join(absolute, e.name));
-          return {
-            name: e.name,
-            size: stat.size,
-            description: DESCRIPTIONS[e.name] ?? 'Supporting document',
-          };
-        }),
-    );
-
-    return files.sort((a, b) => a.name.localeCompare(b.name));
+    const objects = await (await getStorageProvider()).list(path.posix.join(userId, relative));
+    return objects
+      .map((o) => ({ name: path.posix.basename(o.key), size: o.size, description: DESCRIPTIONS[path.posix.basename(o.key)] ?? 'Supporting document' }))
+      .sort((a, b) => a.name.localeCompare(b.name));
   } catch {
     return [];
   }
@@ -138,16 +155,15 @@ export async function readFolderFile(
   relative: string,
   fileName: string,
 ): Promise<string | null> {
-  // The file name comes from a URL — never let it escape the folder.
-  const safeName = path.basename(fileName);
-  if (!safeName || safeName === '.' || safeName === '..') return null;
-
-  const root = path.resolve(storageRoot(), userId);
-  const target = path.resolve(root, relative, safeName);
-  if (!target.startsWith(root + path.sep)) return null;
+  // The file name comes from a URL — never let it escape the folder: only a
+  // bare basename is accepted, and the key is built from parts we own.
+  const safeName = path.posix.basename(fileName);
+  if (!safeName || safeName === '.' || safeName === '..' || safeName !== fileName) return null;
+  const safeRelative = path.posix.normalize(relative);
+  if (!safeRelative || safeRelative.startsWith('..') || path.posix.isAbsolute(safeRelative)) return null;
 
   try {
-    return await fs.readFile(target, 'utf8');
+    return await (await getStorageProvider()).get(path.posix.join(userId, safeRelative, safeName));
   } catch {
     return null;
   }

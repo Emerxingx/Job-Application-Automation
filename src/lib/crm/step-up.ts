@@ -4,13 +4,16 @@ import { fail } from '../api';
 import { consoleRoute, type StaffContext } from './auth';
 import { PromptGovernanceError } from '../ai/prompt-registry';
 import { TaxonomyLicenceError } from '../taxonomy/datasets';
+import { SourceAccessError } from '../connectors/registry';
+import { AtsRulesetError } from '../apply/ats-rulesets';
 import { LIMITS, rateLimit } from '../rate-limit';
 import { recordSecurityEvent, type RequestMeta } from '../security-audit';
 
 /**
  * Step-up authentication for governance actions: prompt changes (Stage 03,
- * MASTER_BUILD_PLAN: "step-up authentication for prompt changes") and
- * taxonomy licence records (Stage 04: opening or closing the L-2 gate).
+ * MASTER_BUILD_PLAN: "step-up authentication for prompt changes"), taxonomy
+ * licence records (Stage 04: opening or closing the L-2 gate), and, since
+ * Stage 05, job-source enablement and ATS ruleset changes.
  *
  * A staff session is a bearer of considerable power; a system prompt is a
  * security control. Changing one requires the actor to prove presence again
@@ -56,6 +59,8 @@ export function governanceRoute<Args extends unknown[]>(
       if (error instanceof StepUpError) return fail(error.message, error.status);
       if (error instanceof PromptGovernanceError) return fail(error.message, error.status);
       if (error instanceof TaxonomyLicenceError) return fail(error.message, error.status);
+      if (error instanceof SourceAccessError) return fail(error.message, error.status);
+      if (error instanceof AtsRulesetError) return fail(error.message, error.status);
       throw error;
     }
   });

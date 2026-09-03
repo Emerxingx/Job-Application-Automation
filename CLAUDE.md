@@ -26,7 +26,7 @@ remediation has begun.**
 npm ci                # install from the lockfile
 npm run dev           # http://localhost:3000
 npx tsc --noEmit      # typecheck  — PASSES
-npm test              # 871 tests  — PASSES with the two database URLs below set; the
+npm test              # 907 tests  — PASSES with the two database URLs below set; the
                       #   database suites skip WITH A REASON without them and THROW
                       #   when CI=true, so CI cannot pass by skipping them
 npm run build         # production — PASSES
@@ -54,7 +54,7 @@ npm run cms:types          # regenerate payload-types.ts
 ## Things that will surprise you
 
 1. **The database is PostgreSQL with a versioned migration history** since
-   Stage 01 (`ADR-0002`). Thirteen migrations under `prisma/migrations/`; CI applies
+   Stage 01 (`ADR-0002`). Fifteen migrations under `prisma/migrations/`; CI applies
    them to an empty database and fails on drift. `DATABASE_URL` is the
    transaction pooler, `DIRECT_URL` the session endpoint for migrations. The RLS
    migration is **generated** from `src/lib/tenancy/rls-tables.ts` — regenerate
@@ -154,6 +154,15 @@ npm run cms:types          # regenerate payload-types.ts
     edits and a database trigger refuses them independently. A correction is
     a new version with `supersedesId`.
 
+16. **A job source runs only through the connector gate** (Stage 05,
+    ADR-0008). `JOB_PROVIDER` names a `JobSource` register row;
+    `requireEnabledSource()` refuses it unless it is enabled, its
+    per-connector record is complete and its named credentials are present,
+    and records the refusal as a run. Only the synthetic mock is enabled out
+    of the box; Adzuna is registered disabled with an empty legal basis and
+    has never been called live. Every capture is an immutable `JobSnapshot`.
+    `AtsRulesets` and `PromptRegistry` are no longer CMS collections.
+
 15. **The occupational spine is empty until a licence is recorded** (Stage 04,
     ADR-0009). `Occupation` / `OccupationCode` / labels exist, the NOC loader
     and the NOC↔SOC crosswalk are proven on a fixture, but every
@@ -210,6 +219,10 @@ npm run cms:types          # regenerate payload-types.ts
 10. **Never load a taxonomy dataset except through `requireIngestible()`**, and
     never set `TaxonomyDataset.licenceStatus` / `ingestionApproved` by hand
     (`docs/governance/SOURCE_ACCESS_POLICY.md`, ADR-0009).
+
+11. **Never run a job source except through `requireEnabledSource()`**, never
+    flip `JobSource.status` by hand, and never add an evasion setting to an
+    `AtsRuleset` (ADR-0008). A `JobSnapshot` is never updated.
 
 ## Dependency constraint you must know
 `@payloadcms/next@3.88.0` declares:

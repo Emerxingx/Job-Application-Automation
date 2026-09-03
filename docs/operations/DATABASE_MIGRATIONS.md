@@ -21,6 +21,8 @@ against the staging project until the evidence section says so.
 | `20260903090200_evidence_immutability` | `BEFORE UPDATE` trigger on `CareerEvidence`: an approved / superseded / revoked row's claim, facts, kind, source, version, lineage, owner and approval time cannot change; status only moves forward. Idempotent (`CREATE OR REPLACE`, `DROP TRIGGER IF EXISTS`) | Reversible (drop trigger + function) |
 | `20260903100000_occupational_spine` | Ten `INTERNAL` reference tables for the occupational spine (ADR-0009) and `Job.occupationId` / `occupationSource`; classification comments. No data: loading is a licence-gated operator action, never a migration | Additive. Reversible (drop tables; `Job` columns nullable) |
 | `20260903100100_rls_taxonomy_tables` | Generated policies (manifest `RLS_MANIFESTS[3]`): nine `reference` tables (SELECT for every tenant, no write policy); `TaxonomyDataset` is `system` — the register carries who recorded a licence | Reversible |
+| `20260903110000_connector_framework` | `JobSource` (per-connector record and gate), `JobSourceRun` (run audit), `JobSnapshot` (immutable by trigger), `AtsRuleset` (governed registry); `Job.sourceId` / `firstSeenAt` / `lastSeenAt` / `activeState` / `closedAt` / `sourceHash`; classification comments | Additive. Reversible (drop tables and trigger; `Job` columns nullable or defaulted) |
+| `20260903110100_rls_connector_tables` | Generated policies (manifest `RLS_MANIFESTS[4]`): `JobSnapshot` `reference`; `JobSource`, `JobSourceRun`, `AtsRuleset` `system` | Reversible |
 | `20260903100200_taxonomy_normalised_labels` | `OccupationLabel.normalizedTitle` / `normalizedAlternates` (classifier compares normalised to normalised) and `TaxonomyDataset.publisherTerms` (the publisher's unconfirmed statement, apart from governance notes) | Additive, nullable-by-default; reversible |
 | `20260903083000_profile_ownership_keys` | `(id, userId)` unique on `CandidateProfile` and composite `(profileId, userId)` foreign keys on the nine child tables, so a child row cannot carry another user's profile. Generated with `migrate diff --from-migrations` because `migrate dev` refuses unique-constraint warnings non-interactively | Reversible (constraints only) |
 
@@ -144,10 +146,16 @@ reports "No difference detected" after both; 85/85 public tables
 role itself. `20260903090200` was replayed twice into one shadow database
 with no error (idempotent). **Not rehearsed on Supabase** (R-34).
 
-**Stage 04 (2026-09-03), local PostgreSQL 16 only.** The two Stage 04
+**Stage 04 (2026-09-03), local PostgreSQL 16 only.** The three Stage 04
 migrations applied fresh and incrementally; drift clean; 95/95 forced. No
 data migration: the tables start empty by design. **Not rehearsed on
 Supabase** (R-34).
+
+**Stage 05 (2026-09-03), local PostgreSQL 16 only.** The two Stage 05
+migrations applied fresh (the local databases were rebuilt from the full
+history); drift clean; 99/99 forced; the snapshot trigger present and
+proven. The register rows are created by `ensureSourceRegistry()` at first
+use, not by a migration. **Not rehearsed on Supabase** (R-34).
 
 ## Deliberately not done in the baseline
 

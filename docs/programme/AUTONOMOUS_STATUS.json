@@ -2,12 +2,12 @@
   "$comment": "Machine-readable controller for the autonomous build programme. Authoritative over any chat transcript: if this file and a conversation disagree, this file wins. Updated at every stage checkpoint.",
   "schema_version": 1,
   "updated_at": "2026-09-03",
-  "current_stage": "04",
+  "current_stage": "05",
   "last_completed_stage": "00",
-  "current_branch": "claude/stage-04-occupation-skills-spine",
+  "current_branch": "claude/stage-05-job-source-connectors",
   "current_head": "462d98997fabd2c43c50bec937ad363e6542d233",
   "current_head_meaning": "SHA of the last commit whose full gate set was verified locally (lint, typecheck, tests, build). Set by the status-sync commit that immediately follows it, so it names a real, verified commit rather than the one it is written in.",
-  "current_pr": 16,
+  "current_pr": null,
   "main_head": "d6ae8b3a9180b529abe06f23417515432c0a7f0e",
   "run_complete": false,
   "stage_status": {
@@ -16,7 +16,7 @@
     "02": "PASS_PENDING_MERGE",
     "03": "PASS_ENGINEERING_EXIT_BLOCKED_L3",
     "04": "PASS_ENGINEERING_EXIT_BLOCKED_L2",
-    "05": "NOT_STARTED",
+    "05": "PASS_ENGINEERING_EXIT_PARTIAL",
     "06": "NOT_STARTED",
     "07": "NOT_STARTED",
     "08": "NOT_STARTED",
@@ -83,7 +83,7 @@
     ],
     "verdict": "Stage 01 is PARTIAL, not PASS. Every unmet item traces to the staging project being unreachable from the build environment, except tenant-path adoption, which is engineering and continues in Stage 02 alongside the schema work that touches those handlers."
   },
-  "next_requirement": "Stage 04 engineering is complete; its exit is BLOCKED on L-2 (LEGAL_COMPLIANCE): the occupational vocabulary stays empty until counsel confirms the dataset terms and an admin records them at /console/taxonomy, after which loading is an operator action. Independent work continues: Stage 05 (job source connector framework) begins on a branch stacked on Stage 04 — JobSourceConnector contract, per-connector config/credentials/rate limits/health/audit, contract suite, Adzuna live validation (BLOCKED on credentials + egress), object storage, AtsRulesets → governed admin.",
+  "next_requirement": "Stage 05 engineering is complete; its exit is PARTIAL: the two conditions that need a live, credentialed source (≥2 lawful sources live; Adzuna PRODUCTION-VALIDATED) are BLOCKED on ADZUNA_APP_ID / ADZUNA_APP_KEY and a recorded terms review (external action ADZUNA-LIVE-VALIDATION). Independent work continues: Stage 06 (normalization, deduplication, freshness) begins on a branch stacked on Stage 05 — canonical job with normalized_title / occupation_family / canonical_hash, deduplication preserving provenance across sources, closure detection, expiry, quality scoring.",
   "blockers": [
     {
       "id": "L-3",
@@ -132,6 +132,20 @@
       "latest_blocking_stage": "04",
       "status": "OPEN",
       "effect": "Stage 04 exit BLOCKED for real data. The spine, loaders, crosswalk and classifier are proven on an attributed fixture; every real dataset is registered `unrecorded` and requireIngestible() refuses it (tests/taxonomy.test.ts). Resolution: record each licence + attribution at /console/taxonomy (audited), then load."
+    },
+    {
+      "id": "ADZUNA-CREDENTIALS",
+      "type": "CREDENTIAL",
+      "issue": "No Adzuna credentials (ADZUNA_APP_ID / ADZUNA_APP_KEY) reach the build, and the API terms have not been reviewed by a person; the connector is registered disabled with an empty legal basis and the gate refuses it.",
+      "owner": "Founder",
+      "latest_blocking_stage": "05",
+      "status": "OPEN",
+      "needed": [
+        "ADZUNA_APP_ID and ADZUNA_APP_KEY as deployment secrets (never in the repository)",
+        "A reading of the Adzuna API terms recorded at /console/sources (legal basis, rate limit, attribution text)",
+        "One health check and one discovery run from the console, with the redacted JobSourceRun row pasted into the PR"
+      ],
+      "effect": "Blocks the Stage 05 exit conditions '≥2 lawful sources live' and 'Adzuna PRODUCTION-VALIDATED'. Blocks nothing else: the framework, the gate, the pipeline and the contract suite are proven on the synthetic source and a recorded-shape fixture."
     }
   ],
   "external_actions": [
@@ -175,6 +189,12 @@
       "action": "With counsel's review in hand, record the licence, attribution text and ingestion approval for NOC 2021 and SOC 2018 (then OaSIS, CSCT, O*NET) at /console/taxonomy, and run the loader against the published files.",
       "why": "SOURCE_ACCESS_POLICY.md and ADR-0009: no dataset is ingested before its licence is recorded; the code enforces it.",
       "status": "REQUIRED_BEFORE_REAL_OCCUPATION_DATA"
+    },
+    {
+      "id": "ADZUNA-LIVE-VALIDATION",
+      "action": "Provide Adzuna credentials as secrets, record the API terms at /console/sources, enable the source, run a health check and one discovery, attach the redacted run row.",
+      "why": "ADR-0008 and the Stage 05 exit gate: an integration is promoted only on an observed run against the real service.",
+      "status": "REQUIRED_BEFORE_LIVE_JOB_DATA"
     }
   ],
   "invariants_never_to_break": [
@@ -193,7 +213,10 @@
     "Every model-backed task goes through src/lib/ai/gateway.ts: the tenant's AI policy is resolved before dispatch, RESTRICTED fields are refused, the deterministic engine always runs, output is grounded in code before render, and an AiRun row records the route and the exact prompt version. Nothing else may import the SDK or an external provider (static test).",
     "A prompt version serves traffic only as PromptVersion.deploymentStatus = default, reached only through promote, which refuses unless evaluationStatus = passed. Never set default by hand.",
     "Approved evidence is immutable (service + database trigger); a correction is a new version.",
-    "No taxonomy dataset is loaded except through requireIngestible(): the dataset's licence must be recorded and ingestion approved by an admin, with the attribution text the product displays (ADR-0009, SOURCE_ACCESS_POLICY.md). Never flip TaxonomyDataset.licenceStatus or ingestionApproved by hand."
+    "No taxonomy dataset is loaded except through requireIngestible(): the dataset's licence must be recorded and ingestion approved by an admin, with the attribution text the product displays (ADR-0009, SOURCE_ACCESS_POLICY.md). Never flip TaxonomyDataset.licenceStatus or ingestionApproved by hand.",
+    "No job source runs except through requireEnabledSource(): the JobSource row must be enabled, its per-connector record complete (legal basis, terms review, approval, retention) and its named credentials present (ADR-0008, SOURCE_ACCESS_POLICY.md). Never flip JobSource.status by hand.",
+    "A JobSnapshot is never updated (database trigger); the Job Folder's 'exactly what the posting said' depends on it.",
+    "An AtsRuleset carries no evasion setting: pacing is standard or human_delay (ADR-0008). Never reintroduce a stealth option."
   ],
   "stage_02_progress": {
     "digital_twin_schema": "DONE — 11 tables (CandidateProfile, EmploymentHistory, Education, Skill, CandidateSkill, Certification, Project, Achievement, CandidateLanguage, CareerPreferences, WorkAuthorization), classification comments, migration 20260903081338",
@@ -269,5 +292,32 @@
       "Staging rehearsal (NOT VERIFIED — R-34)"
     ],
     "verdict": "Stage 04 passes every engineering gate reachable from this environment and is BLOCKED at its exit on L-2. The vocabulary is empty by construction until a licence is recorded. Merge posture inherited from the stack."
+  },
+  "stage_05_progress": {
+    "schema_and_migrations": "DONE locally — JobSource, JobSourceRun, JobSnapshot (immutable by trigger), AtsRuleset, Job freshness columns (20260903110000), generated RLS (20260903110100, 99/99 forced); NOT VERIFIED on Supabase (R-34)",
+    "connector_contract": "DONE — JobSourceConnector with discover/fetch/normalize/validate/refresh/detectClosed/getApplicationRoute/healthCheck; shared normalisation, validation (stable reason codes) and routing; contract suite (tests/connector-contract.ts) passed by the mock and by Adzuna on a recorded-shape fixture",
+    "source_register_and_gate": "DONE — JobSource register with the SOURCE_ACCESS_POLICY per-connector record; requireEnabledSource() refuses disabled/incomplete/uncredentialed sources and records the refusal; admin + step-up recording and enabling, audited; /console/sources with health and run history",
+    "pipeline": "DONE — discover → normalize → validate → upsert with firstSeenAt/lastSeenAt/activeState → one JobSnapshot per content change → JobSourceRun with counts and query shape; refresh closes only what the source says is closed; three failures → degraded; scanner routed through it",
+    "ats_rulesets_governed": "DONE — CMS collection and cms-fast reader removed; AtsRuleset with draft → second-admin approval → active (one per platform, rollback recorded) → retired, step-up, audit; v1 API reads the active version cache-first; no evasion setting (heavy_stealth gone)",
+    "object_storage": "DONE as an abstraction — StorageProvider with local default and an S3-compatible SigV4 adapter that refuses regions outside ca-central-1 / ca-west-1; IMPLEMENTED-NOT-VALIDATED (no bucket contacted)",
+    "adzuna_live_validation": "BLOCKED (CREDENTIAL + terms review) — never called with a live key; registered disabled",
+    "independent_review": "PENDING"
+  },
+  "stage_05_exit_gate": {
+    "met": [
+      "A new lawful source is added without touching application code (definition + adapter passing the contract suite)",
+      "Connector contract suite every adapter passes",
+      "AtsRulesets under governed administration with approval, activation, rollback and audit",
+      "Object storage abstraction with a residency-checked S3 adapter",
+      "Full gate set green: lint 0/8, typecheck 0, 907/907 tests (0 skipped), build 0"
+    ],
+    "not_met": [
+      "≥2 lawful sources live (one — the synthetic mock — is enabled)",
+      "Adzuna PRODUCTION-VALIDATED (BLOCKED — credentials + terms review; never called live)",
+      "Live smoke test per credentialed source (no credentialed source)",
+      "S3 adapter validated against a bucket (NOT VERIFIED)",
+      "Staging rehearsal (NOT VERIFIED — R-34)"
+    ],
+    "verdict": "Stage 05 passes every engineering gate reachable from this environment and is PARTIAL at its exit: the live-source conditions are blocked on credentials the build does not hold. The register shows Adzuna disabled with an empty legal basis until a person fills it. Merge posture inherited from the stack."
   }
 }

@@ -93,8 +93,16 @@ real one: `rls-isolation` (mechanism; creates its own schema and role),
 `tenancy-isolation`, `organizations`, `sessions`, `identity-link`,
 `sensitive-segregation`, `digital-twin-backfill` (Stage 02), and
 `ai-gateway`, `evidence-vault`, `question-bank`, `prompt-registry` (Stage 03),
-`taxonomy` (Stage 04) — all run through the migrated schema (apply the history with
+`taxonomy` (Stage 04), `connector-pipeline`, `ats-rulesets` (Stage 05) — all run
+through the migrated schema (apply the history with
 `npm run db:migrate:deploy` first).
+
+**The connector contract suite (Stage 05).** `tests/connector-contract.ts` is
+the admission gate ADR-0008 requires: seven cases every adapter runs
+unchanged, from a `describe` per adapter in `tests/connectors.test.ts`. A
+real source is wired to a recorded-shape fixture through a stubbed fetch —
+rule 4 again: the fixture is written to the documented field names, and the
+register says the live API has never been called.
 
 **The AI suites (Stage 03).** `ai-grounding` is pure and runs everywhere: a
 fixed profile, a posting carrying a prompt injection, adversarial "model
