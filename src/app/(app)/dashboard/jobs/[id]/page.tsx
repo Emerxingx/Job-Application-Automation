@@ -3,6 +3,8 @@ import { notFound } from 'next/navigation';
 import { ArrowLeft, Calendar, ExternalLink, MapPin, Wallet } from 'lucide-react';
 import { requireTenant } from '@/lib/tenancy/request';
 import { sourceNamesFor } from '@/lib/connectors/registry';
+import { eligibilityForPage } from '@/lib/eligibility/page';
+import { EligibilityPanel } from '@/components/eligibility-panel';
 import { attributionFor } from '@/lib/taxonomy/datasets';
 import { getQuota } from '@/lib/subscription';
 import { parseJson } from '@/lib/types';
@@ -47,6 +49,9 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
   ]);
   if (!loaded) notFound();
   const { job, match, application } = loaded;
+  // Stage 07: the eligibility verdict, from the store when current, else
+  // evaluated now (the facts read on the tenant path and audited).
+  const eligibility = await eligibilityForPage(user.id, job, run);
   // The dataset register is system-only; this reads the one column a page needs.
   const attribution = await attributionFor(job.occupationId);
   // Likewise the source register: display names only, keyed by id.
@@ -175,6 +180,7 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
 
         {/* Sidebar */}
         <div className="space-y-6">
+          <EligibilityPanel verdict={eligibility.verdict} evaluatedAt={eligibility.result.evaluatedAt} />
           {match && (
             <Card className="p-5">
               <div className="flex items-center gap-4">

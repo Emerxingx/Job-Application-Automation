@@ -40,6 +40,9 @@ export type SecurityEvent =
   | 'sensitive.read'
   | 'sensitive.write'
   | 'sensitive.erased'
+  // Stage 07: work authorisation is operationally relevant but access-controlled
+  // and audited — one row per evaluation batch, never a value.
+  | 'eligibility.profile.read'
   | 'organization.created'
   | 'organization.member.invited'
   | 'organization.member.accepted'

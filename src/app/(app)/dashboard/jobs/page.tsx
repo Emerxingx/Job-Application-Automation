@@ -13,7 +13,7 @@ export const dynamic = 'force-dynamic';
 export default async function JobsPage() {
   const { user, run } = await requireTenant();
 
-  const [[matches, agentCount, appliedJobs], quota] = await Promise.all([
+  const [[matches, agentCount, appliedJobs, excludedCount], quota] = await Promise.all([
     run((tx) =>
       Promise.all([
         tx.jobMatch.findMany({
@@ -26,6 +26,8 @@ export default async function JobsPage() {
         }),
         tx.agent.count({ where: { userId: user.id } }),
         tx.application.findMany({ where: { userId: user.id }, select: { jobId: true } }),
+        // Stage 07: how many postings a hard eligibility rule kept out — shown, never silent.
+        tx.eligibilityResult.count({ where: { userId: user.id, outcome: 'ineligible' } }),
       ]),
     ),
     getQuota(user.id),
@@ -61,6 +63,16 @@ export default async function JobsPage() {
         description="Live postings your agents found, scored against your resume. Pick what to apply to — or apply to all of them."
         action={<ScanButton label="Refresh feed" variant="secondary" />}
       />
+
+      {excludedCount > 0 && (
+        <p className="mb-4 text-sm text-muted">
+          {excludedCount} posting{excludedCount === 1 ? '' : 's'} your agents found {excludedCount === 1 ? 'was' : 'were'} excluded by an eligibility requirement.{' '}
+          <Link href="/dashboard/jobs/excluded" className="font-medium text-brand-600 hover:underline">
+            See which, and why
+          </Link>
+          .
+        </p>
+      )}
 
       {items.length === 0 ? (
         <EmptyState

@@ -4,6 +4,7 @@ import type { JobContext } from '@/lib/providers';
 import * as ai from '@/lib/ai/gateway';
 import { loadEvidenceForGeneration } from '@/lib/evidence/vault';
 import { classifyStoredJob } from '@/lib/taxonomy/classify';
+import { ensureEligibility, loadCandidateEligibility } from '@/lib/eligibility/service';
 import { parseJson } from '@/lib/types';
 import type { Country, JobType, WorkMode } from '@/lib/types';
 import { loadResumeContent } from '@/lib/candidate/profile';
@@ -15,6 +16,8 @@ export interface ScanResult {
   scanned: number;
   newMatches: number;
   aboveThreshold: number;
+  /** Stage 07: postings excluded by a hard eligibility rule before scoring. */
+  excluded: number;
 }
 
 /** Convert a stored Job row into the shape the AI layer expects. */
@@ -85,6 +88,14 @@ export async function runAgentScan(userId: string, agentId: string): Promise<Sca
 
   let newMatches = 0;
   let aboveThreshold = 0;
+  let excluded = 0;
+
+  // Stage 07: the candidate's eligibility facts, read ONCE per scan on the
+  // tenant path and audited (work authorisation is access-controlled). Every
+  // posting is gated by the deterministic rules BEFORE it is scored: an
+  // ineligible posting never becomes a match, and the verdict with its
+  // reasons is stored so the candidate can see why. `unknown` never excludes.
+  const eligibilityProfile = await loadCandidateEligibility(userId, { reason: `agent scan (${agent.name})`, jobs: discovery.jobIds.length });
 
   for (const jobId of discovery.jobIds) {
     const job = await db.job.findUnique({ where: { id: jobId } });
@@ -94,6 +105,12 @@ export async function runAgentScan(userId: string, agentId: string): Promise<Sca
     // recording the METHOD alongside the id so a regex fallback is never
     // mistaken for a real match (ADR-0009). A no-op until a dataset is loaded.
     await classifyStoredJob(job);
+
+    const { verdict } = await ensureEligibility(db, userId, job, eligibilityProfile);
+    if (verdict.outcome === 'ineligible') {
+      excluded += 1;
+      continue;
+    }
 
     const existing = await db.jobMatch.findUnique({
       where: { agentId_jobId: { agentId: agent.id, jobId: job.id } },
@@ -134,8 +151,8 @@ export async function runAgentScan(userId: string, agentId: string): Promise<Sca
     data: {
       userId,
       type: 'scan',
-      message: `${agent.name} scanned ${discovery.run.discovered} live postings and found ${newMatches} new match${newMatches === 1 ? '' : 'es'}.`,
-      meta: JSON.stringify({ agentId: agent.id, scanned: discovery.run.discovered, newMatches, sourceRunId: discovery.run.id }),
+      message: `${agent.name} scanned ${discovery.run.discovered} live postings and found ${newMatches} new match${newMatches === 1 ? '' : 'es'}${excluded ? ` (${excluded} excluded as ineligible)` : ''}.`,
+      meta: JSON.stringify({ agentId: agent.id, scanned: discovery.run.discovered, newMatches, excluded, sourceRunId: discovery.run.id }),
     },
   });
 
@@ -145,6 +162,7 @@ export async function runAgentScan(userId: string, agentId: string): Promise<Sca
     scanned: discovery.run.discovered,
     newMatches,
     aboveThreshold,
+    excluded,
   };
 }
 

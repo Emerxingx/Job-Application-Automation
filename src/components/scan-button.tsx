@@ -45,10 +45,10 @@ export function ScanButton({
         return;
       }
 
-      const { scanned, newMatches } = data.totals;
+      const { scanned, newMatches, excluded = 0 } = data.totals;
       setMessage(
         newMatches > 0
-          ? `Found ${newMatches} new match${newMatches === 1 ? '' : 'es'} across ${scanned} postings.`
+          ? `Found ${newMatches} new match${newMatches === 1 ? '' : 'es'} across ${scanned} postings${excluded ? ` (${excluded} excluded as ineligible — see the feed for why)` : ''}.`
           : `Scanned ${scanned} postings — nothing new above your match threshold.`,
       );
       router.refresh();

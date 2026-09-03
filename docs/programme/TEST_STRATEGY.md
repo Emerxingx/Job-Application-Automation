@@ -178,3 +178,16 @@ never occurred.
   ownership, the no-merge case, per-source closure and doubt, sweep
   progress, closed-job non-revival, primacy adoption, the job page's
   tenant-path include, and tenant read-only access to provenance.
+
+## Stage 07 — eligibility
+
+- `tests/eligibility-engine.test.ts` (pure): the coverage matrix — every
+  rule × every candidate state it distinguishes, both jurisdictions for
+  work authorisation; the aggregation laws (a hard fail excludes, unknown
+  never does); a reason in words on every rule with no percentage;
+  determinism.
+- `tests/eligibility-gate.test.ts` (database): the audit-first tenant-path
+  read (no value in the row), verdict storage and staleness against the
+  profile, the scanner excluding an ineligible posting end to end on the
+  synthetic source (no `JobMatch`, reason stored) while a citizen is
+  excluded from nothing, and tenant read-only isolation of verdicts.

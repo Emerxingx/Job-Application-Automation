@@ -28,6 +28,8 @@ against the staging project until the evidence section says so.
 | `20260903130000_canonical_job` | Stage 06: fifteen canonical columns on `Job` (defaults; null where "not stated" is a value), `JobProvenance` (one row per source × external id carrying a job), indexes, classification comments, and an idempotent SQL backfill of one provenance row per existing capture. The canonical columns of older rows are filled by `npm run jobs:canonicalize` (application code, idempotent, resumable) | Additive. Reversible (drop table and columns) |
 | `20260903130100_rls_provenance_table` | Generated policies (manifest `RLS_MANIFESTS[5]`): `JobProvenance` `reference` | Reversible |
 | `20260903140000_provenance_sweep_progress` | Stage 06 review: `JobProvenance.lastCheckedAt` (when a source was last asked about a row, so the sweep makes progress and does not re-ask within the window) with its index; drops the unread `Job(activeState, postedAt)` index | Additive / index only; reversible |
+| `20260903150000_eligibility_results` | Stage 07: `EligibilityResult` — one verdict per (user, job): outcome, every rule's status and reason (JSON), rule-set version, the profile state it was computed from, evaluated-at; classification comment | Additive. Reversible (drop table) |
+| `20260903150100_rls_eligibility_table` | Generated policies (manifest `RLS_MANIFESTS[6]`): `EligibilityResult` user-owned (`userId`) | Reversible |
 
 
 `prisma/migrations/migration_lock.toml` pins the provider to PostgreSQL. There

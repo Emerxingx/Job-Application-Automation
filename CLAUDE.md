@@ -26,7 +26,7 @@ remediation has begun.**
 npm ci                # install from the lockfile
 npm run dev           # http://localhost:3000
 npx tsc --noEmit      # typecheck  — PASSES
-npm test              # 942 tests  — PASSES with the two database URLs below set; the
+npm test              # 959 tests  — PASSES with the two database URLs below set; the
                       #   database suites skip WITH A REASON without them and THROW
                       #   when CI=true, so CI cannot pass by skipping them
 npm run build         # production — PASSES
@@ -54,7 +54,7 @@ npm run cms:types          # regenerate payload-types.ts
 ## Things that will surprise you
 
 1. **The database is PostgreSQL with a versioned migration history** since
-   Stage 01 (`ADR-0002`). Nineteen migrations under `prisma/migrations/`; CI applies
+   Stage 01 (`ADR-0002`). Twenty-one migrations under `prisma/migrations/`; CI applies
    them to an empty database and fails on drift. `DATABASE_URL` is the
    transaction pooler, `DIRECT_URL` the session endpoint for migrations. The RLS
    migration is **generated** from `src/lib/tenancy/rls-tables.ts` — regenerate
@@ -188,6 +188,20 @@ npm run cms:types          # regenerate payload-types.ts
     `sourceNamesFor()`. Dedup is measured on a labelled fixture set, not on
     real traffic (no credentialed source). There is **no scheduler**:
     freshness runs from `/console/sources` or `npm run jobs:freshness`.
+
+18. **Eligibility is evaluated before fit, and never as a number** (Stage 07,
+    ADR-0021). `src/lib/eligibility/engine.ts` is pure: six rules, each with
+    a status (pass · fail · unknown) and a reason in words; a hard fail makes
+    the verdict `ineligible`, and `unknown` never excludes. The scanner calls
+    it before `analyzeMatch`; an ineligible posting never becomes a
+    `JobMatch`, and the verdict is stored (`EligibilityResult`) so the
+    candidate sees why (`/dashboard/jobs/excluded`, the job page, the API).
+    The candidate's facts are read once per batch on the tenant path,
+    audit-first (`eligibility.profile.read`, never a value). Certification
+    and language are ADVISORY until Stage 08 separates required from
+    preferred; do not make them hard gates on a mention. Nothing under
+    `src/lib/eligibility/` may touch the sensitive schema (ADR-0007; the
+    static allowlist test enforces it).
 
 ## Conventions worth preserving
 
