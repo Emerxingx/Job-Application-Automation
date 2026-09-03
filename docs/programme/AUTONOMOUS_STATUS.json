@@ -2,12 +2,12 @@
   "$comment": "Machine-readable controller for the autonomous build programme. Authoritative over any chat transcript: if this file and a conversation disagree, this file wins. Updated at every stage checkpoint.",
   "schema_version": 1,
   "updated_at": "2026-09-03",
-  "current_stage": "10",
+  "current_stage": "11",
   "last_completed_stage": "00",
-  "current_branch": "claude/stage-10-job-folder-crm",
-  "current_head": "f2fdfdb50cb97951582dd4d860880c73c57d5a3a",
+  "current_branch": "claude/stage-11-email-calendar-intelligence",
+  "current_head": "1c9f608970dd5d23785abec013d3285fd6ba5159",
   "current_head_meaning": "SHA of the last commit whose full gate set was verified locally (lint, typecheck, tests, build). Set by the status-sync commit that immediately follows it, so it names a real, verified commit rather than the one it is written in.",
-  "current_pr": "https://github.com/Emerxingx/Job-Application-Automation/pull/22",
+  "current_pr": "https://github.com/Emerxingx/Job-Application-Automation/pull/23",
   "main_head": "d6ae8b3a9180b529abe06f23417515432c0a7f0e",
   "run_complete": false,
   "stage_status": {
@@ -22,7 +22,7 @@
     "08": "PASS_ENGINEERING_EXIT_PARTIAL",
     "09": "PASS_ENGINEERING_EXIT_PARTIAL",
     "10": "PASS_ENGINEERING_EXIT_PARTIAL",
-    "11": "NOT_STARTED",
+    "11": "PASS_ENGINEERING_EXIT_BLOCKED_CREDENTIALS",
     "12": "NOT_STARTED",
     "13": "NOT_STARTED",
     "14": "NOT_STARTED",
@@ -85,6 +85,15 @@
   },
   "next_requirement": "Stage 05 engineering is complete; its exit is PARTIAL: the two conditions that need a live, credentialed source (≥2 lawful sources live; Adzuna PRODUCTION-VALIDATED) are BLOCKED on ADZUNA_APP_ID / ADZUNA_APP_KEY and a recorded terms review (external action ADZUNA-LIVE-VALIDATION). Independent work continues: Stage 06 (normalization, deduplication, freshness) begins on a branch stacked on Stage 05 — canonical job with normalized_title / occupation_family / canonical_hash, deduplication preserving provenance across sources, closure detection, expiry, quality scoring.",
   "blockers": [
+    {
+      "id": "MAILBOX-CREDENTIALS",
+      "type": "CREDENTIAL",
+      "issue": "No Google OAuth client or Microsoft Entra app registration exists in this environment, so neither mailbox connector has ever been called",
+      "owner": "Founder / operator",
+      "latest_blocking_stage": "11",
+      "status": "OPEN",
+      "effect": "Stage 11 exit BLOCKED on 'both providers live'. Everything else is proven on the fixture-backed connector: consent, metadata-only scopes (a content-scope grant refused), encrypted tokens unreadable on the tenant path, sync by reference, association P = R = 1.00 on the labelled corpus, revocation purge, leakage proof. The registry refuses an unconfigured real adapter and never falls back to the mock in production. Resolution: create the OAuth clients (STAGE11_EVIDENCE.md §11), set the variables in .env.example, run connect → sync → revoke on a test mailbox for each provider, record it in INTEGRATION_REGISTER.md."
+    },
     {
       "id": "L-3",
       "type": "LEGAL_COMPLIANCE",
@@ -442,5 +451,33 @@
       "Staging rehearsal (NOT VERIFIED — R-34)"
     ],
     "verdict": "Stage 10 passes every engineering gate and is PARTIAL at its exit on read auditing (scoped down and stated), durability across deploys (inherited) and the absence of a real application to evidence. Merge posture inherited from the stack."
+  },
+  "stage_11_progress": {
+    "schema_and_migrations": "DONE locally — MailboxConnection, MailboxSecret (system-only), EmailThread (no body column), EmailMessageRef, CalendarEventRef, IntegrationEvent.connectionId (20260903190000); generated RLS (20260903190100); thirty applied fresh, drift clean, 116 public tables forced; NOT VERIFIED on Supabase (R-34)",
+    "scopes_and_consent": "DONE — inventory constant (gmail.metadata / calendar.events.readonly; Mail.ReadBasic / Calendars.Read + offline_access), content scopes listed and never requested (tested); consent purposes mailbox_sync / calendar_sync version 2026-09-03; a connection records the consent it was made under; signed state bound to the user",
+    "token_storage": "DONE — AES-256-GCM under MAILBOX_ENCRYPTION_KEY in MailboxSecret with no tenant policy (tenant role cannot read a token — tested); no key → refused",
+    "connectors": "Mock DONE (fixture-backed, non-production only). Google and Microsoft IMPLEMENTED-NOT-VALIDATED — written against the documented APIs, type-checked, NEVER CALLED (no credentials); registry refuses unconfigured adapters and never falls back to the mock in production",
+    "sync_and_association": "DONE — references only; idempotent upserts over a 180-day window; associate.ts pure with named signals; auto ≥ 0.85 with no rival within 0.10, pending ≥ 0.50, else none; P = R = 1.00 on the 24-thread labelled corpus; decisions stick across re-syncs; detection from subject and invite only; EMAIL_RECEIVED / INTERVIEW_DETECTED / OFFER_RECEIVED for filed threads only",
+    "revocation_and_retention": "DONE — one transaction purges the secret, threads, message refs, calendar refs and integration events; provider invalidation best effort; prune past 180 days from npm run mailbox:sync; retention matrix rows",
+    "leakage_proof": "DONE — static (nothing under src/lib/mailbox imports the gateway/grounding/provider/SDK) + runtime (gateway refuses a payload with a mailbox key at any depth); AI over mailbox content NOT IMPLEMENTED by design",
+    "surfaces": "DONE — settings: scope inventory, consent, connect, sync now, revoke with counts; application folder: filed threads with signals and chips, suggestions to confirm/reject, filed events",
+    "independent_review": "DONE — adversarial pass: nothing HIGH; four MEDIUM (vacuous subject_title on a short job title, an untested evidence claim, stale retention placeholders, pending calendar events undecidable and late-filed invites never firing) and two LOW (hex key, callback JSON error) — all six fixed with tests (STAGE11_EVIDENCE.md §12)"
+  },
+  "stage_11_exit_gate": {
+    "met": [
+      "Least-privilege incremental scopes; explicit per-connection consent (inventory asserted; content-scope grant refused)",
+      "Encrypted token storage; tenant role cannot read tokens",
+      "Association with confidence; low confidence never auto-filed (P = R = 1.00 on the fixture corpus)",
+      "Events emitted; revocation purges derived content",
+      "No mailbox content reaches an AI call (no such call exists — leakage test)",
+      "Full gate set green with the documented command only: lint 0/8, typecheck 0, 1033/1033 tests (0 skipped), build 0"
+    ],
+    "not_met": [
+      "Both providers live with audited consent — BLOCKED (CREDENTIAL + EXTERNAL_SERVICE): adapters never called",
+      "Association measured on a real mailbox (fixture only)",
+      "Automatic consumption of the events (ADR-0011 event bus not built; no scheduler)",
+      "Staging rehearsal (NOT VERIFIED — R-34)"
+    ],
+    "verdict": "Stage 11 passes every engineering gate that can be run here and is BLOCKED at its exit on provider credentials, stated rather than approximated; the adapters are IMPLEMENTED-NOT-VALIDATED in the register. Merge posture inherited from the stack."
   }
 }

@@ -345,5 +345,8 @@ export function folderInclude() {
     assessments: { orderBy: { createdAt: 'asc' as const } },
     followUps: { orderBy: { dueAt: 'asc' as const } },
     crmNotes: { orderBy: { createdAt: 'desc' as const } },
+    // Stage 11: what was filed here (automatically or by the applicant); suggestions are queried separately.
+    emailThreads: { where: { associationStatus: { in: ['auto', 'confirmed'] } }, orderBy: { lastMessageAt: 'desc' as const } },
+    calendarEvents: { where: { associationStatus: { in: ['auto', 'confirmed'] } }, orderBy: { startsAt: 'asc' as const } },
   };
 }

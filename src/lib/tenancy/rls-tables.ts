@@ -221,6 +221,14 @@ export const RLS_TABLES: Record<string, RlsKind> = {
   ApplicationAssessment: { kind: 'user', column: 'userId' },
   ApplicationFollowUp: { kind: 'user', column: 'userId' },
   ApplicationNote: { kind: 'user', column: 'userId' },
+  // Stage 11: mailbox and calendar REFERENCES are the applicant's own; the
+  // encrypted token set is system-only — no tenant policy, by design.
+  MailboxConnection: { kind: 'user', column: 'userId' },
+  MailboxSecret: { kind: 'system' },
+  EmailThread: { kind: 'user', column: 'userId' },
+  EmailMessageRef: { kind: 'user', column: 'userId' },
+  CalendarEventRef: { kind: 'user', column: 'userId' },
+  IntegrationEvent: { kind: 'user', column: 'userId' },
   AtsRuleset: { kind: 'system' },
   PlanPrice: { kind: 'reference', where: `"active" = true` },
   Job: { kind: 'reference' },
@@ -306,6 +314,7 @@ export const STAGE_07_TABLES = ['EligibilityResult'];
 export const STAGE_08_TABLES = ['MatchDimension', 'MatchWeightVersion'];
 export const STAGE_09_TABLES = ['DocumentVersion'];
 export const STAGE_10_TABLES = ['ApplicationStatusHistory', 'ApplicationContact', 'ApplicationInterview', 'ApplicationAssessment', 'ApplicationFollowUp', 'ApplicationNote'];
+export const STAGE_11_TABLES = ['MailboxConnection', 'MailboxSecret', 'EmailThread', 'EmailMessageRef', 'CalendarEventRef', 'IntegrationEvent'];
 
 export const RLS_MANIFESTS: RlsManifest[] = [
   { migration: '20260903073000_row_level_security', preamble: true, tables: STAGE_01_TABLES },
@@ -318,4 +327,5 @@ export const RLS_MANIFESTS: RlsManifest[] = [
   { migration: '20260903160100_rls_matching_tables', preamble: false, tables: STAGE_08_TABLES },
   { migration: '20260903170100_rls_document_table', preamble: false, tables: STAGE_09_TABLES },
   { migration: '20260903180100_rls_crm_tables', preamble: false, tables: STAGE_10_TABLES },
+  { migration: '20260903190100_rls_mailbox_tables', preamble: false, tables: STAGE_11_TABLES },
 ];

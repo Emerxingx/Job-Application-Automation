@@ -242,3 +242,26 @@ never occurred.
   confirmation through the machine; another tenant sees and touches nothing;
   erasure cascades; completeness from real rows; the export carries the
   structured outcome.
+
+## Stage 11 — mailbox intelligence
+
+- `tests/mailbox-association.test.ts` (pure): every thread of the labelled
+  corpus (`tests/fixtures/mailbox-corpus.json`, 24 threads over three
+  folders) files as labelled — status AND folder; precision and recall of
+  automatic filing asserted as numbers; the near-tie is pending with its
+  rival named; the pre-application thread is penalised; a look-alike domain
+  is not filed; detections from subject and invite only ("special offer" is
+  not an offer); the scope inventory holds no content scope; the encryption
+  round-trips and refuses a tampered tag.
+- `tests/mailbox-leakage.test.ts` (static + runtime): nothing under
+  `src/lib/mailbox` imports the gateway, grounding, a model provider or the
+  SDK; the gateway refuses a payload carrying a `mailbox` key at any depth.
+- `tests/mailbox-sync.test.ts` (database): connect refused without consent;
+  a signed state bound to another user refused; a grant carrying a content
+  scope revoked and refused with nothing stored; no store without the key;
+  the token unreadable on the tenant path; a sync files the corpus as
+  labelled, emits `EMAIL_RECEIVED` / `INTERVIEW_DETECTED` / `OFFER_RECEIVED`
+  only as promised and is idempotent (second sync: no rows, no events); the
+  applicant's decision sticks across re-syncs and unlocks the detections it
+  files; another tenant sees nothing; revocation purges every derived row
+  and the secret and audits counts with no subject, address or token.

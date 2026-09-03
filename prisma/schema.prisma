@@ -74,6 +74,11 @@ model User {
   applicationAssessments ApplicationAssessment[]
   applicationFollowUps   ApplicationFollowUp[]
   applicationNotes       ApplicationNote[]
+  mailboxConnections     MailboxConnection[]
+  emailThreads           EmailThread[]
+  emailMessageRefs       EmailMessageRef[]
+  calendarEventRefs      CalendarEventRef[]
+  integrationEvents      IntegrationEvent[]
   interviewPreps         InterviewPrep[]
   events                 ActivityEvent[]
 
@@ -555,17 +560,19 @@ model Application {
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
-  user          User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  job           Job                        @relation(fields: [jobId], references: [id], onDelete: Cascade)
-  agent         Agent?                     @relation(fields: [agentId], references: [id], onDelete: SetNull)
-  interviewPrep InterviewPrep?
-  documents     DocumentVersion[]
-  statusHistory ApplicationStatusHistory[]
-  contacts      ApplicationContact[]
-  interviews    ApplicationInterview[]
-  assessments   ApplicationAssessment[]
-  followUps     ApplicationFollowUp[]
-  crmNotes      ApplicationNote[]
+  user           User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  job            Job                        @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  agent          Agent?                     @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  interviewPrep  InterviewPrep?
+  documents      DocumentVersion[]
+  statusHistory  ApplicationStatusHistory[]
+  contacts       ApplicationContact[]
+  interviews     ApplicationInterview[]
+  assessments    ApplicationAssessment[]
+  followUps      ApplicationFollowUp[]
+  crmNotes       ApplicationNote[]
+  emailThreads   EmailThread[]
+  calendarEvents CalendarEventRef[]
 
   @@unique([userId, jobId])
   @@index([userId, status])
@@ -3326,8 +3333,9 @@ model ApplicationInterview {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  user           User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  application    Application        @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  calendarEvents CalendarEventRef[]
 
   @@index([userId, applicationId, scheduledAt])
 }
@@ -3383,4 +3391,158 @@ model ApplicationNote {
   application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
 
   @@index([userId, applicationId, createdAt])
+}
+
+// Stage 11 (MASTER_BUILD_PLAN "Email and calendar intelligence", ADR-0025):
+// the highest privacy surface in the programme. Mailbox and calendar content
+// is RESTRICTED (DATA_CLASSIFICATION.md): the platform stores REFERENCES
+// (subjects, participants, dates, provider ids) and never a message body;
+// OAuth tokens live encrypted in a system-only table the tenant role cannot
+// read; revocation purges every derived row.
+
+// One OAuth grant. provider: google | microsoft; kind: mail | calendar;
+// status: connected | revoked | error. scopes: JSON of what the provider
+// GRANTED (metadata scopes only are ever requested). cursor: the provider's
+// incremental sync token.
+model MailboxConnection {
+  id           String    @id @default(cuid())
+  userId       String
+  provider     String
+  kind         String
+  accountEmail String
+  scopes       String    @default("[]")
+  status       String    @default("connected")
+  consentId    String?
+  cursor       String?
+  errorCode    String?
+  connectedAt  DateTime  @default(now())
+  lastSyncAt   DateTime?
+  revokedAt    DateTime?
+
+  user    User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  secret  MailboxSecret?
+  threads EmailThread[]
+  events  CalendarEventRef[]
+
+  @@unique([userId, provider, kind, accountEmail])
+  @@index([userId])
+}
+
+// The encrypted token set (AES-256-GCM, src/lib/mailbox/crypto.ts). SYSTEM
+// ONLY: no tenant policy exists for this table, so a tenant transaction can
+// neither read nor write a token. Deleted first on revocation.
+model MailboxSecret {
+  id           String   @id @default(cuid())
+  connectionId String   @unique
+  ciphertext   String
+  iv           String
+  tag          String
+  keyVersion   Int
+  updatedAt    DateTime @updatedAt
+
+  connection MailboxConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+}
+
+// A thread REFERENCE: subject, participants and dates — never a body.
+// associationStatus: auto | pending | confirmed | rejected | none;
+// associatedBy: system | applicant. signals: JSON of the named signals that
+// scored it, so the applicant can see why.
+model EmailThread {
+  id                 String   @id @default(cuid())
+  userId             String
+  connectionId       String
+  providerThreadId   String
+  subject            String
+  participants       String   @default("[]")
+  fromAddress        String
+  lastMessageAt      DateTime
+  hasCalendarInvite  Boolean  @default(false)
+  applicationId      String?
+  rivalApplicationId String?
+  confidence         Float    @default(0)
+  associationStatus  String   @default("none")
+  associatedBy       String?
+  signals            String   @default("[]")
+  interviewDetected  Boolean  @default(false)
+  offerDetected      Boolean  @default(false)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  user        User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  connection  MailboxConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  application Application?      @relation(fields: [applicationId], references: [id], onDelete: SetNull)
+  messages    EmailMessageRef[]
+
+  @@unique([connectionId, providerThreadId])
+  @@index([userId, applicationId])
+  @@index([userId, associationStatus, lastMessageAt])
+}
+
+// direction: inbound | outbound. A reference only.
+model EmailMessageRef {
+  id                String   @id @default(cuid())
+  userId            String
+  threadId          String
+  providerMessageId String
+  fromAddress       String
+  sentAt            DateTime
+  direction         String
+
+  user   User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  thread EmailThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+
+  @@unique([threadId, providerMessageId])
+  @@index([userId, sentAt])
+}
+
+// A calendar event reference, associated like a thread (organiser and
+// attendees as participants, the title as the subject). interviewId links
+// the Stage 10 interview it was confirmed as.
+model CalendarEventRef {
+  id                String   @id @default(cuid())
+  userId            String
+  connectionId      String
+  providerEventId   String
+  title             String
+  organiser         String
+  startsAt          DateTime
+  endsAt            DateTime
+  attendees         String   @default("[]")
+  applicationId     String?
+  interviewId       String?
+  confidence        Float    @default(0)
+  associationStatus String   @default("none")
+  signals           String   @default("[]")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  user        User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  connection  MailboxConnection     @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  application Application?          @relation(fields: [applicationId], references: [id], onDelete: SetNull)
+  interview   ApplicationInterview? @relation(fields: [interviewId], references: [id], onDelete: SetNull)
+
+  @@unique([connectionId, providerEventId])
+  @@index([userId, startsAt])
+  @@index([userId, applicationId])
+}
+
+// Domain events the sync emits for the folder (Stage 10) and, later, the
+// event bus (ADR-0011): EMAIL_RECEIVED | INTERVIEW_DETECTED | OFFER_RECEIVED.
+// payload: JSON of ids only.
+model IntegrationEvent {
+  id            String    @id @default(cuid())
+  userId        String
+  connectionId  String?
+  type          String
+  threadId      String?
+  applicationId String?
+  payload       String    @default("{}")
+  createdAt     DateTime  @default(now())
+  handledAt     DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([type, handledAt])
+  @@index([connectionId])
 }

@@ -47,7 +47,16 @@ export type SecurityEvent =
   | 'organization.member.invited'
   | 'organization.member.accepted'
   | 'organization.member.role_changed'
-  | 'organization.member.removed';
+  | 'organization.member.removed'
+  // Stage 11: mailbox and calendar connections — never a subject, an address
+  // in clear, or a token; counts, scopes and digests only.
+  | 'mailbox.connected'
+  | 'mailbox.synced'
+  | 'mailbox.thread.confirmed'
+  | 'mailbox.thread.rejected'
+  | 'mailbox.event.confirmed'
+  | 'mailbox.event.rejected'
+  | 'mailbox.revoked';
 
 export interface RequestMeta {
   ip?: string | null;

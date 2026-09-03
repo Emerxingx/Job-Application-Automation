@@ -26,7 +26,7 @@ remediation has begun.**
 npm ci                # install from the lockfile
 npm run dev           # http://localhost:3000
 npx tsc --noEmit      # typecheck  — PASSES
-npm test              # 1016 tests  — PASSES with the two database URLs below set; the
+npm test              # 1033 tests  — PASSES with the two database URLs below set; the
                       #   database suites skip WITH A REASON without them and THROW
                       #   when CI=true, so CI cannot pass by skipping them
 npm run build         # production — PASSES
@@ -54,7 +54,7 @@ npm run cms:types          # regenerate payload-types.ts
 ## Things that will surprise you
 
 1. **The database is PostgreSQL with a versioned migration history** since
-   Stage 01 (`ADR-0002`). Twenty-eight migrations under `prisma/migrations/`; CI applies
+   Stage 01 (`ADR-0002`). Thirty migrations under `prisma/migrations/`; CI applies
    them to an empty database and fails on drift. `DATABASE_URL` is the
    transaction pooler, `DIRECT_URL` the session endpoint for migrations. The RLS
    migration is **generated** from `src/lib/tenancy/rls-tables.ts` — regenerate
@@ -251,6 +251,21 @@ npm run cms:types          # regenerate payload-types.ts
     system-only and a tenant transaction cannot insert into it. Audit rows
     carry ids and kinds, never a name, an email, a note or a salary. Reads
     are not audited per view — say so, do not imply otherwise.
+
+22. **A mailbox is read by reference only, and never by a model** (Stage 11,
+    ADR-0025). The connectors ask for metadata scopes (`gmail.metadata`,
+    `Mail.ReadBasic`) that cannot return a body; a grant that carries a
+    content scope is revoked and refused. Tokens are AES-256-GCM in
+    `MailboxSecret`, a SYSTEM-ONLY table (never on the tenant path — the
+    tenant role has no policy on it), decrypted only inside
+    `src/lib/mailbox/service.ts`. `EmailThread` has no body column and never
+    will; association (`associate.ts`) and detection are pure and read the
+    subject, participants, dates and the invite flag. Nothing under
+    `src/lib/mailbox` may import the AI gateway or a provider (static test),
+    and the gateway refuses any payload with a `mailbox` key. Neither Google
+    nor Microsoft has been called from this codebase — no credentials exist
+    here; `MAILBOX_CONNECTOR=mock` works outside production only and the
+    registry never falls back to it. Revocation purges in one transaction.
 
 ## Conventions worth preserving
 

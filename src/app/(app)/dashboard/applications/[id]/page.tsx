@@ -25,6 +25,7 @@ import { KIND_LABELS, MESSAGE_KINDS, type DocumentKind } from '@/lib/documents/k
 import { folderInclude } from '@/lib/applications/service';
 import { folderCompleteness } from '@/lib/applications/folder';
 import { ApplicationFolder } from '@/components/application-folder';
+import { ApplicationCommunications, type EventView, type ThreadView } from '@/components/application-communications';
 import type { ApplicationStatus } from '@/lib/types';
 import { atsDisplayName } from '@/lib/providers/apply';
 import type { AtsVendor } from '@/lib/providers/apply';
@@ -47,6 +48,9 @@ export default async function ApplicationDetailPage({
     }),
   );
   if (!application) notFound();
+  // Stage 11: threads the engine was not sure about, offered for this folder (best guess or rival) — never filed without the applicant.
+  const suggestions = await run((tx) => tx.emailThread.findMany({ where: { userId: user.id, associationStatus: 'pending', OR: [{ applicationId: application.id }, { rivalApplicationId: application.id }] }, orderBy: { lastMessageAt: 'desc' } }));
+  const eventSuggestions = await run((tx) => tx.calendarEventRef.findMany({ where: { userId: user.id, associationStatus: 'pending', applicationId: application.id }, orderBy: { startsAt: 'asc' } }));
 
   const assistedFields = parseJson<AssistedField[]>(application.assistedFields, []);
   const notes = parseJson<TailoringNotes>(application.tailoringNotes, {
@@ -114,6 +118,9 @@ export default async function ApplicationDetailPage({
     outcome: application.outcome,
     respondedAt: application.respondedAt,
   });
+  const threadView = (t: (typeof application.emailThreads)[number]): ThreadView => ({ id: t.id, subject: t.subject, from: t.fromAddress, lastLabel: fmt(t.lastMessageAt), confidence: t.confidence, status: t.associationStatus, signals: parseJson<{ name: string }[]>(t.signals, []).map((s) => s.name), interview: t.interviewDetected, offer: t.offerDetected });
+  const eventView = (e: (typeof application.calendarEvents)[number]): EventView => ({ id: e.id, title: e.title, organiser: e.organiser, whenLabel: fmt(e.startsAt), confidence: e.confidence, status: e.associationStatus });
+  const eventViews: EventView[] = application.calendarEvents.map(eventView);
   const folderProps = {
     applicationId: application.id,
     status: application.status,
@@ -237,6 +244,7 @@ export default async function ApplicationDetailPage({
           <ApplicationDocuments documents={documentViews} sealed={sent} />
           <ApplicationMessages applicationId={application.id} existing={messageViews} />
           <ApplicationFolder {...folderProps} />
+          <ApplicationCommunications applicationId={application.id} threads={application.emailThreads.map(threadView)} suggestions={suggestions.map(threadView)} events={eventViews} eventSuggestions={eventSuggestions.map(eventView)} />
 
           {/* Tailoring report */}
           <Card className="p-5">
