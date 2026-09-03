@@ -26,7 +26,7 @@ remediation has begun.**
 npm ci                # install from the lockfile
 npm run dev           # http://localhost:3000
 npx tsc --noEmit      # typecheck  — PASSES
-npm test              # 914 tests  — PASSES with the two database URLs below set; the
+npm test              # 932 tests  — PASSES with the two database URLs below set; the
                       #   database suites skip WITH A REASON without them and THROW
                       #   when CI=true, so CI cannot pass by skipping them
 npm run build         # production — PASSES
@@ -54,7 +54,7 @@ npm run cms:types          # regenerate payload-types.ts
 ## Things that will surprise you
 
 1. **The database is PostgreSQL with a versioned migration history** since
-   Stage 01 (`ADR-0002`). Sixteen migrations under `prisma/migrations/`; CI applies
+   Stage 01 (`ADR-0002`). Eighteen migrations under `prisma/migrations/`; CI applies
    them to an empty database and fails on drift. `DATABASE_URL` is the
    transaction pooler, `DIRECT_URL` the session endpoint for migrations. The RLS
    migration is **generated** from `src/lib/tenancy/rls-tables.ts` — regenerate
@@ -170,6 +170,18 @@ npm run cms:types          # regenerate payload-types.ts
     of the box; Adzuna is registered disabled with an empty legal basis and
     has never been called live. Every capture is an immutable `JobSnapshot`.
     `AtsRulesets` and `PromptRegistry` are no longer CMS collections.
+
+17. **A `Job` is canonical and every source that carries it is a
+    `JobProvenance` row** (Stage 06). `src/lib/jobs/canonical.ts` derives the
+    canonical fields and `canonicalHash` on every capture; the pipeline resolves
+    a capture to a job by provenance, then by hash, then creates one. The
+    primary (first) source owns the `Job` columns; a second source keeps its
+    own apply link. Closure is per source and never inferred from silence:
+    a job closes only when NO source still lists it; `unknown` stays open and
+    is shown as unconfirmed. `sponsorship` is `unknown` unless the posting
+    says otherwise. Dedup is measured on a labelled fixture set, not on real
+    traffic (no credentialed source). There is **no scheduler**: freshness runs
+    from `/console/sources` or `npm run jobs:freshness`.
 
 ## Conventions worth preserving
 

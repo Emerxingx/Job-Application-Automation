@@ -106,6 +106,22 @@ export function SourcesAdmin({ sources, runs }: { sources: SourceView[]; runs: S
     }
   }
 
+  async function refresh(key: string) {
+    setBusy(`refresh:${key}`);
+    setMessage(null);
+    try {
+      const res = await fetch(`/api/console/sources/${key}/refresh`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      const data = (await res.json()) as { error?: string; run?: { status: string; discovered: number; updated: number; closed: number; error?: string | null } };
+      if (!res.ok) setMessage({ ok: false, text: data.error ?? 'Freshness sweep failed to run.' });
+      else {
+        setMessage({ ok: data.run?.status === 'ok', text: `${key}: sweep ${data.run?.status} — checked ${data.run?.discovered}, re-seen ${data.run?.updated}, closed ${data.run?.closed}${data.run?.error ? ` (${data.run.error})` : ''}` });
+        router.refresh();
+      }
+    } finally {
+      setBusy(null);
+    }
+  }
+
   return (
     <div className="space-y-6">
       <p role="status" aria-live="polite" className={cn('m-0 flex items-center gap-1 text-sm', message?.ok ? 'text-success' : 'text-danger')}>
@@ -175,6 +191,10 @@ export function SourcesAdmin({ sources, runs }: { sources: SourceView[]; runs: S
           <div className="mt-3 flex flex-wrap gap-2">
             <button type="button" className="btn-secondary px-3 py-1.5 text-xs" disabled={busy !== null} aria-label={`Run health check for ${s.name}`} onClick={() => health(s.key)}>
               {busy === `health:${s.key}` && <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />} Health check
+            </button>
+            {/* Stage 06: a freshness sweep on demand (no scheduler exists yet); refused for a source the gate refuses. */}
+            <button type="button" className="btn-secondary px-3 py-1.5 text-xs" disabled={busy !== null || s.status === 'disabled'} aria-label={`Run freshness sweep for ${s.name}`} onClick={() => refresh(s.key)}>
+              {busy === `refresh:${s.key}` && <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />} Freshness sweep
             </button>
             {editing !== s.key && (
               <button type="button" className="btn-secondary px-3 py-1.5 text-xs" aria-label={`Edit record for ${s.name}`} onClick={() => startEdit(s)}>

@@ -28,7 +28,7 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
   // application are the user's own rows.
   const [loaded, quota] = await Promise.all([
     run(async (tx) => {
-      const job = await tx.job.findUnique({ where: { id }, include: { occupation: { include: { labels: true, codes: true } } } });
+      const job = await tx.job.findUnique({ where: { id }, include: { occupation: { include: { labels: true, codes: true } }, provenance: { include: { source: { select: { name: true, key: true } } }, orderBy: { firstSeenAt: 'asc' } } } });
       if (!job) return null;
       const [match, application] = await Promise.all([
         tx.jobMatch.findFirst({
@@ -88,8 +88,22 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
               </span>
             </div>
 
+            {/*
+             * Stage 06: closure is a statement a source made, never inferred
+             * from silence; `unknown` means the source could not say.
+             */}
+            {job.activeState === 'closed' && (
+              <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                This posting is closed{job.closedAt ? ` (detected ${formatRelative(job.closedAt)})` : ''}. It stays here for your records; it is no longer in your feed.
+              </p>
+            )}
+            {job.activeState === 'unknown' && (
+              <p className="mt-3 text-xs text-faint">The source has not confirmed whether this posting is still open.</p>
+            )}
             <div className="mt-4 flex flex-wrap gap-1.5">
               <span className="chip">{job.jobType.replace(/_/g, ' ')}</span>
+              {job.sponsorship !== 'unknown' && <span className="chip">{job.sponsorship === 'offered' ? 'Sponsorship stated' : 'No sponsorship stated'}</span>}
+              {job.workAuthorization && <span className="chip">{job.workAuthorization.replace(/_/g, ' ')}</span>}
               {/*
                * A NOC code is only certain when the spine classified the title
                * with high confidence; a capture-time regex guess or a fallback
@@ -110,6 +124,13 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
               )}
             </div>
             {attribution && <p className="mt-2 text-xs text-faint">Occupation data: {attribution}</p>}
+            {/* Stage 06: one canonical job, every source that carries it named — the provenance the Job Folder relies on. */}
+            {job.provenance.length > 0 && (
+              <p className="mt-2 text-xs text-faint">
+                Listed by {job.provenance.map((p) => p.source.name).join(', ')}
+                {job.provenance.length > 1 ? ` — ${job.provenance.length} sources merged into one posting` : ''}
+              </p>
+            )}
           </Card>
 
           <Card className="p-6">

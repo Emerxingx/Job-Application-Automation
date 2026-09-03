@@ -283,6 +283,31 @@ model Job {
   activeState String    @default("active")
   closedAt    DateTime?
   sourceHash  String    @default("")
+  // Stage 06 (JOB_INTELLIGENCE_ARCHITECTURE "Canonical job"): the canonical
+  // fields derived from the capture by src/lib/jobs/canonical.ts. One Job per
+  // canonicalHash; every source that carries it is a JobProvenance row and
+  // every capture an immutable JobSnapshot. Requirement fields are JSON
+  // string arrays; experience is a year range; sponsorship is what the
+  // posting SAYS (unknown | offered | not_offered), never inferred.
+  normalizedTitle           String    @default("")
+  normalizedCompany         String    @default("")
+  // NOC broad category of the classified occupation, "noc:<digit>"; null until known.
+  occupationFamily          String?
+  socCode                   String?
+  // "CA-ON/toronto", "US-TX/austin", "remote", or null when unparseable.
+  postalRegion              String?
+  canonicalHash             String    @default("")
+  requiredSkills            String    @default("[]")
+  preferredSkills           String    @default("[]")
+  educationRequirements     String    @default("[]")
+  certificationRequirements String    @default("[]")
+  experienceYearsMin        Int?
+  experienceYearsMax        Int?
+  languageRequirements      String    @default("[]")
+  // What the posting states about the right to work: authorization_required |
+  // citizenship_or_pr_required | security_clearance_required | null (nothing stated).
+  workAuthorization         String?
+  sponsorship               String    @default("unknown")
   applyUrl       String    @default("")
   // Whether the posting can be submitted programmatically.
   applyMethod    String    @default("external") // external | email | ats_form
@@ -296,12 +321,39 @@ model Job {
   occupation   Occupation?   @relation(fields: [occupationId], references: [id], onDelete: SetNull)
   jobSource    JobSource?    @relation(fields: [sourceId], references: [id], onDelete: SetNull)
   snapshots    JobSnapshot[]
+  provenance   JobProvenance[]
 
   @@unique([source, externalId])
   @@index([title])
   @@index([postedAt])
   @@index([occupationId])
   @@index([sourceId, activeState, lastSeenAt])
+  @@index([canonicalHash])
+  @@index([normalizedTitle])
+  @@index([activeState, postedAt])
+}
+
+/// Stage 06: one row per (source, external id) that carries a canonical
+/// job. The same posting captured from two sources is ONE Job with TWO
+/// provenance rows, each with its own apply link and first/last sighting;
+/// the Job's own `source` / `externalId` name the first capture.
+/// Classification: INTERNAL, reference (shared like Job; no personal data).
+model JobProvenance {
+  id          String   @id @default(cuid())
+  jobId       String
+  sourceId    String
+  externalId  String
+  applyUrl    String   @default("")
+  firstSeenAt DateTime @default(now())
+  lastSeenAt  DateTime @default(now())
+  // Hash of the last normalised capture from THIS source.
+  sourceHash  String   @default("")
+
+  job    Job       @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  source JobSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  @@unique([sourceId, externalId])
+  @@index([jobId])
 }
 
 // Join of agent × job, carrying the AI match analysis. This is what the job
@@ -2960,9 +3012,10 @@ model JobSource {
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
 
-  jobs      Job[]
-  runs      JobSourceRun[]
-  snapshots JobSnapshot[]
+  jobs       Job[]
+  runs       JobSourceRun[]
+  snapshots  JobSnapshot[]
+  provenance JobProvenance[]
 }
 
 model JobSourceRun {

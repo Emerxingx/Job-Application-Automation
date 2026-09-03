@@ -108,7 +108,9 @@ describe('Stage 05 — source register gate and pipeline', { skip: SKIP }, () =>
     const { MockConnector } = await import('../src/lib/connectors/mock');
     const c = new MockConnector();
     const [raw] = await c.discover(query);
-    const posting = { ...c.normalize(raw), externalId: `mock-race-${S}` };
+    // A canonical identity of its own: a copy of a catalogue posting would be
+    // (correctly) merged into that job by Stage 06 dedup rather than created.
+    const posting = { ...c.normalize(raw), externalId: `mock-race-${S}`, title: `Race Engineer ${S}`, company: `Race Co ${S}` };
     const results = await Promise.all([1, 2, 3].map(() => pipeline.upsertPosting(source, posting)));
     const ids = new Set(results.map((r) => r.id));
     assert.equal(ids.size, 1, 'all three resolved to the same row');
@@ -192,12 +194,19 @@ describe('Stage 05 — source register gate and pipeline', { skip: SKIP }, () =>
   it('refresh: closed postings close, active ones are re-seen, unknown stays unknown — never inferred', async () => {
     const source = await db.jobSource.findUniqueOrThrow({ where: { key: 'mock' } });
     const stale = new Date(Date.now() - 3 * 86_400_000);
+    // Stage 06: staleness is per source PROVENANCE, so each fixture job carries one.
+    const plant = async (externalId: string, title: string) => {
+      const job = await db.job.create({ data: { source: 'mock', externalId, title, company: 'Co', location: 'Toronto', country: 'CA', description: '', requirements: '[]', skills: '[]', applyUrl: 'https://example.test', postedAt: stale, sourceId: source.id, lastSeenAt: stale, canonicalHash: `h_${externalId}` } });
+      await db.jobProvenance.create({ data: { jobId: job.id, sourceId: source.id, externalId, firstSeenAt: stale, lastSeenAt: stale } });
+      return job;
+    };
     // A mock-shaped id the catalogue no longer lists: the source KNOWS it is gone.
-    const ghost = await db.job.create({ data: { source: 'mock', externalId: `mock-ghost_${S}`, title: 'Ghost', company: 'Co', location: 'Toronto', country: 'CA', description: '', requirements: '[]', skills: '[]', applyUrl: 'https://example.test', postedAt: stale, sourceId: source.id, lastSeenAt: stale } });
+    const ghost = await plant(`mock-ghost_${S}`, 'Ghost');
     // An id the source cannot speak for: the honest answer is unknown, and the pipeline records exactly that.
-    const stranger = await db.job.create({ data: { source: 'mock', externalId: `foreign_${S}`, title: 'Stranger', company: 'Co', location: 'Toronto', country: 'CA', description: '', requirements: '[]', skills: '[]', applyUrl: 'https://example.test', postedAt: stale, sourceId: source.id, lastSeenAt: stale } });
-    const live = (await db.job.findFirst({ where: { sourceId: source.id, externalId: { startsWith: 'mock-' } }, orderBy: { lastSeenAt: 'desc' } }))!;
+    const stranger = await plant(`foreign_${S}`, 'Stranger');
+    const live = (await db.job.findFirst({ where: { sourceId: source.id, externalId: { startsWith: 'mock-' }, provenance: { some: { sourceId: source.id } } }, orderBy: { lastSeenAt: 'desc' } }))!;
     await db.job.update({ where: { id: live.id }, data: { lastSeenAt: stale } });
+    await db.jobProvenance.updateMany({ where: { jobId: live.id, sourceId: source.id }, data: { lastSeenAt: stale } });
     const run = await pipeline.runRefresh('mock', { staleAfterMs: 86_400_000 });
     assert.equal(run.status, 'ok');
     assert.ok(run.closed >= 1);
@@ -212,6 +221,76 @@ describe('Stage 05 — source register gate and pipeline', { skip: SKIP }, () =>
     assert.equal(u.closedAt, null, 'never inferred as closed');
     assert.equal(u.lastSeenAt.getTime(), stale.getTime(), 'and not re-seen either');
     await db.job.deleteMany({ where: { id: { in: [ghost.id, stranger.id] } } });
+  });
+
+  it('Stage 06 dedup: the same posting from two sources is ONE job with TWO provenance rows and a snapshot per capture; the second source never overwrites the first', async () => {
+    const mock = await db.jobSource.findUniqueOrThrow({ where: { key: 'mock' } });
+    const adzuna = await db.jobSource.findUniqueOrThrow({ where: { key: 'adzuna' } });
+    const base = { companyLogo: undefined, salaryMin: 90000, salaryMax: 110000, salaryCurrency: 'CAD', nocCode: undefined, applyMethod: 'external' as const, postedAt: '2026-09-01T00:00:00.000Z', requirements: [], skills: [], country: 'CA' as const, workMode: 'hybrid' as const, jobType: 'full_time' as const };
+    // The employer carries the run id so the canonical identity is this run's own (a shared database keeps rows from aborted runs).
+    const first = { ...base, source: 'mock', externalId: `mock-dedup_${S}`, title: `Senior Data Analyst (Remote) - Req #${S}`, company: `Maple ${S} Analytics Inc.`, location: 'Toronto, ON M5V 2T6', applyUrl: 'https://maple.example/jobs/1', description: 'Requirements\n- 3+ years SQL and Python\n- Tableau\nMust be legally authorized to work in Canada.' };
+    const second = { ...base, source: 'adzuna', externalId: `adzuna:dedup_${S}`, title: 'Senior Data Analyst', company: `Maple ${S} Analytics`, location: 'Toronto, Ontario, Canada', applyUrl: 'https://aggregator.example/x', description: `Senior Data Analyst at Maple ${S} Analytics. 3+ years SQL and Python. Tableau. Must be legally authorized to work in Canada.` };
+    const a = await pipeline.upsertPosting(mock, first);
+    assert.equal(a.isNew, true);
+    const b = await pipeline.upsertPosting(adzuna, second);
+    assert.equal(b.id, a.id, 'resolved to the same canonical job');
+    assert.equal(b.isNew, false);
+    assert.equal(b.merged, true);
+    const job = await db.job.findUniqueOrThrow({ where: { id: a.id }, include: { provenance: { orderBy: { firstSeenAt: 'asc' } }, snapshots: true } });
+    assert.equal(job.provenance.length, 2, 'two provenance records');
+    assert.deepEqual(job.provenance.map((p) => p.sourceId).sort(), [adzuna.id, mock.id].sort());
+    assert.equal(job.snapshots.length, 2, 'one immutable snapshot per capture');
+    assert.equal(job.title, first.title, 'the primary source owns the columns');
+    assert.equal(job.applyUrl, first.applyUrl);
+    assert.equal(job.provenance.find((p) => p.sourceId === adzuna.id)?.applyUrl, second.applyUrl, 'the second source keeps its own apply link');
+    assert.equal(job.normalizedTitle, 'senior data analyst');
+    assert.equal(job.postalRegion, 'CA-ON/toronto');
+    assert.equal(job.workAuthorization, 'authorization_required');
+    assert.deepEqual(JSON.parse(job.requiredSkills), ['python', 'sql', 'tableau']);
+    // Re-capture from the second source: seen before → lastSeen moves, nothing else grows.
+    const again = await pipeline.upsertPosting(adzuna, second);
+    assert.equal(again.id, a.id);
+    assert.equal(again.merged, false);
+    const after = await db.job.findUniqueOrThrow({ where: { id: a.id }, include: { provenance: true, snapshots: true } });
+    assert.equal(after.provenance.length, 2);
+    assert.equal(after.snapshots.length, 2);
+    // A distinct role at the same employer and place is NOT merged.
+    const other = await pipeline.upsertPosting(mock, { ...first, externalId: `mock-dedup-other_${S}`, description: 'Marketing analytics.\nRequirements\n- Google Analytics and Looker' });
+    assert.notEqual(other.id, a.id);
+    assert.equal(other.isNew, true);
+    await db.job.deleteMany({ where: { id: { in: [a.id, other.id] } } });
+  });
+
+  it('Stage 06 closure is per source: a job stays open while any source still lists it, and closes only when none does', async () => {
+    const mock = await db.jobSource.findUniqueOrThrow({ where: { key: 'mock' } });
+    const adzuna = await db.jobSource.findUniqueOrThrow({ where: { key: 'adzuna' } });
+    const stale = new Date(Date.now() - 3 * 86_400_000);
+    const job = await db.job.create({ data: { source: 'mock', externalId: `mock-multi_${S}`, title: 'Multi', company: 'Co', location: 'Toronto', country: 'CA', description: '', requirements: '[]', skills: '[]', applyUrl: 'https://example.test', postedAt: stale, sourceId: mock.id, lastSeenAt: stale, canonicalHash: `h_multi_${S}` } });
+    await db.jobProvenance.create({ data: { jobId: job.id, sourceId: mock.id, externalId: `mock-multi_${S}`, firstSeenAt: stale, lastSeenAt: stale } });
+    await db.jobProvenance.create({ data: { jobId: job.id, sourceId: adzuna.id, externalId: `adzuna:multi_${S}`, firstSeenAt: stale, lastSeenAt: new Date() } });
+    // The mock says its copy is gone, but the other source saw it within the window.
+    let run = await pipeline.runRefresh('mock', { staleAfterMs: 86_400_000 });
+    assert.equal(run.status, 'ok');
+    let row = await db.job.findUniqueOrThrow({ where: { id: job.id } });
+    assert.equal(row.activeState, 'active', 'still listed elsewhere: not closed');
+    assert.equal(row.closedAt, null);
+    // Now the other source's sighting is stale too: the closure stands.
+    await db.jobProvenance.updateMany({ where: { jobId: job.id, sourceId: adzuna.id }, data: { lastSeenAt: stale } });
+    run = await pipeline.runRefresh('mock', { staleAfterMs: 86_400_000 });
+    row = await db.job.findUniqueOrThrow({ where: { id: job.id } });
+    assert.equal(row.activeState, 'closed');
+    assert.ok(row.closedAt);
+    await db.job.delete({ where: { id: job.id } });
+  });
+
+  it('Stage 06: tenants read provenance and cannot write it', async () => {
+    const job = await db.job.findFirstOrThrow({ where: { provenance: { some: {} } }, select: { id: true } });
+    const rows = await ctx.withTenant({ userId: USER.id }, (tx) => tx.jobProvenance.findMany({ where: { jobId: job.id } }));
+    assert.ok(rows.length >= 1);
+    await assert.rejects(
+      () => ctx.withTenant({ userId: USER.id }, (tx) => tx.jobProvenance.update({ where: { id: rows[0].id }, data: { applyUrl: 'https://evil.example' } })),
+      /row-level security|42501|permission denied|Record to update not found|No record was found/,
+    );
   });
 
   it('health: runs for a disabled source, but never contacts a source whose record is incomplete — even with credentials present — and reports missing credentials by name', async () => {

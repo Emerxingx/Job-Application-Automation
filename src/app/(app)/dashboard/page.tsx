@@ -37,7 +37,7 @@ export default async function DashboardPage() {
           tx.agent.count({ where: { userId: user.id } }),
           tx.application.count({ where: { userId: user.id } }),
           tx.jobMatch.findMany({
-            where: { agent: { userId: user.id }, status: 'new' },
+            where: { agent: { userId: user.id }, status: 'new', job: { activeState: { not: 'closed' } } },
             orderBy: { matchScore: 'desc' },
             // The widget slices to its configured count; load enough for the max.
             take: 10,

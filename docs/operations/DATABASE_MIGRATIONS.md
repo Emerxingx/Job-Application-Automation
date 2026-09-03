@@ -25,6 +25,8 @@ against the staging project until the evidence section says so.
 | `20260903110000_connector_framework` | `JobSource` (per-connector record and gate), `JobSourceRun` (run audit), `JobSnapshot` (immutable by trigger), `AtsRuleset` (governed registry); `Job.sourceId` / `firstSeenAt` / `lastSeenAt` / `activeState` / `closedAt` / `sourceHash`; classification comments | Additive. Reversible (drop tables and trigger; `Job` columns nullable or defaulted) |
 | `20260903110100_rls_connector_tables` | Generated policies (manifest `RLS_MANIFESTS[4]`): `JobSnapshot` `reference`; `JobSource`, `JobSourceRun`, `AtsRuleset` `system` | Reversible |
 | `20260903120000_connector_review_fixes` | Stage 05 review: `JobSourceRun(startedAt)` index for the console's ordering (L4) and an idempotent `UPDATE` setting `Job.firstSeenAt = scrapedAt` where the column default stamped a pre-existing row with the migration time (L5) | Additive; the update only touches rows the default stamped and matches nothing on a second run |
+| `20260903130000_canonical_job` | Stage 06: fifteen canonical columns on `Job` (defaults; null where "not stated" is a value), `JobProvenance` (one row per source × external id carrying a job), indexes, classification comments, and an idempotent SQL backfill of one provenance row per existing capture. The canonical columns of older rows are filled by `npm run jobs:canonicalize` (application code, idempotent, resumable) | Additive. Reversible (drop table and columns) |
+| `20260903130100_rls_provenance_table` | Generated policies (manifest `RLS_MANIFESTS[5]`): `JobProvenance` `reference` | Reversible |
 
 
 `prisma/migrations/migration_lock.toml` pins the provider to PostgreSQL. There

@@ -17,7 +17,9 @@ export default async function JobsPage() {
     run((tx) =>
       Promise.all([
         tx.jobMatch.findMany({
-          where: { agent: { userId: user.id }, status: { in: ['new', 'reviewed', 'queued'] } },
+          // Stage 06: a posting every source has stopped listing is closed and
+          // leaves the feed; `unknown` (a source that cannot tell) stays.
+          where: { agent: { userId: user.id }, status: { in: ['new', 'reviewed', 'queued'] }, job: { activeState: { not: 'closed' } } },
           orderBy: { matchScore: 'desc' },
           take: 100,
           include: { job: true, agent: { select: { id: true, name: true } } },

@@ -204,6 +204,8 @@ export const RLS_TABLES: Record<string, RlsKind> = {
   JobSource: { kind: 'system' },
   JobSourceRun: { kind: 'system' },
   JobSnapshot: { kind: 'reference' },
+  // Stage 06: which sources carry a canonical job — shared like Job.
+  JobProvenance: { kind: 'reference' },
   AtsRuleset: { kind: 'system' },
   PlanPrice: { kind: 'reference', where: `"active" = true` },
   Job: { kind: 'reference' },
@@ -284,6 +286,7 @@ export const STAGE_04_TABLES = [
 ];
 
 export const STAGE_05_TABLES = ['AtsRuleset', 'JobSnapshot', 'JobSource', 'JobSourceRun'];
+export const STAGE_06_TABLES = ['JobProvenance'];
 
 export const RLS_MANIFESTS: RlsManifest[] = [
   { migration: '20260903073000_row_level_security', preamble: true, tables: STAGE_01_TABLES },
@@ -291,4 +294,5 @@ export const RLS_MANIFESTS: RlsManifest[] = [
   { migration: '20260903090100_rls_evidence_tables', preamble: false, tables: STAGE_03_TABLES },
   { migration: '20260903100100_rls_taxonomy_tables', preamble: false, tables: STAGE_04_TABLES },
   { migration: '20260903110100_rls_connector_tables', preamble: false, tables: STAGE_05_TABLES },
+  { migration: '20260903130100_rls_provenance_table', preamble: false, tables: STAGE_06_TABLES },
 ];
