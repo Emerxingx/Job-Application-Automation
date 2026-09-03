@@ -5,7 +5,7 @@
   "current_stage": "01",
   "last_completed_stage": "00",
   "current_branch": "claude/stage-01-security-identity-tenancy",
-  "current_head": "91e4eda1e766b540579b5a5db8cb70508d891cbf",
+  "current_head": "ef12ff836675cf1a0fefc94ed032de004104b9df",
   "current_head_meaning": "SHA of the last commit whose full gate set was verified locally (lint, typecheck, tests, build). Set by the status-sync commit that immediately follows it, so it names a real, verified commit rather than the one it is written in.",
   "current_pr": 13,
   "main_head": "d6ae8b3a9180b529abe06f23417515432c0a7f0e",
@@ -72,7 +72,7 @@
       "Server-side session revocation, immediate; session list and password-change revocation",
       "Consent captured, versioned and revocable; security events audited without secrets",
       "No high-severity advisory on any deployed path",
-      "Full gate set green: lint 0 errors / 8 warnings, typecheck 0, 754/754 tests (0 skipped), build 0"
+      "Full gate set green: lint 0 errors / 8 warnings, typecheck 0, 766/766 tests (0 skipped), build 0; independent review findings closed"
     ],
     "not_met": [
       "Migration rehearsal and restore path against the Supabase project (NOT VERIFIED — network)",

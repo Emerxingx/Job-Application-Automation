@@ -219,7 +219,7 @@ character.)
 | --- | --- |
 | `npm run lint:ci` | 0 errors, 8 warnings (baseline) |
 | `npx tsc --noEmit` | exit 0 |
-| `npm test` (with both database URLs) | 754 / 754, 0 skipped |
+| `npm test` (with both database URLs) | 766 / 766, 0 skipped (after the review fixes) |
 | `npm run build` | exit 0, 89 routes |
 | `npm audit` | 8 (1 low, 7 moderate, **0 high**) |
 | CI on PR #13, head `26813d2` | run [`33730207735`](https://github.com/Emerxingx/Job-Application-Automation/actions/runs/33730207735): **Verify (migrate deploy → drift check → status → lint → typecheck → test → build) success**, Generated-file determinism success, Line-ending policy success; [`33730207748`](https://github.com/Emerxingx/Job-Application-Automation/actions/runs/33730207748) npm audit success |
