@@ -2,12 +2,12 @@
   "$comment": "Machine-readable controller for the autonomous build programme. Authoritative over any chat transcript: if this file and a conversation disagree, this file wins. Updated at every stage checkpoint.",
   "schema_version": 1,
   "updated_at": "2026-09-03",
-  "current_stage": "09",
+  "current_stage": "10",
   "last_completed_stage": "00",
-  "current_branch": "claude/stage-09-document-engine",
-  "current_head": "83291c4ba5f4c43aea3259d38b00c3c994f8b16f",
+  "current_branch": "claude/stage-10-job-folder-crm",
+  "current_head": "f2fdfdb50cb97951582dd4d860880c73c57d5a3a",
   "current_head_meaning": "SHA of the last commit whose full gate set was verified locally (lint, typecheck, tests, build). Set by the status-sync commit that immediately follows it, so it names a real, verified commit rather than the one it is written in.",
-  "current_pr": "https://github.com/Emerxingx/Job-Application-Automation/pull/21",
+  "current_pr": "https://github.com/Emerxingx/Job-Application-Automation/pull/22",
   "main_head": "d6ae8b3a9180b529abe06f23417515432c0a7f0e",
   "run_complete": false,
   "stage_status": {
@@ -21,7 +21,7 @@
     "07": "PASS_ENGINEERING_EXIT_PARTIAL",
     "08": "PASS_ENGINEERING_EXIT_PARTIAL",
     "09": "PASS_ENGINEERING_EXIT_PARTIAL",
-    "10": "NOT_STARTED",
+    "10": "PASS_ENGINEERING_EXIT_PARTIAL",
     "11": "NOT_STARTED",
     "12": "NOT_STARTED",
     "13": "NOT_STARTED",
@@ -417,5 +417,30 @@
       "Staging rehearsal (NOT VERIFIED — R-34)"
     ],
     "verdict": "Stage 09 passes every engineering gate and is PARTIAL at its exit on the absence of an antivirus engine and of a validated durable object store, stated rather than approximated, and on the inherited absence of real traffic. Merge posture inherited from the stack."
+  },
+  "stage_10_progress": {
+    "schema_and_migrations": "DONE locally — Application outcome/offer/lastActivityAt columns + six folder tables (20260903180000); generated RLS (20260903180100); NOT VERIFIED on Supabase (R-34)",
+    "status_machine": "DONE — transitions as data; transitionApplication refuses dishonest moves with a reason and writes the history row in the same transaction; first row written by the applicator; assisted confirmation and the UI go through it; first interview moves a submitted application",
+    "field_set": "DONE — contacts, interviews, assessments, follow-ups (linkable to a Stage 09 drafted message), append-only notes, offer (accepted → hired), rejection (coded reason), structured outcome incl. ghosted/expired",
+    "audit": "DONE for writes — ids and kinds only, content asserted absent; buffered on the actor and flushed after commit (AuditLog is system-only); READS NOT AUDITED PER VIEW (stated limit)",
+    "completeness": "DONE — pure checklist against the acceptance question, shown on the page; tested on sent, unsent and undisclosed-employer folders and on real rows",
+    "export_retention_erasure": "DONE — export carries outcome/rejection/offer/interviews/last activity; retention matrix row; erasure cascade tested",
+    "surfaces": "DONE — application page folder (timeline, offer, people, interviews, assessments, follow-ups, notes, outcomes); status control shows refusals",
+    "independent_review": "DONE — adversarial pass: nothing HIGH/MEDIUM; four LOW (salary bounds, atomic first history row, an unsurfaced contact PATCH route, the current_pr shape) — three fixed with a test, one stated (STAGE10_EVIDENCE.md §12)"
+  },
+  "stage_10_exit_gate": {
+    "met": [
+      "Canonical folder live: full field set, complete status history, structured outcome",
+      "Every write on the tenant path under RLS, audited without content; export honours retention and erasure",
+      "Folder completeness against the acceptance question, on the page and tested",
+      "Full gate set green with the documented command only: lint 0/8, typecheck 0, 1016/1016 tests (0 skipped), build 0"
+    ],
+    "not_met": [
+      "Every ACCESS audited — reads are not audited per view (stated; Stage 20/23 decision)",
+      "Artefacts durable across deploys (inherits the Stage 09 object-store caveat)",
+      "A complete folder for a REAL end-to-end application (no credentialed source, no live ATS)",
+      "Staging rehearsal (NOT VERIFIED — R-34)"
+    ],
+    "verdict": "Stage 10 passes every engineering gate and is PARTIAL at its exit on read auditing (scoped down and stated), durability across deploys (inherited) and the absence of a real application to evidence. Merge posture inherited from the stack."
   }
 }

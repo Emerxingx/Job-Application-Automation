@@ -23,17 +23,33 @@ export function ApplicationStatusControl({
   const router = useRouter();
   const [value, setValue] = useState(status);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
+  // Stage 10: the move goes through the status machine; a refusal comes
+  // back with its reason and the control returns to the real status.
   async function update(next: string) {
     setValue(next);
     setSaving(true);
-    await fetch(`/api/applications/${applicationId}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status: next }),
-    });
-    setSaving(false);
-    router.refresh();
+    setError(null);
+    try {
+      const res = await fetch(`/api/applications/${applicationId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: next }),
+      });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        setError(data.error ?? 'That change was refused.');
+        setValue(status);
+        return;
+      }
+      router.refresh();
+    } catch {
+      setError('The request could not be sent.');
+      setValue(status);
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -55,6 +71,9 @@ export function ApplicationStatusControl({
         ))}
       </select>
       {saving && <Loader2 className="h-4 w-4 animate-spin text-muted" />}
+      <span role="status" aria-live="polite" className="text-xs text-danger">
+        {error}
+      </span>
     </div>
   );
 }

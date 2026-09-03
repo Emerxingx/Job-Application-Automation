@@ -166,12 +166,12 @@ from a 9-entry title regex table in the Adzuna adapter — reasonable as a
 placeholder, not an occupational taxonomy.
 **Remediation:** Stages 04–06.
 
-### G-14 — Job Folder is ~15 of ~30 required fields · PARTIAL
-Exists as a real filesystem artefact (README, JD snapshot, resume, cover letter,
-tailoring report) with a DB fallback — a good design. Absent: employer/recruiter
-contacts, email thread linkage, interviews, assessments, follow-ups, offer,
-rejection, structured outcome, full status history.
-**Remediation:** Stage 10.
+### G-14 — Job Folder is ~15 of ~30 required fields · CLOSED (Stage 10, engineering)
+Existed as a real filesystem artefact (README, JD snapshot, resume, cover letter,
+tailoring report) with a DB fallback. Absent: employer/recruiter contacts, email
+thread linkage, interviews, assessments, follow-ups, offer, rejection, structured
+outcome, full status history.
+**Stage 10:** contacts, interviews, assessments, follow-ups, notes, the offer, the rejection and a structured outcome on one record; a status machine as data with history on every move; every write audited without content; a completeness checklist against the acceptance question (`STAGE10_EVIDENCE.md`, ADR-0024). Remaining: email thread linkage (Stage 11); per-view read auditing (stated); a real end-to-end application to evidence (no credentialed source).
 
 ### G-15 — No email or calendar intelligence · NOT IMPLEMENTED
 Gmail, Microsoft Graph, Google Calendar, Microsoft Calendar all absent. This is

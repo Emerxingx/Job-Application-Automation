@@ -19,6 +19,7 @@ so they still read correctly after erasure. `User.anonymizedAt` marks this.
 | Résumés & documents | CONFIDENTIAL | Life of account + 30 days | Account closure | |
 | **Submitted document versions** | CONFIDENTIAL | **7 years** | — | Candidates must be able to retrieve what was sent on their behalf |
 | Applications & Job Folders | CONFIDENTIAL | 7 years | — | Immutable submitted artefacts |
+| Folder children — status history, contacts, interviews, assessments, follow-ups, notes (Stage 10) | CONFIDENTIAL | With the application (7 years) | Cascade from the application and from the user (erasure) | Contact names and emails are personal data of third parties; audit rows carry ids and kinds only |
 | Job postings & snapshots | INTERNAL | 3 years after `closed_at` | Closure | Snapshots immutable while a referencing application exists |
 | Mailbox content | **RESTRICTED** | **90 days**, or immediately on disconnect | Disconnect / revocation | Revocation purges derived content |
 | Calendar events | RESTRICTED | 90 days | Disconnect | |

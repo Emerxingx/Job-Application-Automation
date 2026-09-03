@@ -54,22 +54,28 @@ model User {
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
-  sessions           Session[]
-  identities         UserIdentity[]
-  consents           ConsentRecord[]
-  candidateProfile   CandidateProfile?
-  evidence           CareerEvidence[]
-  questions          ApplicationQuestion[]
-  aiRuns             AiRun[]
-  subscription       Subscription?
-  agents             Agent[]
-  resumes            Resume[]
-  applications       Application[]
-  savedJobs          SavedJob[]
-  eligibilityResults EligibilityResult[]
-  documentVersions   DocumentVersion[]
-  interviewPreps     InterviewPrep[]
-  events             ActivityEvent[]
+  sessions               Session[]
+  identities             UserIdentity[]
+  consents               ConsentRecord[]
+  candidateProfile       CandidateProfile?
+  evidence               CareerEvidence[]
+  questions              ApplicationQuestion[]
+  aiRuns                 AiRun[]
+  subscription           Subscription?
+  agents                 Agent[]
+  resumes                Resume[]
+  applications           Application[]
+  savedJobs              SavedJob[]
+  eligibilityResults     EligibilityResult[]
+  documentVersions       DocumentVersion[]
+  applicationHistory     ApplicationStatusHistory[]
+  applicationContacts    ApplicationContact[]
+  applicationInterviews  ApplicationInterview[]
+  applicationAssessments ApplicationAssessment[]
+  applicationFollowUps   ApplicationFollowUp[]
+  applicationNotes       ApplicationNote[]
+  interviewPreps         InterviewPrep[]
+  events                 ActivityEvent[]
 
   // --- commercial layer back-relations ---
   billingProfile     BillingProfile?
@@ -524,18 +530,42 @@ model Application {
   // Relative path of the generated folder, e.g. applications/2026-08/acme-data-analyst-a1b2
   folderPath String @default("")
 
-  appliedAt     DateTime?
-  respondedAt   DateTime?
-  notes         String    @default("")
-  failureReason String?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  appliedAt       DateTime?
+  respondedAt     DateTime?
+  notes           String    @default("")
+  failureReason   String?
+  // Stage 10 (ADR-0024): the structured outcome and the offer, on the
+  // canonical record. outcome: pending | hired | rejected | withdrawn |
+  // declined | ghosted | expired. rejectionReason: no_response |
+  // not_selected | position_filled | withdrawn_by_employer | other.
+  // offerDecision: pending | accepted | declined. Every status change is a
+  // row in ApplicationStatusHistory; lastActivityAt moves with any change.
+  outcome         String    @default("pending")
+  outcomeAt       DateTime?
+  rejectedAt      DateTime?
+  rejectionReason String?
+  offerReceivedAt DateTime?
+  offerDeadline   DateTime?
+  offerSalaryMin  Int?
+  offerSalaryMax  Int?
+  offerCurrency   String?
+  offerDecision   String?
+  offerDecidedAt  DateTime?
+  lastActivityAt  DateTime  @default(now())
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
-  user          User              @relation(fields: [userId], references: [id], onDelete: Cascade)
-  job           Job               @relation(fields: [jobId], references: [id], onDelete: Cascade)
-  agent         Agent?            @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  user          User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  job           Job                        @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  agent         Agent?                     @relation(fields: [agentId], references: [id], onDelete: SetNull)
   interviewPrep InterviewPrep?
   documents     DocumentVersion[]
+  statusHistory ApplicationStatusHistory[]
+  contacts      ApplicationContact[]
+  interviews    ApplicationInterview[]
+  assessments   ApplicationAssessment[]
+  followUps     ApplicationFollowUp[]
+  crmNotes      ApplicationNote[]
 
   @@unique([userId, jobId])
   @@index([userId, status])
@@ -3231,4 +3261,126 @@ model DocumentVersion {
   @@unique([userId, scopeKey, kind, format, version])
   @@index([userId, applicationId])
   @@index([userId, createdAt])
+}
+
+// Stage 10 (MASTER_BUILD_PLAN "Job Folder / Application CRM", ADR-0024): the
+// canonical, auditable record per application. Every table below belongs to
+// the applicant (RLS user kind) and to one application (cascade). Content
+// (notes, names, emails) never reaches the audit log; ids and kinds do.
+
+// Every status change, including the first: from '' to the status the
+// applicator created the record in. actor: applicant | system.
+// source: ui | applicator | confirm | api.
+model ApplicationStatusHistory {
+  id            String   @id @default(cuid())
+  userId        String
+  applicationId String
+  fromStatus    String
+  toStatus      String
+  actor         String
+  source        String
+  reason        String?
+  at            DateTime @default(now())
+
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@index([userId, applicationId, at])
+}
+
+// role: hiring_manager | recruiter | referral | other
+model ApplicationContact {
+  id            String   @id @default(cuid())
+  userId        String
+  applicationId String
+  role          String
+  name          String
+  email         String?
+  phone         String?
+  organisation  String?
+  notes         String   @default("")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@index([userId, applicationId])
+}
+
+// kind: phone | video | onsite | panel | technical | other
+// outcome: scheduled | completed | cancelled | no_show; result: pending | advanced | not_advanced
+model ApplicationInterview {
+  id              String   @id @default(cuid())
+  userId          String
+  applicationId   String
+  kind            String
+  scheduledAt     DateTime
+  durationMinutes Int?
+  location        String?
+  // JSON string array of interviewer names.
+  interviewers    String   @default("[]")
+  notes           String   @default("")
+  outcome         String   @default("scheduled")
+  result          String   @default("pending")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@index([userId, applicationId, scheduledAt])
+}
+
+// kind: take_home | online_test | case_study | presentation | other; result: pending | passed | failed
+model ApplicationAssessment {
+  id            String    @id @default(cuid())
+  userId        String
+  applicationId String
+  kind          String
+  dueAt         DateTime?
+  submittedAt   DateTime?
+  result        String    @default("pending")
+  notes         String    @default("")
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@index([userId, applicationId])
+}
+
+// channel: email | phone | linkedin | portal | other. documentVersionId links
+// a Stage 09 drafted message when one was used.
+model ApplicationFollowUp {
+  id                String    @id @default(cuid())
+  userId            String
+  applicationId     String
+  dueAt             DateTime
+  doneAt            DateTime?
+  channel           String
+  note              String    @default("")
+  documentVersionId String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@index([userId, applicationId, dueAt])
+}
+
+// Append-only notes on the folder (Application.notes remains the legacy summary).
+model ApplicationNote {
+  id            String   @id @default(cuid())
+  userId        String
+  applicationId String
+  body          String
+  createdAt     DateTime @default(now())
+
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@index([userId, applicationId, createdAt])
 }

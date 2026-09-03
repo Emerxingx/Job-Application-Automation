@@ -26,7 +26,7 @@ remediation has begun.**
 npm ci                # install from the lockfile
 npm run dev           # http://localhost:3000
 npx tsc --noEmit      # typecheck  — PASSES
-npm test              # 1002 tests  — PASSES with the two database URLs below set; the
+npm test              # 1016 tests  — PASSES with the two database URLs below set; the
                       #   database suites skip WITH A REASON without them and THROW
                       #   when CI=true, so CI cannot pass by skipping them
 npm run build         # production — PASSES
@@ -54,7 +54,7 @@ npm run cms:types          # regenerate payload-types.ts
 ## Things that will surprise you
 
 1. **The database is PostgreSQL with a versioned migration history** since
-   Stage 01 (`ADR-0002`). Twenty-six migrations under `prisma/migrations/`; CI applies
+   Stage 01 (`ADR-0002`). Twenty-eight migrations under `prisma/migrations/`; CI applies
    them to an empty database and fails on drift. `DATABASE_URL` is the
    transaction pooler, `DIRECT_URL` the session endpoint for migrations. The RLS
    migration is **generated** from `src/lib/tenancy/rls-tables.ts` — regenerate
@@ -239,6 +239,18 @@ npm run cms:types          # regenerate payload-types.ts
     structural scan in `scan.ts` — **there is no antivirus engine; never
     claim one.** Messages go through the gateway's `compose` task, never a
     template string in a route.
+
+21. **An application's status moves only through the machine** (Stage 10,
+    ADR-0024). `src/lib/applications/status-machine.ts` is the table;
+    `transitionApplication` refuses anything else and writes the history
+    row in the same transaction — never `application.update({ status })`
+    directly. Folder children (contacts, interviews, assessments,
+    follow-ups, notes) are user-owned tables written through `run()`;
+    their audit entries are BUFFERED on the actor (`folderActor`) and
+    flushed with `flushAudit` after the commit, because `AuditLog` is
+    system-only and a tenant transaction cannot insert into it. Audit rows
+    carry ids and kinds, never a name, an email, a note or a salary. Reads
+    are not audited per view — say so, do not imply otherwise.
 
 ## Conventions worth preserving
 

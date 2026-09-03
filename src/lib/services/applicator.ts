@@ -6,6 +6,7 @@ import type { ApplyChannel } from '@/lib/providers/apply';
 import { createApplicationFolder } from '@/lib/storage';
 import { writeApplicationDocuments } from '@/lib/documents/application-documents';
 import { sealApplicationDocuments } from '@/lib/documents/versions';
+import { flushAudit, folderActor, recordInitialStatus, transitionApplication } from '@/lib/applications/service';
 import { consumeQuota, refundQuota } from '@/lib/subscription';
 import { parseJson } from '@/lib/types';
 import type { MatchAnalysis } from '@/lib/types';
@@ -172,25 +173,32 @@ export async function applyToJobs(userId: string, jobIds: string[]): Promise<Bul
       const isAssisted = submission.ok && submission.channel === 'assisted';
       const status = !submission.ok ? 'failed' : isAssisted ? 'ready_to_submit' : 'submitted';
 
-      const application = await db.application.create({
-        data: {
-          userId,
-          jobId,
-          agentId: match?.agentId ?? null,
-          status,
-          matchScore: analysis.matchScore,
-          tailoredResume: tailored.resumeText,
-          coverLetter: tailored.coverLetter,
-          tailoringNotes: JSON.stringify(tailored.notes),
-          keywordsInjected: JSON.stringify(tailored.notes.keywordsInjected),
-          atsScore: tailored.notes.atsScore,
-          appliedAt: status === 'submitted' ? appliedAt : null,
-          failureReason: submission.failureReason ?? null,
-          applyChannel: submission.channel,
-          atsVendor: submission.ats ?? null,
-          assistedFields: JSON.stringify(submission.assisted?.fields ?? []),
-          confirmation: submission.confirmation ?? null,
-        },
+      // Stage 10: the record and the first row of its status history — how it
+      // came into being — are written together, so a folder can never exist
+      // with an empty timeline (the history is the machine's evidence).
+      const application = await db.$transaction(async (tx) => {
+        const created = await tx.application.create({
+          data: {
+            userId,
+            jobId,
+            agentId: match?.agentId ?? null,
+            status,
+            matchScore: analysis.matchScore,
+            tailoredResume: tailored.resumeText,
+            coverLetter: tailored.coverLetter,
+            tailoringNotes: JSON.stringify(tailored.notes),
+            keywordsInjected: JSON.stringify(tailored.notes.keywordsInjected),
+            atsScore: tailored.notes.atsScore,
+            appliedAt: status === 'submitted' ? appliedAt : null,
+            failureReason: submission.failureReason ?? null,
+            applyChannel: submission.channel,
+            atsVendor: submission.ats ?? null,
+            assistedFields: JSON.stringify(submission.assisted?.fields ?? []),
+            confirmation: submission.confirmation ?? null,
+          },
+        });
+        await recordInitialStatus(tx, userId, created.id, status, 'applicator', appliedAt);
+        return created;
       });
 
       // Write the application folder even on failure, so the applicant can
@@ -341,10 +349,11 @@ export async function confirmAssistedSubmission(
     return { ok: false, reason: 'This application is not awaiting confirmation.' };
   }
 
-  await db.application.update({
-    where: { id: application.id },
-    data: { status: 'submitted', appliedAt: new Date() },
-  });
+  // Stage 10: through the status machine, so the history row, the audit row
+  // and the row update commit together; appliedAt is stamped by the move.
+  const actor = folderActor({ id: userId });
+  await db.$transaction((tx) => transitionApplication(tx, actor, application.id, 'submitted', { actor: 'applicant', source: 'confirm', reason: 'confirmed on the employer form' }));
+  await flushAudit(actor);
   // Stage 09: what was prepared is now what was sent — seal it.
   await sealApplicationDocuments(db, userId, application.id);
 
