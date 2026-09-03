@@ -3,14 +3,14 @@
 Live tracker. **A stage is only advanced when its exit-gate evidence is linked.**
 Status: `NOT STARTED` · `IN PROGRESS` · `BLOCKED` · `COMPLETE`.
 
-**As of 2026-09-03:** Stage 00 complete; Stage 01 PARTIAL (see its row and
-`STAGE01_EVIDENCE.md`).
+**As of 2026-09-03:** Stage 00 complete; Stage 01 PARTIAL (`STAGE01_EVIDENCE.md`);
+Stage 02 PASS on every reachable engineering gate, pending merge (`STAGE02_EVIDENCE.md`).
 
 | Stage | Name | Status | Existing coverage | Evidence |
 | --- | --- | --- | --- | --- |
 | 00 | Repository, governance, evidence baseline | **COMPLETE** | — | Merged to main as `d6ae8b3` (PR #4). CI green on `565012b`; see Stage 00 evidence below |
 | 01 | Security, identity, orgs, multi-tenancy | **PARTIAL** | PostgreSQL + 3-migration history; RLS on all 70 tables; transaction-scoped tenant context; orgs/memberships; revocable sessions; consent + security audit; Supabase identity (unvalidated) | Branch `claude/stage-01-security-identity-tenancy`, PR #13. Full evidence: [`STAGE01_EVIDENCE.md`](STAGE01_EVIDENCE.md). **Not PASS**: the staging project is unreachable from the build environment, so the Supavisor pooled proof, the staging migration rehearsal, a live region read and the Supabase Auth flows are `NOT VERIFIED` / `BLOCKED` (R-34); tenant-path adoption is partial (R-35) |
-| 02 | Candidate Digital Twin | NOT STARTED | ~12 flat `User` fields; `Resume` JSON | — |
+| 02 | Candidate Digital Twin | **PASS (engineering) — pending merge** | 11 structured tables + `sensitive` schema; editor/scanner/applicator/interview prep on the structured profile; preferences + work authorization UI | Branch `claude/stage-02-candidate-digital-twin` (stacked on Stage 01). [`STAGE02_EVIDENCE.md`](STAGE02_EVIDENCE.md). Inherits R-34 for the staging rehearsal; assistive-technology review deferred to Stage 23 |
 | 03 | Career Evidence Vault, question architecture | NOT STARTED | Prompt registry; safe interpolation | — · **required here: `PromptRegistry` → governed admin; per-tenant AI policy enforced in the gateway** |
 | 04 | Canada occupation / skills / LMI | NOT STARTED | 9-entry NOC regex in the Adzuna adapter | — |
 | 05 | Job source connector framework | NOT STARTED | `JobProvider` (2 methods); Adzuna adapter; ATS detection | — · **required here: `AtsRulesets` → governed admin** |

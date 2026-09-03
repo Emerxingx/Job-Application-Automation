@@ -33,6 +33,10 @@ export type SecurityEvent =
   | 'auth.identity.linked'
   | 'consent.granted'
   | 'consent.revoked'
+  // ADR-0007: every access to the sensitive schema is audited — never its values.
+  | 'sensitive.read'
+  | 'sensitive.write'
+  | 'sensitive.erased'
   | 'organization.created'
   | 'organization.member.invited'
   | 'organization.member.accepted'
@@ -82,8 +86,9 @@ export interface SecurityEventInput {
  * not turn a successful sign-in into a 500, but it must not be silent either,
  * so the failure is logged with the event name and nothing else.
  *
- * Inside a caller's TRANSACTION the opposite holds, and swallowing would be a
- * lie: PostgreSQL aborts the transaction on the failed INSERT, every later
+ * With `strict: true` it also throws, so an audit-gated action can refuse to
+ * proceed when its record cannot be written. Inside a caller's TRANSACTION the
+ * same holds, and swallowing would be a lie: PostgreSQL aborts the transaction on the failed INSERT, every later
  * statement fails with 25P02, and the caller's commit fails anyway. So a
  * transactional audit write rethrows — the event and the action it records
  * commit together or not at all.
@@ -91,6 +96,7 @@ export interface SecurityEventInput {
 export async function recordSecurityEvent(
   input: SecurityEventInput,
   client: Prisma.TransactionClient | typeof db = db,
+  options: { strict?: boolean } = {},
 ): Promise<void> {
   const actor = input.actor ?? (input.user ? { type: 'user' as const, id: input.user.id, email: input.user.email, role: input.user.role } : { type: 'system' as const });
   try {
@@ -115,6 +121,10 @@ export async function recordSecurityEvent(
     });
   } catch (error) {
     console.error(`[security-audit] failed to record ${input.event}:`, error instanceof Error ? error.message : error);
-    if (client !== db) throw error;
+    // `strict` is for accesses whose audit is a precondition (ADR-0007: every
+    // access to the sensitive schema is audited — so an access that cannot be
+    // audited must not happen). The caller writes the audit FIRST and aborts on
+    // failure.
+    if (client !== db || options.strict) throw error;
   }
 }

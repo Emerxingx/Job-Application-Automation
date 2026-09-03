@@ -13,6 +13,11 @@ against the staging project until the evidence section says so.
 | `20260903071914_tenancy_identity` | `Organization.type` and `Organization.aiProcessingPolicy` (default `EXTERNAL_AI_PROHIBITED`), `User.emailVerifiedAt` / `passwordChangedAt`, new `Session`, `UserIdentity`, `ConsentRecord` tables, and a hand-written, idempotent **backfill** giving every existing user a personal organisation and owner membership | Additive. Forward-fix: delete the backfilled rows by id prefix (`org_personal_`, `mem_personal_`) |
 | `20260903073000_row_level_security` | **Generated** from `src/lib/tenancy/rls-tables.ts` by `scripts/rls/generate-migration.ts`: the `app_tenant` role, context accessor functions, `ENABLE` + `FORCE ROW LEVEL SECURITY` on all 70 tables, one named `system_full_access` policy per table for the migration role, tenant policies per classification, and revocation of Supabase's REST-gateway grants where those roles exist | Reversible by design (policies and role can be dropped without touching data). A test proves the file matches the generator |
 
+| `20260903081338_candidate_digital_twin` | Eleven Digital Twin tables with classification comments, and a hand-written PL/pgSQL **backfill** from `Resume.content` (idempotent, tolerant, reports counts as a NOTICE). Expand phase: the JSON column stays as a projection | Additive. Forward-fix: `DELETE FROM "CandidateProfile" WHERE source = 'resume_backfill'` and re-run |
+| `20260903081500_sensitive_schema` | `sensitive` schema, `app_sensitive` role, `sensitive.self_identification` (RESTRICTED), forced RLS, grants to the sensitive role only (ADR-0007). **No Prisma model** — Prisma's drift check ignores this schema by design. **Written idempotently**: a SQL-only migration outside `public` must be, because the shadow-database reset clears only the schemas Prisma manages | Reversible (drop schema) — destroys the answers; export first |
+| `20260903081400_rls_candidate_tables` | Generated policies for the Stage 02 tables (manifest `RLS_MANIFESTS[1]`); deliberately ordered BEFORE the sensitive schema so the new tables are never granted-but-unpolicied across a migration boundary | Reversible |
+| `20260903083000_profile_ownership_keys` | `(id, userId)` unique on `CandidateProfile` and composite `(profileId, userId)` foreign keys on the nine child tables, so a child row cannot carry another user's profile. Generated with `migrate diff --from-migrations` because `migrate dev` refuses unique-constraint warnings non-interactively | Reversible (constraints only) |
+
 `prisma/migrations/migration_lock.toml` pins the provider to PostgreSQL. There
 is no SQLite path left: Prisma's provider is not switchable at runtime, and the
 tenancy backstop needs RLS, which SQLite does not have.
@@ -67,13 +72,26 @@ From `ADR-0002`, restated as the checklist a reviewer works through:
 3. **Prefer expand-and-contract** for anything transforming: add, backfill,
    verify, switch reads, drop later in a separate migration. This keeps a
    recovery window open.
-4. **Every new table is classified in `src/lib/tenancy/rls-tables.ts`** and the
-   RLS migration regenerated (or a new one generated for just that table).
-   The coverage test fails until this is done, on purpose.
+4. **Every new table is classified in `src/lib/tenancy/rls-tables.ts`** and
+   listed in a manifest (`RLS_MANIFESTS`) — a new manifest for a new migration,
+   rendered with `npx tsx scripts/rls/generate-migration.ts --manifest <dir>`.
+   Reclassifying a shipped table means listing it in a NEW manifest (the DDL is
+   idempotent), never editing the applied file. The coverage and determinism
+   tests fail until this is done, on purpose. Declare the classification as a
+   `COMMENT ON TABLE` in the migration.
 5. **Lock behaviour**: `ALTER TABLE … ADD COLUMN` with a default is cheap on
    PostgreSQL 11+; adding a `NOT NULL` column without a default, or rewriting
    a type, rewrites the table. Say so in the PR if the table is large.
 6. **Restore point before deploy** (below), always.
+7. **A migration that creates objects outside `public`** (another schema, a
+   role) must be idempotent (`IF NOT EXISTS`, `DROP … IF EXISTS` before
+   `CREATE`): Prisma's shadow database is reset by dropping the managed
+   schemas only, so such a file can run twice against one shadow database.
+8. **`migrate dev` is interactive** and refuses to create a migration that
+   adds a unique constraint without a prompt. From a non-interactive shell,
+   generate the SQL with
+   `npx prisma migrate diff --from-migrations prisma/migrations --to-schema-datamodel prisma/schema.prisma --shadow-database-url <empty db> --script`
+   into a new migration directory, review it, then `db:migrate:deploy`.
 
 ## Recovery and forward-fix plan
 

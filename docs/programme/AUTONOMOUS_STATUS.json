@@ -2,18 +2,18 @@
   "$comment": "Machine-readable controller for the autonomous build programme. Authoritative over any chat transcript: if this file and a conversation disagree, this file wins. Updated at every stage checkpoint.",
   "schema_version": 1,
   "updated_at": "2026-09-03",
-  "current_stage": "01",
+  "current_stage": "02",
   "last_completed_stage": "00",
-  "current_branch": "claude/stage-01-security-identity-tenancy",
-  "current_head": "ef12ff836675cf1a0fefc94ed032de004104b9df",
+  "current_branch": "claude/stage-02-candidate-digital-twin",
+  "current_head": "d2b26932ad0ec2fe2442a4f49d1c7b9b55e273dd",
   "current_head_meaning": "SHA of the last commit whose full gate set was verified locally (lint, typecheck, tests, build). Set by the status-sync commit that immediately follows it, so it names a real, verified commit rather than the one it is written in.",
-  "current_pr": 13,
+  "current_pr": 14,
   "main_head": "d6ae8b3a9180b529abe06f23417515432c0a7f0e",
   "run_complete": false,
   "stage_status": {
     "00": "PASS",
     "01": "PARTIAL",
-    "02": "NOT_STARTED",
+    "02": "PASS_PENDING_MERGE",
     "03": "NOT_STARTED",
     "04": "NOT_STARTED",
     "05": "NOT_STARTED",
@@ -83,7 +83,7 @@
     ],
     "verdict": "Stage 01 is PARTIAL, not PASS. Every unmet item traces to the staging project being unreachable from the build environment, except tenant-path adoption, which is engineering and continues in Stage 02 alongside the schema work that touches those handlers."
   },
-  "next_requirement": "Stage 01 cannot reach PASS from this environment: the remaining gate items need TCP egress to the Supabase pooler (or CI secrets) and the Supabase Auth credentials. Per the blocker policy, independent work continues: Stage 02 (Candidate Digital Twin) begins on the PostgreSQL baseline that now exists, on a new branch from main after PR #13 merges as PARTIAL-but-mergeable (all gates that can run are green, no false PASS is recorded). The first Stage 02 requirement is the Digital Twin schema on the migration history, with every new table classified for RLS.",
+  "next_requirement": "Stage 03 (Career Evidence Vault and application-question architecture) begins on a branch stacked on Stage 02: evidence records with provenance, application-answer bank, PromptRegistry to governed admin, per-tenant AI policy enforced in the gateway (fail closed). L-3 (cross-border AI processing) is OPEN and gates Stage 03's exit: the gateway and the vault can be built; live external AI generation for restricted tenants cannot be enabled.",
   "blockers": [
     {
       "id": "L-3",
@@ -168,5 +168,29 @@
     "User-facing queries run inside requireTenant().run(tx => …); a db. call inside a run callback escapes the transaction and is a defect.",
     "prisma migrate deploy is the only production migration path; db push is local prototyping only.",
     "DATABASE_URL and DIRECT_URL authenticate as the SAME role: the system RLS policy is bound to the migration role; a different application role sees nothing."
-  ]
+  ],
+  "stage_02_progress": {
+    "digital_twin_schema": "DONE — 11 tables (CandidateProfile, EmploymentHistory, Education, Skill, CandidateSkill, Certification, Project, Achievement, CandidateLanguage, CareerPreferences, WorkAuthorization), classification comments, migration 20260903081338",
+    "expand_and_backfill": "DONE locally — PL/pgSQL backfill in the migration, measured by tests/digital-twin-backfill.test.ts (counts, idempotency, round trip); Resume.content retained as a projection; NOT VERIFIED on Supabase (R-34)",
+    "rls_on_new_tables": "DONE — manifest-driven generator; migration 20260903081600; 81/81 forced; coverage + determinism tests",
+    "sensitive_segregation_adr_0007": "DONE for the tenant role — sensitive schema + app_sensitive role by SQL (no Prisma model), own-row policy, audit-first strict access without values, allowlist static test, database and payload tests; scanner/applicator load the résumé as app_tenant. The system-role remainder of those services is guarded by the static test only (R-35). SET ROLE limit documented.",
+    "application_paths": "DONE — /api/resume dual-writes; scanner, applicator, interview prep read the structured projection; preferences and work-authorization services, routes and settings UI on the tenant path; self-identification page and route",
+    "accessibility": "PARTIAL — labels/fieldsets/live regions in place; no assistive-technology review performed (Stage 23)",
+    "stage_01_defect_fixed": "DONE — shadow-database break of migrate dev (ledger revoke) fixed and ported to the Stage 01 branch (250ae94)",
+    "independent_review": "DONE — 16 findings (1 HIGH: overclaimed runtime scope), all HIGH/MEDIUM fixed with tests, LOW fixed or documented; STAGE02_EVIDENCE.md §8"
+  },
+  "stage_02_exit_gate": {
+    "met": [
+      "Structured profile live as relations, read and written by the product paths",
+      "Sensitive isolation proven by database, allowlist-static and payload tests for the tenant role, which the AI-path résumé projection is loaded as",
+      "RLS on every new table, classification declared",
+      "Backfill measured: counts, idempotency, round trip",
+      "Full gate set green: lint 0/8, typecheck 0, 790/790 tests (0 skipped), build 0; independent review findings closed"
+    ],
+    "not_met": [
+      "Backfill rehearsal against the Supabase project (NOT VERIFIED — R-34, inherited)",
+      "Assistive-technology accessibility review (NOT VERIFIED — Stage 23)"
+    ],
+    "verdict": "Stage 02 passes every engineering gate reachable from this environment. It is stacked on Stage 01 (PARTIAL) and inherits its merge posture: no autonomous merge until the founder either provides staging access or approves merging Stage 01 as PARTIAL."
+  }
 }

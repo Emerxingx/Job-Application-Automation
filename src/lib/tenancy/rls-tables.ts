@@ -147,6 +147,24 @@ export const RLS_TABLES: Record<string, RlsKind> = {
   WebhookDelivery: { kind: 'viaParent', parent: 'WebhookEndpoint', fk: 'endpointId' },
   EmailLog: { kind: 'user', column: 'userId' },
 
+  // --- Candidate Digital Twin (Stage 02) --------------------------------------
+  // Every child row carries userId, so each is a plain user-equality policy;
+  // re-parenting across users is impossible without also changing userId,
+  // which WITH CHECK refuses.
+  CandidateProfile: { kind: 'user', column: 'userId' },
+  EmploymentHistory: { kind: 'user', column: 'userId' },
+  Education: { kind: 'user', column: 'userId' },
+  CandidateSkill: { kind: 'user', column: 'userId' },
+  Certification: { kind: 'user', column: 'userId' },
+  Project: { kind: 'user', column: 'userId' },
+  Achievement: { kind: 'user', column: 'userId' },
+  CandidateLanguage: { kind: 'user', column: 'userId' },
+  CareerPreferences: { kind: 'user', column: 'userId' },
+  WorkAuthorization: { kind: 'user', column: 'userId' },
+  // Shared skill vocabulary: every tenant may read it; written on the system
+  // path (Stage 04 taxonomy sync) only.
+  Skill: { kind: 'reference' },
+
   // --- Reference data (read-only through the tenant path) --------------------
   Plan: { kind: 'reference' },
   PlanPrice: { kind: 'reference', where: `"active" = true` },
@@ -183,3 +201,44 @@ export const GUC_ORGANIZATION_ID = 'app.current_organization_id';
 
 /** Tables Prisma manages that are deliberately outside the classification. */
 export const UNCLASSIFIED_TABLES = ['_prisma_migrations'];
+
+/**
+ * Which RLS migration owns each table's policies. The generator renders one
+ * migration per manifest (scripts/rls/generate-migration.ts --manifest <dir>),
+ * and the determinism test regenerates every manifest and compares. A table
+ * whose classification changes after its migration has shipped is re-listed
+ * in a NEW manifest: the generated DDL is idempotent (DROP POLICY IF EXISTS),
+ * so re-emitting a table's policies later is the supported way to change them.
+ */
+export interface RlsManifest {
+  /** Directory name under prisma/migrations. */
+  migration: string;
+  /** Emit the role, grants and accessor functions. Once, in the first manifest. */
+  preamble: boolean;
+  /** Tables whose policies this migration (re)creates. */
+  tables: string[];
+}
+
+export const STAGE_01_TABLES = [
+  'ActivityEvent', 'Agent', 'AgentSchedule', 'ApiIdempotencyRecord', 'ApiKey', 'Application', 'AuditLog',
+  'BillingProfile', 'ConsentRecord', 'Coupon', 'CouponRedemption', 'CreditLedgerEntry', 'CreditNote',
+  'CreditNoteLine', 'CrmActivity', 'CrmNote', 'CrmTask', 'Customer', 'DailyMetric', 'DailyRevenueRollup',
+  'DailyUsageRollup', 'DeletionRequest', 'DocumentSequence', 'DunningAttempt', 'DunningState', 'EmailLog',
+  'EmailSuppression', 'EmailToken', 'ExperimentAssignment', 'ExportJob', 'FeatureFlag', 'ImpersonationSession',
+  'Integration', 'InterviewPrep', 'Invoice', 'InvoiceLine', 'InvoiceTaxLine', 'Job', 'JobMatch', 'Membership',
+  'Notification', 'NotificationPreference', 'Organization', 'OutboundEvent', 'Payment', 'PaymentAllocation',
+  'PaymentAttempt', 'PaymentMethod', 'Plan', 'PlanPrice', 'Referral', 'ReferralCode', 'Refund', 'Resume',
+  'ResumeScan', 'RollupRun', 'SavedJob', 'Session', 'Subscription', 'SubscriptionEvent', 'SupportMessage',
+  'SupportTicket', 'TaxRate', 'TaxRegistration', 'UsageEvent', 'User', 'UserIdentity', 'WebhookDelivery',
+  'WebhookEndpoint', 'WebhookEvent',
+];
+
+export const STAGE_02_TABLES = [
+  'Achievement', 'CandidateLanguage', 'CandidateProfile', 'CandidateSkill', 'CareerPreferences', 'Certification',
+  'Education', 'EmploymentHistory', 'Project', 'Skill', 'WorkAuthorization',
+];
+
+export const RLS_MANIFESTS: RlsManifest[] = [
+  { migration: '20260903073000_row_level_security', preamble: true, tables: STAGE_01_TABLES },
+  { migration: '20260903081400_rls_candidate_tables', preamble: false, tables: STAGE_02_TABLES },
+];

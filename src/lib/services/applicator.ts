@@ -5,7 +5,9 @@ import type { ApplyChannel } from '@/lib/providers/apply';
 import { createApplicationFolder } from '@/lib/storage';
 import { consumeQuota, refundQuota } from '@/lib/subscription';
 import { parseJson } from '@/lib/types';
-import type { MatchAnalysis, ResumeContent } from '@/lib/types';
+import type { MatchAnalysis } from '@/lib/types';
+import { loadResumeContent } from '@/lib/candidate/profile';
+import { withTenant } from '@/lib/tenancy/context';
 import { toJobContext } from './scanner';
 
 export interface ApplyOutcome {
@@ -61,19 +63,13 @@ export async function applyToJobs(userId: string, jobIds: string[]): Promise<Bul
   }
 
   const user = await db.user.findUniqueOrThrow({ where: { id: userId } });
-  const resume = await db.resume.findFirst({
-    where: { userId, isMaster: true },
-    orderBy: { updatedAt: 'desc' },
-  });
-  if (!resume) {
-    await refundQuota(userId, granted);
-    throw new Error('Add your resume before applying.');
-  }
-
-  const resumeContent = parseJson<ResumeContent | null>(resume.content, null);
+  // Stage 02: the structured profile, projected, loaded on the TENANT path
+  // (as app_tenant — no privilege on the sensitive schema, ADR-0007). The
+  // apply engine itself stays on the system client until Stage 12 (R-35).
+  const resumeContent = await withTenant({ userId }, (tx) => loadResumeContent(tx, userId));
   if (!resumeContent) {
     await refundQuota(userId, granted);
-    throw new Error('Your resume could not be read. Please re-save it.');
+    throw new Error('Add your resume before applying.');
   }
 
   const ai = getAIProvider();

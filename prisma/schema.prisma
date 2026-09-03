@@ -57,6 +57,7 @@ model User {
   sessions       Session[]
   identities     UserIdentity[]
   consents       ConsentRecord[]
+  candidateProfile CandidateProfile?
   subscription   Subscription?
   agents         Agent[]
   resumes        Resume[]
@@ -2243,4 +2244,277 @@ model ConsentRecord {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, purpose])
+}
+
+// ---------------------------------------------------------------------------
+// Candidate Digital Twin (Stage 02) — the structured career profile.
+//
+// One CandidateProfile per user; every child row carries `userId` as well as
+// `profileId` so the RLS classification is the plain `user` kind on every
+// table (no join in the policy) and a row can never be re-parented across
+// users by changing profileId alone. Classification: CONFIDENTIAL throughout
+// (DATA_CLASSIFICATION.md). Demographic self-identification is NOT here — it
+// lives in the `sensitive` PostgreSQL schema, created by SQL, with no Prisma
+// model at all, so no Prisma query can reach it (ADR-0007).
+//
+// `Resume.content` (JSON text) is retained as a DERIVED projection during the
+// expand phase: the structured rows are the source of truth, the projection is
+// rewritten from them on every save, and the column is dropped in a later
+// migration once nothing reads it (ADR-0002 expand-and-contract).
+// ---------------------------------------------------------------------------
+
+model CandidateProfile {
+  id              String    @id @default(cuid())
+  userId          String    @unique
+  headline        String    @default("")
+  summary         String    @default("")
+  currentTitle    String?
+  yearsExperience Int?
+  // Where the rows came from: `resume_backfill` (migration), `editor`
+  // (the profile UI), `import` (a later parsed-résumé import). Diagnostic only.
+  source          String    @default("editor")
+  backfilledAt    DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  user           User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  employment     EmploymentHistory[]
+  education      Education[]
+  skills         CandidateSkill[]
+  certifications Certification[]
+  projects       Project[]
+  achievements   Achievement[]
+  languages      CandidateLanguage[]
+  preferences    CareerPreferences?
+  workAuth       WorkAuthorization?
+
+  // Lets every child reference (profileId, userId) as a pair, so a row can
+  // never carry one user's profileId with another user's userId: the RLS
+  // policies key on userId, and the composite foreign key makes the two agree
+  // structurally rather than by convention.
+  @@unique([id, userId])
+}
+
+model EmploymentHistory {
+  id             String    @id @default(cuid())
+  profileId      String
+  userId         String
+  company        String
+  title          String
+  location       String?
+  employmentType String? // full_time | part_time | contract | internship | self_employed | volunteer
+  // Month precision, "YYYY-MM"; endDate null means current.
+  startDate      String
+  endDate        String?
+  isCurrent      Boolean   @default(false)
+  description    String    @default("")
+  // Bullet points as a JSON string array — the unit the résumé engine tailors.
+  bullets        String    @default("[]")
+  sortOrder      Int       @default(0)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  profile      CandidateProfile @relation(fields: [profileId, userId], references: [id, userId], onDelete: Cascade)
+  achievements Achievement[]
+
+  @@index([userId, sortOrder])
+  @@index([profileId])
+}
+
+model Education {
+  id           String   @id @default(cuid())
+  profileId    String
+  userId       String
+  institution  String
+  credential   String // e.g. "Honours BSc"
+  fieldOfStudy String?
+  level        String? // secondary | certificate | diploma | bachelor | master | doctorate | other
+  startYear    Int?
+  endYear      Int?
+  location     String?
+  sortOrder    Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  profile CandidateProfile @relation(fields: [profileId, userId], references: [id, userId], onDelete: Cascade)
+
+  @@index([userId, sortOrder])
+  @@index([profileId])
+}
+
+// A shared, non-personal skill vocabulary. EMPTY until Stage 04 fills it from
+// the Canadian skills taxonomy; candidate-typed labels live on CandidateSkill
+// and must NEVER be inserted here — this table is readable by every tenant,
+// so one candidate's free text would become visible to all. Reference data:
+// written only on the system path from licensed taxonomy sources.
+model Skill {
+  id             String   @id @default(cuid())
+  name           String
+  normalizedName String   @unique
+  category       String?
+  taxonomyCode   String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  candidates CandidateSkill[]
+
+  @@index([taxonomyCode])
+}
+
+model CandidateSkill {
+  id             String    @id @default(cuid())
+  profileId      String
+  userId         String
+  // The label as the candidate wrote it, and its normalised form for matching
+  // and for the optional link to the shared vocabulary.
+  name           String
+  normalizedName String
+  skillId        String?
+  proficiency    String? // beginner | intermediate | advanced | expert
+  yearsUsed      Int?
+  lastUsedYear   Int?
+  // self (typed in) | evidence (Stage 03 vault) | inferred (Stage 04 taxonomy)
+  source         String    @default("self")
+  sortOrder      Int       @default(0)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  profile CandidateProfile @relation(fields: [profileId, userId], references: [id, userId], onDelete: Cascade)
+  skill   Skill?           @relation(fields: [skillId], references: [id], onDelete: SetNull)
+
+  @@unique([profileId, normalizedName])
+  @@index([userId])
+  @@index([skillId])
+}
+
+model Certification {
+  id            String    @id @default(cuid())
+  profileId     String
+  userId        String
+  name          String
+  issuer        String?
+  issuedAt      String? // "YYYY-MM"
+  expiresAt     String? // "YYYY-MM"
+  credentialId  String?
+  credentialUrl String?
+  sortOrder     Int       @default(0)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  profile CandidateProfile @relation(fields: [profileId, userId], references: [id, userId], onDelete: Cascade)
+
+  @@index([userId, sortOrder])
+  @@index([profileId])
+}
+
+model Project {
+  id           String   @id @default(cuid())
+  profileId    String
+  userId       String
+  name         String
+  description  String   @default("")
+  url          String?
+  startDate    String? // "YYYY-MM"
+  endDate      String?
+  technologies String   @default("[]") // JSON string array
+  sortOrder    Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  profile CandidateProfile @relation(fields: [profileId, userId], references: [id, userId], onDelete: Cascade)
+
+  @@index([userId, sortOrder])
+  @@index([profileId])
+}
+
+// A quantified outcome the candidate claims, optionally tied to a role. Stage 03
+// makes these the evidence the document engine may cite; nothing else may be.
+model Achievement {
+  id           String   @id @default(cuid())
+  profileId    String
+  userId       String
+  employmentId String?
+  title        String
+  description  String   @default("")
+  metric       String? // the number or outcome, verbatim, e.g. "12% YoY"
+  occurredAt   String? // "YYYY-MM"
+  sortOrder    Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  profile    CandidateProfile   @relation(fields: [profileId, userId], references: [id, userId], onDelete: Cascade)
+  employment EmploymentHistory? @relation(fields: [employmentId], references: [id], onDelete: SetNull)
+
+  @@index([userId, sortOrder])
+  @@index([profileId])
+  @@index([employmentId])
+}
+
+model CandidateLanguage {
+  id          String   @id @default(cuid())
+  profileId   String
+  userId      String
+  language    String // ISO 639-1 where known, else the name
+  proficiency String   @default("professional") // basic | conversational | professional | native
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  profile CandidateProfile @relation(fields: [profileId, userId], references: [id, userId], onDelete: Cascade)
+
+  @@unique([profileId, language])
+  @@index([userId])
+}
+
+// What the candidate wants. Consumed by eligibility (Stage 07) and matching
+// (Stage 08); `recruiterVisibility` and `autonomy` are consent-shaped settings
+// that default to the most private and least autonomous values.
+model CareerPreferences {
+  id                  String   @id @default(cuid())
+  profileId           String   @unique
+  userId              String   @unique
+  targetTitles        String   @default("[]") // JSON string array
+  adjacentTitles      String   @default("[]")
+  employmentTypes     String   @default("[]") // full_time | part_time | contract | internship
+  workModes           String   @default("[]") // onsite | hybrid | remote
+  locations           String   @default("[]") // free-text places the candidate will work
+  countries           String   @default("[]") // ISO 3166-1 alpha-2
+  salaryMinCents      Int?
+  salaryCurrency      String   @default("CAD")
+  travelPercentMax    Int?
+  relocation          String   @default("no") // no | open | yes
+  recruiterVisibility String   @default("hidden") // hidden | anonymous | visible
+  // The only value Stage 02 can issue. `assisted_apply` is Stage 12 (human in
+  // the loop); `auto_apply` is Stage 22 and gated by ADR-0016.
+  autonomy            String   @default("assist_only") // assist_only | assisted_apply | auto_apply
+  noticePeriodDays    Int?
+  availableFrom       String? // "YYYY-MM-DD"
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  profile CandidateProfile @relation(fields: [profileId, userId], references: [id, userId], onDelete: Cascade)
+
+  @@unique([profileId, userId])
+}
+
+// Operationally relevant to eligibility, so NOT sensitive-segregated
+// (ADR-0007) — but CONFIDENTIAL, access-controlled and read only where
+// eligibility needs it. `User.workAuth` (free text) is retained as legacy
+// until Stage 07 reads only this row.
+model WorkAuthorization {
+  id                String    @id @default(cuid())
+  profileId         String    @unique
+  userId            String    @unique
+  country           String    @default("CA")
+  status            String    @default("unspecified") // citizen | permanent_resident | work_permit | study_permit | requires_sponsorship | other | unspecified
+  permitType        String?
+  permitExpiresAt   String? // "YYYY-MM-DD"
+  sponsorshipNeeded Boolean   @default(false)
+  notes             String    @default("")
+  verifiedAt        DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  profile CandidateProfile @relation(fields: [profileId, userId], references: [id, userId], onDelete: Cascade)
+
+  @@unique([profileId, userId])
 }
