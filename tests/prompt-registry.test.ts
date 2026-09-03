@@ -8,6 +8,7 @@
  * as rollback, retirement rules, a failed evaluation demoting a live default,
  * an audit row per change, and the read path's hard errors.
  */
+import './helpers/database-env'; // FIRST: the static imports below reach src/lib/db
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { after, before, describe, it } from 'node:test';

@@ -2987,6 +2987,8 @@ model JobSourceRun {
   source JobSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
 
   @@index([sourceId, startedAt])
+  // The console lists the latest runs across every source.
+  @@index([startedAt])
 }
 
 model JobSnapshot {

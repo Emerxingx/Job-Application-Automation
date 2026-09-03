@@ -28,8 +28,12 @@ export class MockConnector implements JobSourceConnector {
     return validatePosting(posting);
   }
   async refresh(externalIds: string[]): Promise<Record<string, RefreshState>> {
+    // The catalogue is the whole world for a mock id, so absence from it IS
+    // closure. An id that is not a mock id at all is one this source cannot
+    // know anything about, and the honest answer is `unknown`, never
+    // `closed` — the contract forbids inferring closure from silence.
     const live = new Set(this.provider.all().map((p) => p.externalId));
-    return Object.fromEntries(externalIds.map((id) => [id, live.has(id) ? 'active' : 'closed']));
+    return Object.fromEntries(externalIds.map((id) => [id, !id.startsWith('mock-') ? 'unknown' : live.has(id) ? 'active' : 'closed']));
   }
   async detectClosed(externalId: string): Promise<RefreshState> {
     return (await this.refresh([externalId]))[externalId] ?? 'unknown';

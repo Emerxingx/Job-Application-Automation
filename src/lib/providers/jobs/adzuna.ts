@@ -220,8 +220,10 @@ export class AdzunaJobProvider implements JobProvider {
       });
 
       if (!res.ok) {
-        const body = await res.text().catch(() => '');
-        throw new Error(`Adzuna responded ${res.status}: ${body.slice(0, 180)}`);
+        // Status only. The body is never carried in an error: adapter errors
+        // land in JobSourceRun.error, JobSource.lastError and the console,
+        // and a third party's response text belongs in none of them.
+        throw new Error(`Adzuna responded ${res.status}`);
       }
 
       const data = (await res.json()) as AdzunaResponse;

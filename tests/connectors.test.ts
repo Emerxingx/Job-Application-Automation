@@ -66,12 +66,38 @@ describe('connector contract — adzuna (recorded-shape fixture)', () => {
     assert.deepEqual(await c.refresh(['adzuna:4400001']), { 'adzuna:4400001': 'unknown' });
     assert.equal(await c.detectClosed('adzuna:4400001'), 'unknown');
   });
-  it('reports down, not a throw, when the API fails', async () => {
-    globalThis.fetch = (async () => new Response('nope', { status: 503 })) as typeof fetch;
+  it('reports down, not a throw, when the API fails — and never carries the response body or a credential', async () => {
+    const body = 'UPSTREAM-BODY-MARKER-4d2 {"error":"quota","hint":"contact support"}';
+    globalThis.fetch = (async () => new Response(body, { status: 503 })) as typeof fetch;
     const c = new AdzunaConnector(new AdzunaJobProvider('test-id', 'test-key'));
     const report = await c.healthCheck();
     assert.equal(report.status, 'down');
     assert.ok(!report.detail.includes('test-key'), 'a credential never appears in a health detail');
+    assert.ok(!report.detail.includes('UPSTREAM-BODY-MARKER'), 'a response body never appears in a health detail');
+    assert.match(report.detail, /responded 503/);
+    // The same on the discovery path, whose error lands in JobSourceRun.error.
+    await assert.rejects(() => c.discover({ titles: ['x'], locations: [], country: 'CA' }), (error: Error) => {
+      assert.ok(!error.message.includes('UPSTREAM-BODY-MARKER'), 'a response body never appears in a run error');
+      assert.ok(!error.message.includes('test-key'));
+      return /responded 503/.test(error.message);
+    });
+  });
+});
+
+describe('mock source — a posting hashes the same whichever query found it', () => {
+  it('search results, the catalogue and fetch agree on content, so no query writes a spurious snapshot', async () => {
+    const c = new MockConnector();
+    const byTitle = await c.discover({ titles: ['Data Analyst'], locations: [], country: 'CA', limit: 30 });
+    const byOther = await c.discover({ titles: ['Analyst'], locations: ['Toronto'], country: 'CA', limit: 30 });
+    const shared = byTitle.filter((p) => byOther.some((q) => q.externalId === p.externalId));
+    assert.ok(shared.length >= 2, `queries must overlap to prove anything (${shared.length})`);
+    for (const p of shared) {
+      const other = byOther.find((q) => q.externalId === p.externalId)!;
+      assert.equal(postingHash(c.normalize(p)), postingHash(c.normalize(other)), `${p.externalId} hashes differently across queries`);
+      const fetched = await c.fetch(p.externalId);
+      assert.ok(fetched);
+      assert.equal(postingHash(c.normalize(fetched)), postingHash(c.normalize(p)), `${p.externalId}: fetch disagrees with discover`);
+    }
   });
 });
 

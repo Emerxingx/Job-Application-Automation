@@ -43,6 +43,51 @@ describe('storage — S3 signer and provider', () => {
     assert.notEqual(signS3Request(config, 'PUT', 'u1/applications/2026-09/x/resume.txt', 'hello!', now).headers.Authorization, a.headers.Authorization);
     assert.notEqual(signS3Request(config, 'PUT', 'u1/other.txt', 'hello', now).headers.Authorization, a.headers.Authorization);
   });
+  it('matches a known-answer vector computed by an independent implementation', () => {
+    // Expected signatures were produced by a separate SigV4 implementation
+    // written in Python (hashlib/hmac only) from the same inputs, so a
+    // canonical-form mistake here would not be self-consistent with it.
+    const kat = { endpoint: 'https://s3.ca-central-1.amazonaws.com', region: 'ca-central-1', bucket: 'jobpilot-folders', accessKeyId: 'AKIAEXAMPLEKEY000000', secretAccessKey: 'examplesecretkey/0000000000000000000000000' };
+    const key = 'u1/applications/2026-09/co-title-abc123/resume.txt';
+    const now = new Date('2026-09-03T12:00:00Z');
+    const sig = (r: { headers: Record<string, string> }) => r.headers.Authorization.match(/Signature=([0-9a-f]{64})$/)![1];
+    assert.equal(sig(signS3Request(kat, 'PUT', key, 'hello, folder', now)), '2c0f43f19554e671399365e8a03e3cfc775ee2b8617ca37bfc5ac270c5dcdd6f');
+    assert.equal(sig(signS3Request(kat, 'GET', key, '', now)), '33f94d1c7ef0834fe2cde987bc240cb7ee494060f5577f456d04db3d0861a0f6');
+    assert.equal(sig(signS3Request(kat, 'GET', '', '', now, 'list-type=2&prefix=u1%2Fapplications%2F')), 'cab61f104b20ff57f755e73d1d0fa72d237b2d74828d728e207344dbf6dfb106');
+  });
+  it('signs and sends an endpoint path prefix (a gateway such as /storage/v1/s3), and none when there is none', () => {
+    const now = new Date('2026-09-03T10:00:00Z');
+    const gateway = signS3Request({ ...config, endpoint: 'https://proj.supabase.co/storage/v1/s3/' }, 'GET', 'u1/x.txt', '', now);
+    assert.equal(gateway.url, 'https://proj.supabase.co/storage/v1/s3/jobpilot-test/u1/x.txt');
+    const plain = signS3Request(config, 'GET', 'u1/x.txt', '', now);
+    assert.equal(plain.url, 'https://s3.ca-central-1.amazonaws.com/jobpilot-test/u1/x.txt');
+    assert.notEqual(gateway.headers.Authorization, plain.headers.Authorization, 'the prefix is part of the signed canonical URI');
+    const listed = signS3Request({ ...config, endpoint: 'https://proj.supabase.co/storage/v1/s3' }, 'GET', '', '', now, 'list-type=2&prefix=u1%2F');
+    assert.equal(listed.url, 'https://proj.supabase.co/storage/v1/s3/jobpilot-test/?list-type=2&prefix=u1%2F');
+  });
+  it('a residency violation degrades to the local filesystem, loudly and once, instead of failing the application', async () => {
+    const { getStorageProvider, resetStorageProviderForTests } = await import('../src/lib/storage');
+    const saved = { ...process.env };
+    const errors: string[] = [];
+    const originalError = console.error;
+    console.error = (...args: unknown[]) => { errors.push(args.map(String).join(' ')); };
+    try {
+      resetStorageProviderForTests();
+      Object.assign(process.env, { STORAGE_PROVIDER: 's3', STORAGE_S3_ENDPOINT: config.endpoint, STORAGE_S3_REGION: 'us-east-1', STORAGE_S3_BUCKET: 'b', STORAGE_S3_ACCESS_KEY_ID: 'a', STORAGE_S3_SECRET_ACCESS_KEY: 'sekrit-value' });
+      const first = await getStorageProvider();
+      assert.equal(first.name, 'local');
+      const second = await getStorageProvider();
+      assert.equal(second, first, 'the fallback is remembered');
+      assert.equal(errors.length, 1, 'logged once, not per call');
+      assert.match(errors[0], /residency allow-list/);
+      assert.ok(!errors[0].includes('sekrit-value'));
+    } finally {
+      console.error = originalError;
+      for (const k of Object.keys(process.env)) if (!(k in saved)) delete process.env[k];
+      Object.assign(process.env, saved);
+      resetStorageProviderForTests();
+    }
+  });
   it('refuses a region outside the residency allow-list and reads a complete configuration only', () => {
     assert.throws(() => new S3StorageProvider({ ...config, region: 'us-east-1' }), /residency allow-list/);
     assert.equal(readS3Config({ STORAGE_S3_ENDPOINT: 'x' } as unknown as NodeJS.ProcessEnv), null);

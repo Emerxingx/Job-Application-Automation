@@ -5,6 +5,7 @@
  * recorded as rollback, retirement rules, cache invalidation on activation,
  * and an audit row per change.
  */
+import './helpers/database-env'; // FIRST: the static imports below reach src/lib/db
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { after, before, describe, it } from 'node:test';
@@ -84,6 +85,31 @@ describe('ATS rulesets — lifecycle against the database', { skip: SKIP }, () =
     const last = await db.auditLog.findFirstOrThrow({ where: { entityType: 'AtsRuleset', entityId: rows[0].id }, orderBy: { createdAt: 'desc' } });
     assert.equal(last.action, 'ats_ruleset.rollback');
     assert.equal(last.reason, 'v2 broke the form');
+  });
+
+  it('concurrent activate and retire of the same approved version: exactly one wins, and the state check is never stale', async () => {
+    // Without the re-read under the lock, the loser proceeds on the row as it
+    // was BEFORE the winner committed: retire could retire the now-active
+    // version, leaving the platform with no active ruleset and no rollback
+    // audit. Ten rounds, each on a fresh approved version; the version that
+    // was active before is restored afterwards for the tests that follow.
+    const activeBefore = await db.atsRuleset.findFirstOrThrow({ where: { platform: PLATFORM, status: 'active' } });
+    for (let round = 0; round < 10; round += 1) {
+      const v = await reg.createAtsRuleset(input(100 + round), A);
+      await reg.approveAtsRuleset(v.id, B);
+      const [activate, retire] = await Promise.allSettled([reg.activateAtsRuleset(v.id, A, 'race'), reg.retireAtsRuleset(v.id, B, 'race')]);
+      const row = await db.atsRuleset.findUniqueOrThrow({ where: { id: v.id } });
+      const fulfilled = [activate, retire].filter((r) => r.status === 'fulfilled').length;
+      assert.equal(fulfilled, 1, `round ${round}: exactly one transition may succeed (${activate.status}/${retire.status})`);
+      assert.equal(row.status, activate.status === 'fulfilled' ? 'active' : 'retired', `round ${round}`);
+      const actives = await db.atsRuleset.count({ where: { platform: PLATFORM, status: 'active' } });
+      assert.equal(actives, 1, `round ${round}: exactly one active version on the platform`);
+      if (retire.status === 'fulfilled') assert.match(String((activate as PromiseRejectedResult).reason?.message), /Only an approved version/);
+      else assert.match(String((retire as PromiseRejectedResult).reason?.message), /active ruleset cannot be retired/);
+    }
+    if ((await db.atsRuleset.findFirstOrThrow({ where: { platform: PLATFORM, status: 'active' } })).id !== activeBefore.id) {
+      await reg.activateAtsRuleset(activeBefore.id, A, 'restore');
+    }
   });
 
   it('the active version cannot be retired; a non-active can; a draft with a bad map is refused', async () => {

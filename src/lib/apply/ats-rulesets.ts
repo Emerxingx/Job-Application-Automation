@@ -17,11 +17,12 @@ import { getCache } from '../cache';
  *
  * NO STEALTH. The CMS collection offered a "heavy stealth" anti-bot level.
  * ADR-0008 prohibits fingerprint evasion outright, so `pacing` here is
- * `standard` or `human_delay` — pacing exists to respect a site, and
- * `human_delay` additionally means assisted-apply only. A ruleset cannot
- * express evasion.
+ * `standard` or `human_delay` — pacing exists to respect a site. A ruleset
+ * cannot express evasion. `human_delay` is DECLARED for the assisted flow;
+ * nothing enforces it until Stage 12 wires rulesets into the apply engine.
  *
- * The read path is cache-first for the engine and the v1 API; activation
+ * The read path is cache-first for the v1 API (today its only consumer: the
+ * apply engine does not read rulesets yet); activation
  * invalidates the platform's key, so a rollback takes effect immediately.
  */
 
@@ -207,11 +208,22 @@ async function load(tx: Prisma.TransactionClient, id: string): Promise<AtsRulese
   return r;
 }
 
+/**
+ * Load the row, take the platform lock, then load it AGAIN: the first read
+ * only tells us which platform to lock, and a concurrent transition may have
+ * committed while we waited for the lock, so every state check below runs
+ * against the row as it is under the lock, never against a stale copy.
+ */
+async function loadLocked(tx: Prisma.TransactionClient, id: string): Promise<AtsRuleset> {
+  const { platform } = await load(tx, id);
+  await lockPlatform(tx, platform);
+  return load(tx, id);
+}
+
 /** draft → approved, by a second admin. */
 export async function approveAtsRuleset(id: string, actor: StaffContext, reason: string | null = null): Promise<AtsRuleset> {
   return db.$transaction(async (tx) => {
-    const before = await load(tx, id);
-    await lockPlatform(tx, before.platform);
+    const before = await loadLocked(tx, id);
     if (before.status !== 'draft') throw new AtsRulesetError(`Only a draft can be approved; this version is ${before.status}.`);
     if (before.createdById && before.createdById === actor.id) throw new AtsRulesetError('A ruleset cannot be approved by the person who created it; a second admin must approve.', 403);
     const after = await tx.atsRuleset.update({ where: { id }, data: { status: 'approved', approvedById: actor.id, approvedByEmail: actor.email, approvedAt: new Date() } });
@@ -223,8 +235,7 @@ export async function approveAtsRuleset(id: string, actor: StaffContext, reason:
 /** approved → active, demoting the current active version to approved. Older target = rollback. */
 export async function activateAtsRuleset(id: string, actor: StaffContext, reason: string | null = null): Promise<AtsRuleset> {
   const result = await db.$transaction(async (tx) => {
-    const before = await load(tx, id);
-    await lockPlatform(tx, before.platform);
+    const before = await loadLocked(tx, id);
     if (before.status === 'active') throw new AtsRulesetError('This version is already active.');
     if (before.status !== 'approved') throw new AtsRulesetError(`Only an approved version can be activated; this version is ${before.status}.`);
     const current = await tx.atsRuleset.findFirst({ where: { platform: before.platform, status: 'active' } });
@@ -241,8 +252,7 @@ export async function activateAtsRuleset(id: string, actor: StaffContext, reason
 /** Any non-active version → retired. */
 export async function retireAtsRuleset(id: string, actor: StaffContext, reason: string | null = null): Promise<AtsRuleset> {
   return db.$transaction(async (tx) => {
-    const before = await load(tx, id);
-    await lockPlatform(tx, before.platform);
+    const before = await loadLocked(tx, id);
     if (before.status === 'active') throw new AtsRulesetError('The active ruleset cannot be retired; activate another version first.');
     if (before.status === 'retired') throw new AtsRulesetError('This version is already retired.');
     const after = await tx.atsRuleset.update({ where: { id }, data: { status: 'retired' } });

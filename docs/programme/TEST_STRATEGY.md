@@ -123,6 +123,15 @@ RLS_TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/jobpilot_tes
 TENANCY_TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/jobpilot_test npm test
 ```
 
+A suite that touches the database through the shared client must import
+`tests/helpers/database-env.ts` **as its first import**: `src/lib/db`
+instantiates the Prisma client from `DATABASE_URL` the moment it is
+evaluated, so a static import chain that reaches it (a registry module, a
+loader) binds the client before any `before()` hook can override the
+variable. The helper points `DATABASE_URL` at `TENANCY_TEST_DATABASE_URL`
+before anything under `src/` loads. Stage 05's review found three suites
+that silently ran against the shell's `DATABASE_URL` without it (H2).
+
 Without them, those files skip with an explicit reason and the rest of the
 suite runs normally — a developer without PostgreSQL is not blocked.
 

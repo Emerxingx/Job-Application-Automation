@@ -67,7 +67,10 @@ export function connectorContract(name: string, make: () => JobSourceConnector, 
     const ids = [...found.slice(0, 2).map((p) => p.externalId), 'definitely-not-a-posting'];
     const states = await c.refresh(ids);
     for (const id of ids) assert.ok(['active', 'closed', 'unknown'].includes(states[id]), `${id}: ${states[id]}`);
-    assert.ok(['active', 'closed', 'unknown'].includes(await c.detectClosed('definitely-not-a-posting')));
+    // An id the source cannot know anything about is `unknown`, never
+    // `closed`: closure is a statement the source makes, not silence.
+    assert.equal(states['definitely-not-a-posting'], 'unknown');
+    assert.equal(await c.detectClosed('definitely-not-a-posting'), 'unknown');
   });
 
   it(`${name}: getApplicationRoute is ats_api only with a credential, assisted for a known ATS, external otherwise`, async () => {

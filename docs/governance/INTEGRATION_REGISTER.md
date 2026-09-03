@@ -29,7 +29,7 @@ promoted on the strength of an observed run against the real service.
 
 | System | Status | Data | Residency | Evidence |
 | --- | --- | --- | --- | --- |
-| Local filesystem (application folders) | MOCK / default | Tailored documents per application | wherever the app runs | Default `StorageProvider`; unchanged behaviour |
+| Local filesystem (application folders) | REAL (default) | Tailored documents per application | wherever the app runs | Default `StorageProvider`; the real, unchanged storage path; also the loud fallback when the S3 configuration is incomplete or its region fails the residency check |
 | S3-compatible object store | IMPLEMENTED-NOT-VALIDATED | Tailored documents per application | **must be `ca-central-1` or `ca-west-1`** — the provider refuses any other region (ADR-0015) | Stage 05: SigV4 signer (no SDK) with a deterministic unit test; put/get/list through an injected fetch. **No bucket contacted** |
 
 ## Services out

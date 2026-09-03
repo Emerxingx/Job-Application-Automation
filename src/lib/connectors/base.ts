@@ -77,9 +77,12 @@ export function postingHash(p: NormalizedPosting): string {
 
 /**
  * The route decision feeds the apply engine's channel (ADR-0016): an ATS
- * API only where one is published AND this deployment holds an employer-
- * issued credential for it; assisted everywhere an ATS is detected without
- * one; external for the rest. Detection reuses the apply engine's rules.
+ * API only where one is published AND this deployment holds a credential for
+ * it — either one issued for that employer's tenant (`ATS_<VENDOR>_<TENANT>`)
+ * or the deployment-wide `ATS_<VENDOR>_DEFAULT` the apply engine already
+ * honours, which is a deployment decision rather than an employer's;
+ * assisted everywhere an ATS is detected without one; external for the rest.
+ * Detection reuses the apply engine's rules.
  */
 export function applicationRouteFor(p: NormalizedPosting): ApplicationRoute {
   const target = detectAts(p.applyUrl);

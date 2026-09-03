@@ -190,7 +190,7 @@ export function AtsRulesetAdmin({ rulesets, audit }: { rulesets: AtsRulesetView[
             <span className="font-medium text-ink">Pacing</span>
             <select value={draft.pacing} onChange={(e) => setDraft({ ...draft, pacing: e.target.value })} className="input mt-1 w-full">
               <option value="standard">Standard</option>
-              <option value="human_delay">Human delay (assisted-apply only)</option>
+              <option value="human_delay">Human delay (declared for assisted apply; enforced from Stage 12)</option>
             </select>
           </label>
           <label className="block text-sm sm:col-span-3">

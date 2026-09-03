@@ -294,14 +294,14 @@
     "verdict": "Stage 04 passes every engineering gate reachable from this environment and is BLOCKED at its exit on L-2. The vocabulary is empty by construction until a licence is recorded. Merge posture inherited from the stack."
   },
   "stage_05_progress": {
-    "schema_and_migrations": "DONE locally — JobSource, JobSourceRun, JobSnapshot (immutable by trigger), AtsRuleset, Job freshness columns (20260903110000), generated RLS (20260903110100, 99/99 forced); NOT VERIFIED on Supabase (R-34)",
+    "schema_and_migrations": "DONE locally — JobSource, JobSourceRun, JobSnapshot (immutable by trigger), AtsRuleset, Job freshness columns (20260903110000), generated RLS (20260903110100, 99/99 forced), review fixes (20260903120000: run index, firstSeenAt backfill); NOT VERIFIED on Supabase (R-34)",
     "connector_contract": "DONE — JobSourceConnector with discover/fetch/normalize/validate/refresh/detectClosed/getApplicationRoute/healthCheck; shared normalisation, validation (stable reason codes) and routing; contract suite (tests/connector-contract.ts) passed by the mock and by Adzuna on a recorded-shape fixture",
     "source_register_and_gate": "DONE — JobSource register with the SOURCE_ACCESS_POLICY per-connector record; requireEnabledSource() refuses disabled/incomplete/uncredentialed sources and records the refusal; admin + step-up recording and enabling, audited; /console/sources with health and run history",
-    "pipeline": "DONE — discover → normalize → validate → upsert with firstSeenAt/lastSeenAt/activeState → one JobSnapshot per content change → JobSourceRun with counts and query shape; refresh closes only what the source says is closed; three failures → degraded; scanner routed through it",
+    "pipeline": "DONE — discover → normalize → validate → race-safe upsert with firstSeenAt/lastSeenAt/activeState → one JobSnapshot per content change (job + snapshot in one transaction) → JobSourceRun with counts and query shape, refusals coalesced per window; refresh closes only what the source says is closed and records unknown as unknown; three failures → degraded and recovery decided by the database, disabled never overridden; health never contacts a source whose record is incomplete; scanner routed through it; activeState/closedAt consumed by nothing until Stage 06",
     "ats_rulesets_governed": "DONE — CMS collection and cms-fast reader removed; AtsRuleset with draft → second-admin approval → active (one per platform, rollback recorded) → retired, step-up, audit; v1 API reads the active version cache-first; no evasion setting (heavy_stealth gone)",
     "object_storage": "DONE as an abstraction — StorageProvider with local default and an S3-compatible SigV4 adapter that refuses regions outside ca-central-1 / ca-west-1; IMPLEMENTED-NOT-VALIDATED (no bucket contacted)",
     "adzuna_live_validation": "BLOCKED (CREDENTIAL + terms review) — never called with a live key; registered disabled",
-    "independent_review": "PENDING"
+    "independent_review": "DONE — 2 HIGH (upsert race, test database binding), 6 MEDIUM (health check reaching an unrecorded source, mock hash instability, stale reads under the ruleset lock, S3 endpoint path, response bodies in run errors, stale source copy deciding status), 8 LOW; every HIGH and MEDIUM fixed with a test, LOW fixed or documented; two CI findings (gitignored source files, racy Stage 02 test) fixed; STAGE05_EVIDENCE.md §11"
   },
   "stage_05_exit_gate": {
     "met": [
@@ -309,7 +309,7 @@
       "Connector contract suite every adapter passes",
       "AtsRulesets under governed administration with approval, activation, rollback and audit",
       "Object storage abstraction with a residency-checked S3 adapter",
-      "Full gate set green: lint 0/8, typecheck 0, 907/907 tests (0 skipped), build 0"
+      "Full gate set green with the documented command only: lint 0/8, typecheck 0, 914/914 tests (0 skipped), build 0"
     ],
     "not_met": [
       "≥2 lawful sources live (one — the synthetic mock — is enabled)",

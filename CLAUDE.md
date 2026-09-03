@@ -26,7 +26,7 @@ remediation has begun.**
 npm ci                # install from the lockfile
 npm run dev           # http://localhost:3000
 npx tsc --noEmit      # typecheck  — PASSES
-npm test              # 907 tests  — PASSES with the two database URLs below set; the
+npm test              # 914 tests  — PASSES with the two database URLs below set; the
                       #   database suites skip WITH A REASON without them and THROW
                       #   when CI=true, so CI cannot pass by skipping them
 npm run build         # production — PASSES
@@ -54,7 +54,7 @@ npm run cms:types          # regenerate payload-types.ts
 ## Things that will surprise you
 
 1. **The database is PostgreSQL with a versioned migration history** since
-   Stage 01 (`ADR-0002`). Fifteen migrations under `prisma/migrations/`; CI applies
+   Stage 01 (`ADR-0002`). Sixteen migrations under `prisma/migrations/`; CI applies
    them to an empty database and fails on drift. `DATABASE_URL` is the
    transaction pooler, `DIRECT_URL` the session endpoint for migrations. The RLS
    migration is **generated** from `src/lib/tenancy/rls-tables.ts` — regenerate
@@ -154,6 +154,14 @@ npm run cms:types          # regenerate payload-types.ts
     edits and a database trigger refuses them independently. A correction is
     a new version with `supersedesId`.
 
+15. **The occupational spine is empty until a licence is recorded** (Stage 04,
+    ADR-0009). `Occupation` / `OccupationCode` / labels exist, the NOC loader
+    and the NOC↔SOC crosswalk are proven on a fixture, but every
+    `TaxonomyDataset` is `unrecorded` and `requireIngestible()` refuses to
+    load until an admin records the licence and attribution at
+    `/console/taxonomy` (L-2). Classification falls back to the old regex
+    table and records `regex_fallback` — a low-confidence method, not a match.
+
 16. **A job source runs only through the connector gate** (Stage 05,
     ADR-0008). `JOB_PROVIDER` names a `JobSource` register row;
     `requireEnabledSource()` refuses it unless it is enabled, its
@@ -162,14 +170,6 @@ npm run cms:types          # regenerate payload-types.ts
     of the box; Adzuna is registered disabled with an empty legal basis and
     has never been called live. Every capture is an immutable `JobSnapshot`.
     `AtsRulesets` and `PromptRegistry` are no longer CMS collections.
-
-15. **The occupational spine is empty until a licence is recorded** (Stage 04,
-    ADR-0009). `Occupation` / `OccupationCode` / labels exist, the NOC loader
-    and the NOC↔SOC crosswalk are proven on a fixture, but every
-    `TaxonomyDataset` is `unrecorded` and `requireIngestible()` refuses to
-    load until an admin records the licence and attribution at
-    `/console/taxonomy` (L-2). Classification falls back to the old regex
-    table and records `regex_fallback` — a low-confidence method, not a match.
 
 ## Conventions worth preserving
 

@@ -55,7 +55,10 @@ export interface SignedRequest {
 export function signS3Request(config: S3Config, method: 'GET' | 'PUT', key: string, body: string, now = new Date(), query = ''): SignedRequest {
   const base = new URL(config.endpoint);
   const host = config.pathStyle === false ? `${config.bucket}.${base.host}` : base.host;
-  const pathname = config.pathStyle === false ? `/${encodeKey(key)}` : `/${config.bucket}/${encodeKey(key)}`;
+  // An endpoint may carry a path prefix (Supabase's gateway is
+  // `/storage/v1/s3`); it is part of the resource, so it is signed and sent.
+  const prefix = base.pathname.replace(/\/+$/, '');
+  const pathname = `${prefix}${config.pathStyle === false ? `/${encodeKey(key)}` : `/${config.bucket}/${encodeKey(key)}`}`;
   const { stamp, date } = amzDate(now);
   const payloadHash = sha256(body);
   const headers: Record<string, string> = {

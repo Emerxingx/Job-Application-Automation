@@ -97,6 +97,54 @@ describe('Stage 05 — source register gate and pipeline', { skip: SKIP }, () =>
     assert.equal(disabled.status, 'disabled');
     const audit = await db.auditLog.findMany({ where: { entityType: 'JobSource', actorId: STAFF.id }, orderBy: { createdAt: 'asc' } });
     assert.deepEqual(audit.map((a) => a.action), ['source.policy.recorded', 'source.enabled', 'source.disabled']);
+    // Refusals are tenant-driven and coalesced: the several refused
+    // discoveries above left ONE refused row for the window, not one each.
+    const window = new Date(Date.now() - pipeline.REFUSAL_WINDOW_MS);
+    assert.equal(await db.jobSourceRun.count({ where: { source: { key: 'adzuna' }, kind: 'discover', status: 'refused', startedAt: { gte: window } } }), 1);
+  });
+
+  it('two runs racing on a NEW posting: the loser becomes an update, never a failed run, and the job has exactly one snapshot', async () => {
+    const source = await db.jobSource.findUniqueOrThrow({ where: { key: 'mock' } });
+    const { MockConnector } = await import('../src/lib/connectors/mock');
+    const c = new MockConnector();
+    const [raw] = await c.discover(query);
+    const posting = { ...c.normalize(raw), externalId: `mock-race-${S}` };
+    const results = await Promise.all([1, 2, 3].map(() => pipeline.upsertPosting(source, posting)));
+    const ids = new Set(results.map((r) => r.id));
+    assert.equal(ids.size, 1, 'all three resolved to the same row');
+    assert.equal(results.filter((r) => r.isNew).length, 1, 'exactly one created it');
+    const job = await db.job.findUniqueOrThrow({ where: { id: results[0].id }, include: { snapshots: true } });
+    assert.equal(job.snapshots.length, 1);
+    await db.job.delete({ where: { id: job.id } });
+  });
+
+  it('run outcomes move the source between enabled and degraded on the database\'s current state, never on a stale copy; disabled is never overridden', async () => {
+    const mock = await db.jobSource.findUniqueOrThrow({ where: { key: 'mock' } });
+    const runFor = () => db.jobSourceRun.create({ data: { sourceId: mock.id, kind: 'discover', meta: '{}' } });
+    try {
+      await db.jobSource.update({ where: { id: mock.id }, data: { status: 'enabled', errorCount: 0 } });
+      for (let n = 1; n <= pipeline.DEGRADE_AFTER_FAILURES; n += 1) {
+        await pipeline.finishRun(await runFor(), { status: 'failed', errorCount: 1, error: `boom ${n}` }, mock);
+        const row = await db.jobSource.findUniqueOrThrow({ where: { id: mock.id } });
+        assert.equal(row.errorCount, n);
+        assert.equal(row.status, n < pipeline.DEGRADE_AFTER_FAILURES ? 'enabled' : 'degraded', `after failure ${n}`);
+      }
+      // `mock` here is the STALE copy (status enabled, errorCount 0): the
+      // recovery must still apply because the ROW is degraded.
+      await pipeline.finishRun(await runFor(), { status: 'ok', discovered: 1 }, mock);
+      let row = await db.jobSource.findUniqueOrThrow({ where: { id: mock.id } });
+      assert.equal(row.status, 'enabled');
+      assert.equal(row.errorCount, 0);
+      assert.equal(row.lastError, null);
+      // An admin disabled the source while a run was in flight: the run's
+      // success must not re-enable it (the copy the run holds says degraded).
+      await db.jobSource.update({ where: { id: mock.id }, data: { status: 'disabled' } });
+      await pipeline.finishRun(await runFor(), { status: 'ok', discovered: 1 }, { ...mock, status: 'degraded' });
+      row = await db.jobSource.findUniqueOrThrow({ where: { id: mock.id } });
+      assert.equal(row.status, 'disabled', 'the pipeline never flips status on its own authority');
+    } finally {
+      await db.jobSource.update({ where: { id: mock.id }, data: { status: 'enabled', errorCount: 0, lastError: null } });
+    }
   });
 
   it('discovery: postings are normalised, validated, upserted with first/last seen, snapshotted once per content, and the run is audited', async () => {
@@ -144,7 +192,10 @@ describe('Stage 05 — source register gate and pipeline', { skip: SKIP }, () =>
   it('refresh: closed postings close, active ones are re-seen, unknown stays unknown — never inferred', async () => {
     const source = await db.jobSource.findUniqueOrThrow({ where: { key: 'mock' } });
     const stale = new Date(Date.now() - 3 * 86_400_000);
-    const ghost = await db.job.create({ data: { source: 'mock', externalId: `ghost_${S}`, title: 'Ghost', company: 'Co', location: 'Toronto', country: 'CA', description: '', requirements: '[]', skills: '[]', applyUrl: 'https://example.test', postedAt: stale, sourceId: source.id, lastSeenAt: stale } });
+    // A mock-shaped id the catalogue no longer lists: the source KNOWS it is gone.
+    const ghost = await db.job.create({ data: { source: 'mock', externalId: `mock-ghost_${S}`, title: 'Ghost', company: 'Co', location: 'Toronto', country: 'CA', description: '', requirements: '[]', skills: '[]', applyUrl: 'https://example.test', postedAt: stale, sourceId: source.id, lastSeenAt: stale } });
+    // An id the source cannot speak for: the honest answer is unknown, and the pipeline records exactly that.
+    const stranger = await db.job.create({ data: { source: 'mock', externalId: `foreign_${S}`, title: 'Stranger', company: 'Co', location: 'Toronto', country: 'CA', description: '', requirements: '[]', skills: '[]', applyUrl: 'https://example.test', postedAt: stale, sourceId: source.id, lastSeenAt: stale } });
     const live = (await db.job.findFirst({ where: { sourceId: source.id, externalId: { startsWith: 'mock-' } }, orderBy: { lastSeenAt: 'desc' } }))!;
     await db.job.update({ where: { id: live.id }, data: { lastSeenAt: stale } });
     const run = await pipeline.runRefresh('mock', { staleAfterMs: 86_400_000 });
@@ -156,13 +207,38 @@ describe('Stage 05 — source register gate and pipeline', { skip: SKIP }, () =>
     const l = await db.job.findUniqueOrThrow({ where: { id: live.id } });
     assert.equal(l.activeState, 'active');
     assert.ok(l.lastSeenAt.getTime() > stale.getTime());
-    await db.job.delete({ where: { id: ghost.id } });
+    const u = await db.job.findUniqueOrThrow({ where: { id: stranger.id } });
+    assert.equal(u.activeState, 'unknown', 'silence is recorded as unknown');
+    assert.equal(u.closedAt, null, 'never inferred as closed');
+    assert.equal(u.lastSeenAt.getTime(), stale.getTime(), 'and not re-seen either');
+    await db.job.deleteMany({ where: { id: { in: [ghost.id, stranger.id] } } });
   });
 
-  it('health: runs for a disabled source (so an operator can learn it is safe to enable) and reports missing credentials as down', async () => {
+  it('health: runs for a disabled source, but never contacts a source whose record is incomplete — even with credentials present — and reports missing credentials by name', async () => {
+    // Record incomplete + credentials present: the adapter must NOT be called.
+    await db.jobSource.update({ where: { key: 'adzuna' }, data: { status: 'disabled', legalBasis: '', termsReviewedAt: null, termsReviewedByEmail: null, approvedAt: null, approvedByEmail: null } });
+    process.env.ADZUNA_APP_ID = 'test-id';
+    process.env.ADZUNA_APP_KEY = 'test-key';
+    const originalFetch = globalThis.fetch;
+    let contacted = 0;
+    globalThis.fetch = (async () => { contacted += 1; return new Response('{}', { status: 200 }); }) as typeof fetch;
+    try {
+      const incomplete = await pipeline.runHealthCheck('adzuna');
+      assert.equal(incomplete.report.status, 'down');
+      assert.match(incomplete.report.detail, /record incomplete/);
+      assert.equal(contacted, 0, 'no request leaves the boundary before a person records the terms');
+      const run = await db.jobSourceRun.findFirst({ where: { source: { key: 'adzuna' }, kind: 'health' }, orderBy: { startedAt: 'desc' } });
+      assert.match(run?.error ?? '', /record incomplete/);
+    } finally {
+      globalThis.fetch = originalFetch;
+      delete process.env.ADZUNA_APP_ID;
+      delete process.env.ADZUNA_APP_KEY;
+    }
+    // Record complete, credentials absent: named, still no contact.
+    await db.jobSource.update({ where: { key: 'adzuna' }, data: { legalBasis: 'x', termsReviewedAt: new Date(), termsReviewedByEmail: STAFF.email, approvedAt: new Date(), approvedByEmail: STAFF.email } });
     const adzuna = await pipeline.runHealthCheck('adzuna');
     assert.equal(adzuna.report.status, 'down');
-    assert.match(adzuna.report.detail, /missing credential/);
+    assert.match(adzuna.report.detail, /missing credential\(s\): ADZUNA_APP_ID, ADZUNA_APP_KEY/);
     assert.equal(adzuna.source.lastHealthStatus, 'down');
     const mock = await pipeline.runHealthCheck('mock');
     assert.equal(mock.report.status, 'ok');
@@ -174,9 +250,11 @@ describe('Stage 05 — source register gate and pipeline', { skip: SKIP }, () =>
     assert.ok(snapshots > 0);
     assert.deepEqual(await ctx.withTenant({ userId: USER.id }, (tx) => tx.jobSource.findMany()), []);
     assert.deepEqual(await ctx.withTenant({ userId: USER.id }, (tx) => tx.jobSourceRun.findMany()), []);
+    // A REAL job id, so the only thing that can refuse the insert is the policy.
+    const job = await db.job.findFirstOrThrow({ where: { source: 'mock' }, select: { id: true } });
     await assert.rejects(
-      () => ctx.withTenant({ userId: USER.id }, (tx) => tx.jobSnapshot.create({ data: { jobId: 'x', sourceHash: 'x', payload: '{}' } })),
-      /row-level security|42501|permission denied|foreign key/,
+      () => ctx.withTenant({ userId: USER.id }, (tx) => tx.jobSnapshot.create({ data: { jobId: job.id, sourceHash: `tenant_${S}`, payload: '{}' } })),
+      /row-level security|42501|permission denied/,
     );
   });
 });

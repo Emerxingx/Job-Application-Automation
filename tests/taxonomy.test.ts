@@ -8,6 +8,7 @@
  * bilingual completeness; classification with a recorded method; tenant
  * read access and write refusal on the reference tables.
  */
+import './helpers/database-env'; // FIRST: the static imports below reach src/lib/db
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';

@@ -29,6 +29,11 @@ export type { StorageProvider, StoredObject } from './provider';
 
 let provider: StorageProvider | null = null;
 
+/** Tests only: forget the resolved provider so a different environment can be exercised. */
+export function resetStorageProviderForTests(): void {
+  provider = null;
+}
+
 export async function getStorageProvider(): Promise<StorageProvider> {
   if (provider) return provider;
   const configured = (process.env.STORAGE_PROVIDER || 'local').toLowerCase();
@@ -39,8 +44,16 @@ export async function getStorageProvider(): Promise<StorageProvider> {
     if (!config) {
       console.warn('[storage] STORAGE_PROVIDER=s3 but STORAGE_S3_* is incomplete; using the local filesystem.');
     } else {
-      provider = new S3StorageProvider(config);
-      return provider;
+      try {
+        provider = new S3StorageProvider(config);
+        return provider;
+      } catch (error) {
+        // A region outside the residency allow-list (ADR-0015). Data stays on
+        // this server rather than leaving the country; the error is logged
+        // once here and the fallback is remembered so the failure is not
+        // re-attempted (and re-logged) on every folder.
+        console.error('[storage] S3 provider refused; using the local filesystem:', error instanceof Error ? error.message : error);
+      }
     }
   } else if (configured !== 'local') {
     console.warn(`[storage] STORAGE_PROVIDER="${configured}" is not implemented; using the local filesystem.`);
@@ -109,9 +122,9 @@ export async function createApplicationFolder(input: FolderInput): Promise<strin
   const folderName = `${slug(input.job.company)}-${slug(input.job.title)}-${input.applicationId.slice(-6)}`;
   const relative = path.posix.join('applications', month, folderName);
   const prefix = path.posix.join(input.userId, relative);
-  const store = await getStorageProvider();
 
   try {
+    const store = await getStorageProvider();
     await Promise.all([
       store.put(`${prefix}/README.md`, renderReadme(input)),
       store.put(`${prefix}/job-description.md`, renderJobDescription(input)),
