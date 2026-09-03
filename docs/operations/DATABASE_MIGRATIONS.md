@@ -30,6 +30,8 @@ against the staging project until the evidence section says so.
 | `20260903140000_provenance_sweep_progress` | Stage 06 review: `JobProvenance.lastCheckedAt` (when a source was last asked about a row, so the sweep makes progress and does not re-ask within the window) with its index; drops the unread `Job(activeState, postedAt)` index | Additive / index only; reversible |
 | `20260903150000_eligibility_results` | Stage 07: `EligibilityResult` — one verdict per (user, job): outcome, every rule's status and reason (JSON), rule-set version, the profile state it was computed from, evaluated-at; classification comment | Additive. Reversible (drop table) |
 | `20260903150100_rls_eligibility_table` | Generated policies (manifest `RLS_MANIFESTS[6]`): `EligibilityResult` user-owned (`userId`) | Reversible |
+| `20260903160000_compatibility_engine` | Stage 08: `MatchDimension` (one row per named dimension of a match with weight, contribution, matched / missing items and cited evidence ids), `MatchWeightVersion` (the governed weight register; nothing seeded active), `JobMatch.weightVersion` / `pipelineVersion` (defaults `builtin:1` / empty) | Additive. Reversible (drop tables and columns) |
+| `20260903160100_rls_matching_tables` | Generated policies (manifest `RLS_MANIFESTS[7]`): `MatchDimension` user-owned (`userId`); `MatchWeightVersion` system | Reversible |
 
 
 `prisma/migrations/migration_lock.toml` pins the provider to PostgreSQL. There

@@ -309,13 +309,16 @@ export async function revokeEvidence(tx: Client, userId: string, id: string): Pr
 
 /** What generation receives: ids for the run record, one-line claims for the corpus. */
 export async function loadEvidenceForGeneration(tx: Client, userId: string): Promise<EvidenceBundle> {
-  const rows = await tx.careerEvidence.findMany({ where: { userId, status: 'approved' }, select: { id: true, claim: true, facts: true }, orderBy: { createdAt: 'asc' } });
+  const rows = await tx.careerEvidence.findMany({ where: { userId, status: 'approved' }, select: { id: true, kind: true, claim: true, facts: true }, orderBy: { createdAt: 'asc' } });
+  const claims = rows.map((r) => {
+    const facts = parseJson<EvidenceFacts>(r.facts, {});
+    const extra = Object.values(facts).filter((v): v is string | number => v !== null && v !== '' && v !== undefined).map(String);
+    return extra.length ? `${r.claim} [${extra.join('; ')}]` : r.claim;
+  });
   return {
     ids: rows.map((r) => r.id),
-    claims: rows.map((r) => {
-      const facts = parseJson<EvidenceFacts>(r.facts, {});
-      const extra = Object.values(facts).filter((v): v is string | number => v !== null && v !== '' && v !== undefined).map(String);
-      return extra.length ? `${r.claim} [${extra.join('; ')}]` : r.claim;
-    }),
+    claims,
+    // Stage 08: the compatibility pipeline cites the claims that support each dimension.
+    entries: rows.map((r, i) => ({ id: r.id, kind: r.kind, claim: claims[i] })),
   };
 }

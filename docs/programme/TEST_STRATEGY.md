@@ -191,3 +191,19 @@ never occurred.
   profile, the scanner excluding an ineligible posting end to end on the
   synthetic source (no `JobMatch`, reason stored) while a citizen is
   excluded from nothing, and tenant read-only isolation of verdicts.
+
+## Stage 08 — compatibility
+
+- `tests/matching-pipeline.test.ts` (pure): scoring consistency (25 runs),
+  the equivalence map's effect on matched/missing and its `semantic` label,
+  a different weight version changing the score but not the breakdown,
+  absent weights equalling the built-in baseline, weight validation, and
+  evidence citation under the map and by kind.
+- `tests/match-weights.test.ts` (database): the built-in baseline when no
+  version is active; the scanner writing `weightVersion`, `pipelineVersion`
+  and one cited dimension row per dimension (contribution = score × weight,
+  weights summing to 1); the governance lifecycle with a second approver,
+  the regression that matches scored before an activation keep their score
+  and version while new ones carry the new version, rollback recorded, the
+  active version unretirable; tenant isolation of dimension rows and the
+  system-only register.

@@ -27,11 +27,23 @@ export interface JobContext {
  * request whenever the tenant's policy, the prompt registry or the provider
  * does not permit an external model (`src/lib/ai/gateway.ts`).
  */
+export interface MatchOptions {
+  /** Per-dimension weights summing to 1; the engine's built-in constants when absent. */
+  weights?: { skills: number; keywords: number; experience: number; seniority: number; location: number };
+  /** Maps a skill to its canonical form under an equivalence map, so "postgres" and "postgresql" compare equal. */
+  canonical?: (skill: string) => string;
+}
+
 export interface AIProvider {
   readonly name: string;
 
-  /** Predict how likely this resume is to clear ATS + recruiter screening. */
-  analyzeMatch(resume: ResumeContent, job: JobContext): Promise<MatchAnalysis>;
+  /**
+   * Predict how likely this resume is to clear ATS + recruiter screening.
+   * Stage 08: the dimension weights and the skill equivalence map are
+   * injected by the compatibility pipeline; the engine's own constants are
+   * the fallback so every existing caller keeps its behaviour.
+   */
+  analyzeMatch(resume: ResumeContent, job: JobContext, options?: MatchOptions): Promise<MatchAnalysis>;
 
   /** Rewrite the resume and draft a cover letter against a specific posting. */
   tailor(resume: ResumeContent, job: JobContext, analysis: MatchAnalysis): Promise<TailoredDocuments>;

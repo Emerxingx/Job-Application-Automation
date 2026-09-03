@@ -208,6 +208,10 @@ export const RLS_TABLES: Record<string, RlsKind> = {
   JobProvenance: { kind: 'reference' },
   // Stage 07: the candidate's own eligibility verdicts.
   EligibilityResult: { kind: 'user', column: 'userId' },
+  // Stage 08: the candidate's own per-dimension match rows; the weight
+  // register is administered in the console and never read by a tenant.
+  MatchDimension: { kind: 'user', column: 'userId' },
+  MatchWeightVersion: { kind: 'system' },
   AtsRuleset: { kind: 'system' },
   PlanPrice: { kind: 'reference', where: `"active" = true` },
   Job: { kind: 'reference' },
@@ -290,6 +294,7 @@ export const STAGE_04_TABLES = [
 export const STAGE_05_TABLES = ['AtsRuleset', 'JobSnapshot', 'JobSource', 'JobSourceRun'];
 export const STAGE_06_TABLES = ['JobProvenance'];
 export const STAGE_07_TABLES = ['EligibilityResult'];
+export const STAGE_08_TABLES = ['MatchDimension', 'MatchWeightVersion'];
 
 export const RLS_MANIFESTS: RlsManifest[] = [
   { migration: '20260903073000_row_level_security', preamble: true, tables: STAGE_01_TABLES },
@@ -299,4 +304,5 @@ export const RLS_MANIFESTS: RlsManifest[] = [
   { migration: '20260903110100_rls_connector_tables', preamble: false, tables: STAGE_05_TABLES },
   { migration: '20260903130100_rls_provenance_table', preamble: false, tables: STAGE_06_TABLES },
   { migration: '20260903150100_rls_eligibility_table', preamble: false, tables: STAGE_07_TABLES },
+  { migration: '20260903160100_rls_matching_tables', preamble: false, tables: STAGE_08_TABLES },
 ];

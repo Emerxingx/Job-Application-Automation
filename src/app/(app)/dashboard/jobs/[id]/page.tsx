@@ -40,15 +40,21 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
         tx.jobMatch.findFirst({
           where: { jobId: id, agent: { userId: user.id } },
           orderBy: { matchScore: 'desc' },
+          // Stage 08: the score's dimensions, each with its cited evidence.
+          include: { dimensions: { orderBy: { contribution: 'desc' } } },
         }),
         tx.application.findUnique({ where: { userId_jobId: { userId: user.id, jobId: id } } }),
       ]);
-      return { job, match, application };
+      // The claims cited by the dimensions (the candidate's own approved evidence).
+      const citedIds = [...new Set((match?.dimensions ?? []).flatMap((d) => parseJson<string[]>(d.evidenceIds, [])))];
+      const cited = citedIds.length ? await tx.careerEvidence.findMany({ where: { id: { in: citedIds }, userId: user.id }, select: { id: true, claim: true } }) : [];
+      return { job, match, application, cited };
     }),
     getQuota(user.id),
   ]);
   if (!loaded) notFound();
-  const { job, match, application } = loaded;
+  const { job, match, application, cited } = loaded;
+  const claimById = new Map(cited.map((c) => [c.id, c.claim]));
   // Stage 07: the eligibility verdict, from the store when current, else
   // evaluated now (the facts read on the tenant path and audited).
   const eligibility = await eligibilityForPage(user.id, job, run);
@@ -196,21 +202,47 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
               <p className="mt-4 text-sm leading-relaxed text-muted">{match.rationale}</p>
 
               <div className="mt-5 space-y-3 border-t border-line pt-4">
-                {(Object.keys(BREAKDOWN_LABELS) as (keyof ScoreBreakdown)[]).map((key) => (
-                  <div key={key}>
-                    <div className="mb-1 flex items-baseline justify-between text-xs">
-                      <span className="text-muted">{BREAKDOWN_LABELS[key]}</span>
-                      <span className="font-semibold tabular-nums text-ink">{breakdown[key]}%</span>
+                {(Object.keys(BREAKDOWN_LABELS) as (keyof ScoreBreakdown)[]).map((key) => {
+                  const dim = match.dimensions.find((d) => d.dimension === key);
+                  const evidenceIds = dim ? parseJson<string[]>(dim.evidenceIds, []) : [];
+                  return (
+                    <div key={key}>
+                      <div className="mb-1 flex items-baseline justify-between text-xs">
+                        <span className="text-muted">
+                          {BREAKDOWN_LABELS[key]}
+                          {dim && <span className="ml-1 text-faint">· weight {Math.round(dim.weight * 100)}%</span>}
+                        </span>
+                        <span className="font-semibold tabular-nums text-ink">{breakdown[key]}%</span>
+                      </div>
+                      <div className="h-1.5 w-full overflow-hidden rounded-full bg-raised">
+                        <div
+                          className="h-full rounded-full bg-brand-500"
+                          style={{ width: `${breakdown[key]}%` }}
+                        />
+                      </div>
+                      {/* Stage 08: every dimension says what it measured and cites the approved evidence behind it. */}
+                      {dim && (
+                        <p className="mt-1 text-xs text-faint">
+                          {dim.note}
+                          {evidenceIds.length > 0 && (
+                            <>
+                              {' '}
+                              Evidence: {evidenceIds.slice(0, 3).map((id) => claimById.get(id) ?? 'an approved claim').join('; ')}
+                              {evidenceIds.length > 3 ? ` and ${evidenceIds.length - 3} more` : ''}.
+                            </>
+                          )}
+                        </p>
+                      )}
                     </div>
-                    <div className="h-1.5 w-full overflow-hidden rounded-full bg-raised">
-                      <div
-                        className="h-full rounded-full bg-brand-500"
-                        style={{ width: `${breakdown[key]}%` }}
-                      />
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
+              {match.weightVersion && (
+                <p className="mt-3 text-xs text-faint">
+                  Scored with weight version {match.weightVersion === 'builtin:1' ? 'built-in baseline' : match.weightVersion}
+                  {match.pipelineVersion ? `, pipeline ${match.pipelineVersion}` : ''}. Eligibility was checked first and separately.
+                </p>
+              )}
             </Card>
           )}
 

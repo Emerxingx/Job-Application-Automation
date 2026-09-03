@@ -7,7 +7,7 @@ import type {
   TailoredDocuments,
 } from '@/lib/types';
 import { renderResumeText } from '@/lib/resume-render';
-import type { AIProvider, JobContext } from './types';
+import type { AIProvider, JobContext, MatchOptions } from './types';
 import {
   displayKeyword,
   extractSkills,
@@ -29,7 +29,9 @@ import {
 export class MockAIProvider implements AIProvider {
   readonly name = 'mock';
 
-  async analyzeMatch(resume: ResumeContent, job: JobContext): Promise<MatchAnalysis> {
+  async analyzeMatch(resume: ResumeContent, job: JobContext, options: MatchOptions = {}): Promise<MatchAnalysis> {
+    const canonical = options.canonical ?? ((s: string) => s);
+    const weights = options.weights ?? { skills: 0.34, keywords: 0.22, experience: 0.22, seniority: 0.14, location: 0.08 };
     const jobText = `${job.title} ${job.description} ${job.requirements.join(' ')} ${job.skills.join(' ')}`;
     const resumeText = [
       resume.headline,
@@ -40,13 +42,16 @@ export class MockAIProvider implements AIProvider {
       resume.certifications.join(' '),
     ].join(' ');
 
+    // Stage 08: both sides are compared under the equivalence map, so a
+    // posting's "Postgres" is satisfied by a résumé's "PostgreSQL". The
+    // posting's own spelling is what is reported as matched or missing.
     const jobSkills = new Set([...extractSkills(jobText), ...job.skills.map((s) => normalize(s))]);
-    const resumeSkills = new Set(extractSkills(resumeText));
+    const resumeSkills = new Set([...extractSkills(resumeText), ...resume.skills.map((s) => normalize(s))].map(canonical));
 
     const matched: string[] = [];
     const missing: string[] = [];
     for (const skill of jobSkills) {
-      if (resumeSkills.has(skill)) matched.push(skill);
+      if (resumeSkills.has(canonical(skill))) matched.push(skill);
       else missing.push(skill);
     }
 
@@ -93,13 +98,15 @@ export class MockAIProvider implements AIProvider {
       seniority: clamp(seniorityScore),
     };
 
-    // Weighted toward what actually gates a screening decision.
+    // Weighted toward what actually gates a screening decision. The weights
+    // are governed data since Stage 08 (src/lib/matching/weights.ts); these
+    // constants are the built-in baseline, recorded as "builtin:1".
     const weighted =
-      breakdown.skills * 0.34 +
-      breakdown.keywords * 0.22 +
-      breakdown.experience * 0.22 +
-      breakdown.seniority * 0.14 +
-      breakdown.location * 0.08;
+      breakdown.skills * weights.skills +
+      breakdown.keywords * weights.keywords +
+      breakdown.experience * weights.experience +
+      breakdown.seniority * weights.seniority +
+      breakdown.location * weights.location;
 
     // Experience, seniority and location are only worth anything if the
     // candidate can actually do the job. Without this, a 6-year analyst scores

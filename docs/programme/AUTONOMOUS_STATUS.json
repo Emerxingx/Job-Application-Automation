@@ -2,12 +2,12 @@
   "$comment": "Machine-readable controller for the autonomous build programme. Authoritative over any chat transcript: if this file and a conversation disagree, this file wins. Updated at every stage checkpoint.",
   "schema_version": 1,
   "updated_at": "2026-09-03",
-  "current_stage": "07",
+  "current_stage": "08",
   "last_completed_stage": "00",
-  "current_branch": "claude/stage-07-eligibility-engine",
+  "current_branch": "claude/stage-08-compatibility-engine",
   "current_head": "04914dbd660180d7e94665a87b6ef3bc377dc754",
   "current_head_meaning": "SHA of the last commit whose full gate set was verified locally (lint, typecheck, tests, build). Set by the status-sync commit that immediately follows it, so it names a real, verified commit rather than the one it is written in.",
-  "current_pr": "https://github.com/Emerxingx/Job-Application-Automation/pull/19",
+  "current_pr": null,
   "main_head": "d6ae8b3a9180b529abe06f23417515432c0a7f0e",
   "run_complete": false,
   "stage_status": {
@@ -19,7 +19,7 @@
     "05": "PASS_ENGINEERING_EXIT_PARTIAL",
     "06": "PASS_ENGINEERING_EXIT_PARTIAL",
     "07": "PASS_ENGINEERING_EXIT_PARTIAL",
-    "08": "NOT_STARTED",
+    "08": "PASS_ENGINEERING_EXIT_PARTIAL",
     "09": "NOT_STARTED",
     "10": "NOT_STARTED",
     "11": "NOT_STARTED",
@@ -367,5 +367,28 @@
       "Staging rehearsal (NOT VERIFIED — R-34)"
     ],
     "verdict": "Stage 07 passes every engineering gate and is PARTIAL at its exit on the honest scope of two advisory rules and the absence of a radius, and on the same inherited cause as Stages 05-06. Merge posture inherited from the stack."
+  },
+  "stage_08_progress": {
+    "schema_and_migrations": "DONE locally — MatchDimension, MatchWeightVersion, JobMatch.weightVersion/pipelineVersion (20260903160000); generated RLS (20260903160100, 103/103 forced); NOT VERIFIED on Supabase (R-34)",
+    "pipeline": "DONE — src/lib/matching/pipeline.ts around the PRESERVED deterministic engine: requirement extraction from the canonical job, evidence retrieval (approved CareerEvidence cited per dimension), deterministic stage through the gateway (policy, AiRun, grounding unchanged), deterministic semantic stage, governed weights, explanation; every score decomposes into five cited dimension rows",
+    "weights_governance": "DONE — MatchWeightVersion: draft → second-admin approval → active (one; rollback recorded) → retired; step-up + audit; /console/match-weights; built-in baseline recorded as builtin:1 when nothing is active; cache invalidated on activation",
+    "semantic_stage": "HONEST LIMIT — pgvector BLOCKED (extension unavailable locally and in CI; staging unreachable); a deterministic equivalence map runs instead and labels its matches semantic; no embedding exists anywhere",
+    "surfaces": "DONE — job page shows each dimension's weight, note and cited evidence claims and the versions the score was computed with; console register page",
+    "independent_review": "PENDING"
+  },
+  "stage_08_exit_gate": {
+    "met": [
+      "Pipeline complete around the preserved deterministic engine: parse → eligibility → requirement extraction → evidence retrieval → deterministic compare → semantic compare (deterministic) → weighted score → explanation",
+      "Weights admin-editable and versioned with second-admin approval; every score records the weight version used",
+      "Every score decomposable into named dimensions with cited evidence (MatchDimension rows, shown on the page)",
+      "Scoring consistency, weight-change regression and explanation completeness tested",
+      "Full gate set green with the documented command only: lint 0/8, typecheck 0, 975/975 tests (0 skipped), build 0"
+    ],
+    "not_met": [
+      "Embedding-based semantic compare (pgvector BLOCKED: extension unavailable; deterministic equivalence map in its place, labelled)",
+      "Observed on real traffic (no credentialed source — inherits the Stage 05 blocker)",
+      "Staging rehearsal (NOT VERIFIED — R-34)"
+    ],
+    "verdict": "Stage 08 passes every engineering gate and is PARTIAL at its exit on the absence of pgvector (stated, not approximated) and the inherited absence of real traffic. Merge posture inherited from the stack."
   }
 }

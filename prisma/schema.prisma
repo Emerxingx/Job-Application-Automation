@@ -407,13 +407,72 @@ model JobMatch {
   // new | reviewed | queued | applied | dismissed | ineligible (Stage 07: demoted by
   // an ineligible eligibility verdict; restored to new when the verdict lifts)
   status          String   @default("new")
+  // Stage 08: the weight version the score was computed with ("builtin:1"
+  // until an admin activates one) and the pipeline version, so a later weight
+  // change never rewrites history — an old score stays explicable.
+  weightVersion   String   @default("builtin:1")
+  pipelineVersion String   @default("")
   createdAt       DateTime @default(now())
 
-  agent Agent @relation(fields: [agentId], references: [id], onDelete: Cascade)
-  job   Job   @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  agent      Agent            @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  job        Job              @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  dimensions MatchDimension[]
 
   @@unique([agentId, jobId])
   @@index([agentId, status])
+}
+
+/// Stage 08: one row per named dimension of a match — its own score, the
+/// weight applied, the contribution to the total, what matched and what was
+/// missing, and the approved evidence ids cited for it. Every score is
+/// decomposable into these rows. Classification: user-owned (userId, copied
+/// from the agent so the policy needs no join).
+model MatchDimension {
+  id           String   @id @default(cuid())
+  jobMatchId   String
+  userId       String
+  // skills | keywords | experience | seniority | location
+  dimension    String
+  score        Int
+  weight       Float
+  contribution Float
+  // JSON string arrays
+  matched      String   @default("[]")
+  missing      String   @default("[]")
+  evidenceIds  String   @default("[]")
+  note         String   @default("")
+  createdAt    DateTime @default(now())
+
+  jobMatch JobMatch @relation(fields: [jobMatchId], references: [id], onDelete: Cascade)
+
+  @@unique([jobMatchId, dimension])
+  @@index([userId])
+}
+
+/// Stage 08: admin-configurable, versioned compatibility weights, governed
+/// like a prompt version: draft → approved by a SECOND admin → active (one
+/// at a time; activating an older version is the rollback, recorded as one)
+/// → retired. Every JobMatch records the version it was scored with. Until
+/// one is active the built-in weights apply and are recorded as "builtin:1".
+/// Classification: system-only (the candidate never reads or writes it).
+model MatchWeightVersion {
+  id              String    @id @default(cuid())
+  version         Int       @unique
+  // draft | approved | active | retired
+  status          String    @default("draft")
+  // JSON: { skills, keywords, experience, seniority, location } summing to 1
+  weights         String
+  notes           String    @default("")
+  createdById     String?
+  createdByEmail  String?
+  approvedById    String?
+  approvedByEmail String?
+  approvedAt      DateTime?
+  activatedAt     DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([status])
 }
 
 model SavedJob {
