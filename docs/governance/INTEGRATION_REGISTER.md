@@ -14,7 +14,7 @@ promoted on the strength of an observed run against the real service.
 
 | System | Status | Data | Residency | Evidence |
 | --- | --- | --- | --- | --- |
-| Adzuna | IMPLEMENTED-NOT-VALIDATED | Job postings (CA/US) | Outbound queries only | Real client, documented endpoint, timeout, NOC inference. Never run live |
+| Adzuna | IMPLEMENTED-NOT-VALIDATED | Job postings (CA/US) | Outbound queries only (search criteria, never candidate identity) | Stage 05: `AdzunaConnector` passes the connector contract suite on a recorded-shape fixture; registered `disabled` with an empty legal basis in `JobSource` and refused by the gate until a person records the terms and credentials are present. **Never called with a live key**; a live health check + discovery from `/console/sources` is the reclassification step |
 | Greenhouse / Lever | IMPLEMENTED-NOT-VALIDATED | Postings; authorized submission | — | Detection implemented; submission needs an employer-issued credential nobody holds |
 | Ashby / SmartRecruiters | PLANNED | Postings | — | — |
 | Employer career pages | PLANNED | Postings | — | — |
@@ -24,6 +24,13 @@ promoted on the strength of an observed run against the real service.
 | OaSIS | REGISTERED, NOT INGESTED | Occupation ↔ skills | CA | No loader yet; gated |
 | Canadian Skills & Competencies Taxonomy | REGISTERED, NOT INGESTED | Skills | CA | No loader yet; gated |
 | O*NET | REGISTERED, NOT INGESTED | US occupation ↔ skills | US | No loader yet; gated |
+
+## Storage
+
+| System | Status | Data | Residency | Evidence |
+| --- | --- | --- | --- | --- |
+| Local filesystem (application folders) | REAL (default) | Tailored documents per application | wherever the app runs | Default `StorageProvider`; the real, unchanged storage path; also the loud fallback when the S3 configuration is incomplete or its region fails the residency check |
+| S3-compatible object store | IMPLEMENTED-NOT-VALIDATED | Tailored documents per application | **must be `ca-central-1` or `ca-west-1`** — the provider refuses any other region (ADR-0015) | Stage 05: SigV4 signer (no SDK) with a deterministic unit test; put/get/list through an injected fetch. **No bucket contacted** |
 
 ## Services out
 

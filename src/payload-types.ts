@@ -74,7 +74,6 @@ export interface Config {
     'learning-paths': LearningPath;
     'career-guides': CareerGuide;
     certifications: Certification;
-    'ats-rulesets': AtsRuleset;
     'field-mappings': FieldMapping;
     'seo-pages': SeoPage;
     'payload-kv': PayloadKv;
@@ -91,7 +90,6 @@ export interface Config {
     'learning-paths': LearningPathsSelect<false> | LearningPathsSelect<true>;
     'career-guides': CareerGuidesSelect<false> | CareerGuidesSelect<true>;
     certifications: CertificationsSelect<false> | CertificationsSelect<true>;
-    'ats-rulesets': AtsRulesetsSelect<false> | AtsRulesetsSelect<true>;
     'field-mappings': FieldMappingsSelect<false> | FieldMappingsSelect<true>;
     'seo-pages': SeoPagesSelect<false> | SeoPagesSelect<true>;
     'payload-kv': PayloadKvSelect<false> | PayloadKvSelect<true>;
@@ -429,64 +427,6 @@ export interface Certification {
   createdAt: string;
 }
 /**
- * How the automation engine fills each ATS application form. Editing a ruleset takes effect without a code deploy. Only one version per platform can be active at a time.
- *
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "ats-rulesets".
- */
-export interface AtsRuleset {
-  id: number;
-  /**
-   * Human-readable name, e.g. "Greenhouse — multi-step v3".
-   */
-  label?: string | null;
-  atsPlatformName:
-    'greenhouse' | 'lever' | 'workday' | 'workable' | 'taleo' | 'ashby' | 'smartrecruiters' | 'icims' | 'linkedin';
-  /**
-   * Increment when you change selectors. Keep old versions for rollback.
-   */
-  version: number;
-  /**
-   * The engine uses the single active ruleset per platform. Activating this retires the others.
-   */
-  isActive?: boolean | null;
-  navigationFlowType: 'single_page' | 'multi_step' | 'account_required';
-  /**
-   * Signals how carefully the engine should pace itself. "Human delay required" also means assisted-apply only.
-   */
-  antiBotMitigationLevel: 'standard' | 'heavy_stealth' | 'human_delay';
-  /**
-   * Primary selectors keyed by field: first_name, last_name, email, phone, resume_upload, cover_letter_input, submit_button, next_step_button. CSS or XPath strings.
-   */
-  selectorMap:
-    | {
-        [k: string]: unknown;
-      }
-    | unknown[]
-    | string
-    | number
-    | boolean
-    | null;
-  /**
-   * Optional secondary selectors tried when a primary fails. Same keys as selectorMap; each value is an array of CSS/XPath strings.
-   */
-  fallbackSelectors?:
-    | {
-        [k: string]: unknown;
-      }
-    | unknown[]
-    | string
-    | number
-    | boolean
-    | null;
-  /**
-   * Why this version exists, quirks of the platform, etc.
-   */
-  notes?: string | null;
-  updatedAt: string;
-  createdAt: string;
-}
-/**
  * Maps the free-text questions ATS forms ask onto canonical profile keys, so the engine can answer them consistently.
  *
  * This interface was referenced by `Config`'s JSON-Schema
@@ -637,10 +577,6 @@ export interface PayloadLockedDocument {
     | ({
         relationTo: 'certifications';
         value: number | Certification;
-      } | null)
-    | ({
-        relationTo: 'ats-rulesets';
-        value: number | AtsRuleset;
       } | null)
     | ({
         relationTo: 'field-mappings';
@@ -926,23 +862,6 @@ export interface CertificationsSelect<T extends boolean = true> {
         code?: T;
         id?: T;
       };
-  updatedAt?: T;
-  createdAt?: T;
-}
-/**
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "ats-rulesets_select".
- */
-export interface AtsRulesetsSelect<T extends boolean = true> {
-  label?: T;
-  atsPlatformName?: T;
-  version?: T;
-  isActive?: T;
-  navigationFlowType?: T;
-  antiBotMitigationLevel?: T;
-  selectorMap?: T;
-  fallbackSelectors?: T;
-  notes?: T;
   updatedAt?: T;
   createdAt?: T;
 }

@@ -93,8 +93,16 @@ real one: `rls-isolation` (mechanism; creates its own schema and role),
 `tenancy-isolation`, `organizations`, `sessions`, `identity-link`,
 `sensitive-segregation`, `digital-twin-backfill` (Stage 02), and
 `ai-gateway`, `evidence-vault`, `question-bank`, `prompt-registry` (Stage 03),
-`taxonomy` (Stage 04) — all run through the migrated schema (apply the history with
+`taxonomy` (Stage 04), `connector-pipeline`, `ats-rulesets` (Stage 05) — all run
+through the migrated schema (apply the history with
 `npm run db:migrate:deploy` first).
+
+**The connector contract suite (Stage 05).** `tests/connector-contract.ts` is
+the admission gate ADR-0008 requires: seven cases every adapter runs
+unchanged, from a `describe` per adapter in `tests/connectors.test.ts`. A
+real source is wired to a recorded-shape fixture through a stubbed fetch —
+rule 4 again: the fixture is written to the documented field names, and the
+register says the live API has never been called.
 
 **The AI suites (Stage 03).** `ai-grounding` is pure and runs everywhere: a
 fixed profile, a posting carrying a prompt injection, adversarial "model
@@ -114,6 +122,15 @@ database the migrations have been applied to; the same one is fine):
 RLS_TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/jobpilot_test \
 TENANCY_TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/jobpilot_test npm test
 ```
+
+A suite that touches the database through the shared client must import
+`tests/helpers/database-env.ts` **as its first import**: `src/lib/db`
+instantiates the Prisma client from `DATABASE_URL` the moment it is
+evaluated, so a static import chain that reaches it (a registry module, a
+loader) binds the client before any `before()` hook can override the
+variable. The helper points `DATABASE_URL` at `TENANCY_TEST_DATABASE_URL`
+before anything under `src/` loads. Stage 05's review found three suites
+that silently ran against the shell's `DATABASE_URL` without it (H2).
 
 Without them, those files skip with an explicit reason and the rest of the
 suite runs normally — a developer without PostgreSQL is not blocked.

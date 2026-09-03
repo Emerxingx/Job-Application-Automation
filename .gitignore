@@ -15,8 +15,9 @@ dist/
 prisma/dev.db
 prisma/*.db
 
-# generated application folders (user data)
-storage/
+# generated application folders (user data) — anchored to the repo root so it
+# never swallows a source directory named storage (src/lib/storage/ is code)
+/storage/
 
 # CMS uploads
 media/

@@ -272,6 +272,17 @@ model Job {
   nocCode          String?
   occupationId     String?
   occupationSource String?
+  // Stage 05 (ADR-0008, JOB_INTELLIGENCE_ARCHITECTURE "Canonical job"):
+  // which registered source captured it, when it was first and last seen by
+  // a discovery run, whether it is still open, and the hash of the last
+  // normalised capture (a change writes a new immutable JobSnapshot).
+  sourceId    String?
+  firstSeenAt DateTime  @default(now())
+  lastSeenAt  DateTime  @default(now())
+  // active | closed | unknown
+  activeState String    @default("active")
+  closedAt    DateTime?
+  sourceHash  String    @default("")
   applyUrl       String    @default("")
   // Whether the posting can be submitted programmatically.
   applyMethod    String    @default("external") // external | email | ats_form
@@ -283,11 +294,14 @@ model Job {
   applications Application[]
   savedBy      SavedJob[]
   occupation   Occupation?   @relation(fields: [occupationId], references: [id], onDelete: SetNull)
+  jobSource    JobSource?    @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+  snapshots    JobSnapshot[]
 
   @@unique([source, externalId])
   @@index([title])
   @@index([postedAt])
   @@index([occupationId])
+  @@index([sourceId, activeState, lastSeenAt])
 }
 
 // Join of agent × job, carrying the AI match analysis. This is what the job
@@ -2898,4 +2912,129 @@ model RegionLabel {
   region Region @relation(fields: [regionId], references: [id], onDelete: Cascade)
 
   @@unique([regionId, locale])
+}
+
+// ---------------------------------------------------------------------------
+// Stage 05 — the job source connector framework (ADR-0008). Every source is
+// registered here with its legal basis, terms review, robots/ToS position,
+// rate limit, attribution, data categories, retention reference and the
+// person who approved enabling it (SOURCE_ACCESS_POLICY.md "Per-connector
+// record"); a connector runs only while its row is `enabled` AND the record
+// is complete. Credentials are named (environment variable NAMES), never
+// stored. Every run is audited in JobSourceRun; every capture whose content
+// changed is an immutable JobSnapshot — the Job Folder's promise.
+// ---------------------------------------------------------------------------
+
+model JobSource {
+  id                   String    @id @default(cuid())
+  key                  String    @unique // mock | adzuna | …
+  name                 String
+  // api | feed | ats_board | career_page | aggregator | crawl | mock —
+  // the ADR-0008 priority classes; `priority` is the class's rank (1 = best).
+  kind                 String
+  priority             Int       @default(6)
+  // disabled | enabled | degraded
+  status               String    @default("disabled")
+  legalBasis           String    @default("")
+  termsReviewedAt      DateTime?
+  termsReviewedByEmail String?
+  robotsPosition       String    @default("")
+  rateLimitPerMinute   Int       @default(0)
+  attributionRequired  Boolean   @default(false)
+  attributionText      String    @default("")
+  dataCategories       String    @default("[]") // JSON string array
+  personalData         Boolean   @default(false)
+  retentionRef         String    @default("")
+  approvedAt           DateTime?
+  approvedByEmail      String?
+  // Names of the environment variables the adapter reads. Never a value.
+  credentialEnvVars    String    @default("[]")
+  lastRunAt            DateTime?
+  lastSuccessAt        DateTime?
+  lastHealthAt         DateTime?
+  // unknown | ok | degraded | down
+  lastHealthStatus     String    @default("unknown")
+  lastError            String?
+  errorCount           Int       @default(0)
+  notes                String    @default("")
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  jobs      Job[]
+  runs      JobSourceRun[]
+  snapshots JobSnapshot[]
+}
+
+model JobSourceRun {
+  id          String    @id @default(cuid())
+  sourceId    String
+  // discover | refresh | health
+  kind        String
+  startedAt   DateTime  @default(now())
+  finishedAt  DateTime?
+  // running | ok | failed | refused
+  status      String    @default("running")
+  discovered  Int       @default(0)
+  created     Int       @default(0)
+  updated     Int       @default(0)
+  closed      Int       @default(0)
+  rejected    Int       @default(0)
+  errorCount  Int       @default(0)
+  error       String?
+  // JSON: the query shape (never candidate identity), latency, counts.
+  meta        String    @default("{}")
+
+  source JobSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  @@index([sourceId, startedAt])
+  // The console lists the latest runs across every source.
+  @@index([startedAt])
+}
+
+model JobSnapshot {
+  id         String   @id @default(cuid())
+  jobId      String
+  sourceId   String?
+  capturedAt DateTime @default(now())
+  // SHA-256 of the normalised posting; one snapshot per distinct content.
+  sourceHash String
+  // The normalised posting as captured, JSON. Immutable: never updated.
+  payload    String
+
+  job    Job        @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  source JobSource? @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+
+  @@unique([jobId, sourceHash])
+  @@index([jobId, capturedAt])
+}
+
+// The governed ATS ruleset registry (ADR-0019 Tier 1, moved out of the CMS in
+// Stage 05). Same lifecycle discipline as PromptVersion: a version is written
+// as a draft, approved by a second admin, activated (one active per
+// platform; activating an older approved version is the rollback), retired.
+// `pacing` deliberately offers no "stealth" option: pacing exists to respect
+// a site, never to evade its controls (ADR-0008 prohibitions).
+model AtsRuleset {
+  id                 String    @id @default(cuid())
+  platform           String // greenhouse | lever | workday | workable | taleo | ashby | smartrecruiters | icims | linkedin
+  version            Int
+  // draft | approved | active | retired
+  status             String    @default("draft")
+  // single_page | multi_step | account_required
+  navigationFlowType String    @default("single_page")
+  // standard | human_delay — human_delay also means assisted-apply only
+  pacing             String    @default("standard")
+  selectorMap        String    @default("{}") // JSON object
+  fallbackSelectors  String    @default("{}") // JSON object of arrays
+  notes              String    @default("")
+  createdById        String?
+  createdByEmail     String    @default("")
+  approvedById       String?
+  approvedByEmail    String?
+  approvedAt         DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@unique([platform, version])
+  @@index([platform, status])
 }

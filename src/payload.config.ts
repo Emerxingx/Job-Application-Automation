@@ -15,7 +15,6 @@ import { BlogPosts } from './cms/collections/BlogPosts';
 import { LearningPaths } from './cms/collections/LearningPaths';
 import { CareerGuides } from './cms/collections/CareerGuides';
 import { Certifications } from './cms/collections/Certifications';
-import { AtsRulesets } from './cms/collections/AtsRulesets';
 import { FieldMappings } from './cms/collections/FieldMappings';
 import { SeoPages } from './cms/collections/SeoPages';
 import { SiteSettings } from './cms/globals/SiteSettings';
@@ -88,12 +87,12 @@ export default buildConfig({
     CareerGuides,
     Certifications,
     // Automation-platform collections: read by the engine, written by staff.
-    // PromptRegistry left the CMS in Stage 03 (ADR-0003, ADR-0019): prompts
-    // are security-relevant configuration and now live in the transactional
-    // database as `PromptVersion`, administered from /console/prompts with
-    // step-up authentication, approval, evaluation gating and an audit trail.
-    // AtsRulesets and FieldMappings follow in Stages 05 and 12.
-    AtsRulesets,
+    // PromptRegistry left the CMS in Stage 03 and AtsRulesets in Stage 05
+    // (ADR-0003, ADR-0019): both are security-relevant configuration and
+    // now live in the transactional database as `PromptVersion` and
+    // `AtsRuleset`, administered from /console with step-up authentication,
+    // second-admin approval, activation / rollback and an audit trail.
+    // FieldMappings follows before Stage 12 goes to production.
     FieldMappings,
     SeoPages,
   ],

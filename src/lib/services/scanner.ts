@@ -1,5 +1,5 @@
 import { db } from '@/lib/db';
-import { getJobProvider } from '@/lib/providers';
+import { runDiscovery } from '@/lib/connectors/pipeline';
 import type { JobContext } from '@/lib/providers';
 import * as ai from '@/lib/ai/gateway';
 import { loadEvidenceForGeneration } from '@/lib/evidence/vault';
@@ -65,9 +65,13 @@ export async function runAgentScan(userId: string, agentId: string): Promise<Sca
 
   const user = await db.user.findUniqueOrThrow({ where: { id: userId } });
 
-  const jobs = getJobProvider();
-
-  const postings = await jobs.search({
+  // Stage 05: discovery goes through the connector pipeline (ADR-0008): the
+  // configured source must be registered, enabled, policy-recorded and
+  // credentialed, or the run is refused and recorded. Postings are
+  // normalised, validated, upserted with first/last-seen and snapshotted
+  // before anything is scored. The query carries search criteria only.
+  const sourceKey = (process.env.JOB_PROVIDER || 'mock').toLowerCase();
+  const discovery = await runDiscovery(sourceKey, {
     titles: parseJson<string[]>(agent.titles, []),
     keywords: parseJson<string[]>(agent.keywords, []),
     excludeKeywords: parseJson<string[]>(agent.excludeKeywords, []),
@@ -82,32 +86,9 @@ export async function runAgentScan(userId: string, agentId: string): Promise<Sca
   let newMatches = 0;
   let aboveThreshold = 0;
 
-  for (const posting of postings) {
-    // Upsert the posting itself — jobs are shared across all users.
-    const job = await db.job.upsert({
-      where: { source_externalId: { source: posting.source, externalId: posting.externalId } },
-      create: {
-        source: posting.source,
-        externalId: posting.externalId,
-        title: posting.title,
-        company: posting.company,
-        location: posting.location,
-        country: posting.country,
-        workMode: posting.workMode,
-        jobType: posting.jobType,
-        salaryMin: posting.salaryMin,
-        salaryMax: posting.salaryMax,
-        salaryCurrency: posting.salaryCurrency,
-        description: posting.description,
-        requirements: JSON.stringify(posting.requirements),
-        skills: JSON.stringify(posting.skills),
-        nocCode: posting.nocCode,
-        applyUrl: posting.applyUrl,
-        applyMethod: posting.applyMethod,
-        postedAt: posting.postedAt,
-      },
-      update: { scrapedAt: new Date(), description: posting.description },
-    });
+  for (const jobId of discovery.jobIds) {
+    const job = await db.job.findUnique({ where: { id: jobId } });
+    if (!job) continue;
 
     // Stage 04: classify the posting against the occupational spine once,
     // recording the METHOD alongside the id so a regex fallback is never
@@ -153,15 +134,15 @@ export async function runAgentScan(userId: string, agentId: string): Promise<Sca
     data: {
       userId,
       type: 'scan',
-      message: `${agent.name} scanned ${postings.length} live postings and found ${newMatches} new match${newMatches === 1 ? '' : 'es'}.`,
-      meta: JSON.stringify({ agentId: agent.id, scanned: postings.length, newMatches }),
+      message: `${agent.name} scanned ${discovery.run.discovered} live postings and found ${newMatches} new match${newMatches === 1 ? '' : 'es'}.`,
+      meta: JSON.stringify({ agentId: agent.id, scanned: discovery.run.discovered, newMatches, sourceRunId: discovery.run.id }),
     },
   });
 
   return {
     agentId: agent.id,
     agentName: agent.name,
-    scanned: postings.length,
+    scanned: discovery.run.discovered,
     newMatches,
     aboveThreshold,
   };

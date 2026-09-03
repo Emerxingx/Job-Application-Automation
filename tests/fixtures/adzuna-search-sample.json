@@ -1,0 +1,40 @@
+{
+  "__comment": "A recorded-shape Adzuna /v1/api/jobs/ca/search/1 response, hand-written to the documented field names (id, title, description, created, redirect_url, salary_min, salary_max, salary_is_predicted, company.display_name, location.display_name, location.area, contract_time, contract_type). Not captured from the live API: no request has been made with a live key from this codebase.",
+  "count": 3,
+  "results": [
+    {
+      "id": "4400001",
+      "title": "Senior Data Analyst",
+      "description": "We require 5+ years experience with SQL and Python. Knowledge of dbt is a plus. Hybrid role in Toronto.",
+      "created": "2026-08-30T10:00:00Z",
+      "redirect_url": "https://www.adzuna.ca/land/ad/4400001",
+      "salary_min": 95000,
+      "salary_max": 120000,
+      "salary_is_predicted": "0",
+      "company": { "display_name": "Northbridge Commerce" },
+      "location": { "display_name": "Toronto, Ontario", "area": ["Canada", "Ontario", "Toronto"] },
+      "contract_time": "full_time",
+      "contract_type": "permanent"
+    },
+    {
+      "id": "4400002",
+      "title": "Data Analyst (Contract)",
+      "description": "Remote contract. Must have experience in Tableau and SQL.",
+      "created": "2026-08-29T08:00:00Z",
+      "redirect_url": "https://www.adzuna.ca/land/ad/4400002",
+      "salary_min": 70000,
+      "salary_max": 80000,
+      "salary_is_predicted": "1",
+      "company": { "display_name": "Halcyon Retail" },
+      "location": { "display_name": "Vancouver, British Columbia", "area": ["Canada", "British Columbia", "Vancouver"] },
+      "contract_time": "full_time",
+      "contract_type": "contract"
+    },
+    {
+      "id": "4400003",
+      "title": "",
+      "description": "A record with no title and no link, which the adapter must skip rather than emit.",
+      "created": "2026-08-28T08:00:00Z"
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 # ADR-0008 — Job acquisition: lawful-source-only connector framework
 
-**Status:** Proposed · **Date:** 2026-09-02
+**Status:** Proposed · **Date:** 2026-09-02 · **Implemented (Stage 05, 2026-09-03):** `JobSourceConnector` with all eight methods (`src/lib/connectors/`), the per-connector register and enablement gate (`JobSource`, `requireEnabledSource()`), immutable `JobSnapshot`s, `JobSourceRun` audit, the contract suite (`tests/connector-contract.ts`) run on the mock and on Adzuna against a recorded-shape fixture, `/console/sources`. Adzuna remains `IMPLEMENTED-NOT-VALIDATED`: no live call has been made; its register row is `disabled` with an empty legal basis until a person records the terms. Evidence: `../programme/STAGE05_EVIDENCE.md`.
 
 ## Context
 Existing: a `JobProvider` interface with two methods (`search`, `submit`), one

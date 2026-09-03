@@ -37,7 +37,7 @@ They move to the platform admin (`ADR-0019`) **as each becomes production-active
 | Collection | Moves by |
 | --- | --- |
 | `PromptRegistry` | **DONE, Stage 03 (2026-09-03)** — removed from `payload.config.ts`; now `PromptVersion` in the transactional database, administered at `/console/prompts` (admin, step-up, approval, evaluation-gated promotion, rollback, audit). `prompt-engine.ts` deleted; `prompt-interpolate.ts` retained |
-| `AtsRulesets` / job-source config | before or during **Stage 05** |
+| `AtsRulesets` / job-source config | **DONE, Stage 05 (2026-09-03)** — `AtsRuleset` in the transactional database, `/console/ats-rulesets` (second-admin approval, activation / rollback, step-up, audit, no evasion setting); job-source config is the `JobSource` register at `/console/sources` |
 | `FieldMappings` / automation config | before production use of **Stage 12** |
 
 Each arrives with versioning, audit history, role-restricted administration,

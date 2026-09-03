@@ -196,6 +196,15 @@ export const RLS_TABLES: Record<string, RlsKind> = {
   CareerPath: { kind: 'reference' },
   Region: { kind: 'reference' },
   RegionLabel: { kind: 'reference' },
+
+  // --- Stage 05: the connector framework (ADR-0008). The source register and
+  //     run audit are admin surfaces (legal basis, credential names, errors):
+  //     system-only. Snapshots are the posting as captured, shared like Job.
+  //     The ATS ruleset registry is read by the v1 API on the system client.
+  JobSource: { kind: 'system' },
+  JobSourceRun: { kind: 'system' },
+  JobSnapshot: { kind: 'reference' },
+  AtsRuleset: { kind: 'system' },
   PlanPrice: { kind: 'reference', where: `"active" = true` },
   Job: { kind: 'reference' },
   TaxRate: { kind: 'reference', where: `"active" = true` },
@@ -274,9 +283,12 @@ export const STAGE_04_TABLES = [
   'SkillLabel', 'SkillMapping', 'TaxonomyDataset',
 ];
 
+export const STAGE_05_TABLES = ['AtsRuleset', 'JobSnapshot', 'JobSource', 'JobSourceRun'];
+
 export const RLS_MANIFESTS: RlsManifest[] = [
   { migration: '20260903073000_row_level_security', preamble: true, tables: STAGE_01_TABLES },
   { migration: '20260903081400_rls_candidate_tables', preamble: false, tables: STAGE_02_TABLES },
   { migration: '20260903090100_rls_evidence_tables', preamble: false, tables: STAGE_03_TABLES },
   { migration: '20260903100100_rls_taxonomy_tables', preamble: false, tables: STAGE_04_TABLES },
+  { migration: '20260903110100_rls_connector_tables', preamble: false, tables: STAGE_05_TABLES },
 ];

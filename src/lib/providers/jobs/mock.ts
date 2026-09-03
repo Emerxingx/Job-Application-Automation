@@ -584,7 +584,6 @@ export class MockJobProvider implements JobProvider {
 
     const excludes = (query.excludeKeywords ?? []).map((s) => s.toLowerCase()).filter(Boolean);
     const locations = (query.locations ?? []).map((s) => s.toLowerCase()).filter(Boolean);
-    const now = Date.now();
 
     const scored = CATALOGUE.map((t) => ({ t, score: relevance(t, query) }))
       .filter(({ t, score }) => {
@@ -617,34 +616,56 @@ export class MockJobProvider implements JobProvider {
 
     const limit = query.limit ?? 25;
 
-    return scored.slice(0, limit).map(({ t }, i) => {
-      const seed = hash(`${t.company}:${t.title}:${new Date().toDateString()}`);
-      const variant = POSTING_VARIANTS[seed % POSTING_VARIANTS.length];
-      // Spread posting dates across the last 14 days.
-      const daysAgo = (seed >> 3) % 14;
-      const postedAt = new Date(now - daysAgo * 86400000 - (i * 3600000));
+    return scored.slice(0, limit).map(({ t }) => this.toPosting(t));
+  }
 
-      return {
-        source: 'mock',
-        externalId: `mock-${hash(`${t.company}:${t.title}`)}`,
-        title: `${t.title}${variant}`,
-        company: t.company,
-        location: t.location,
-        country: t.country,
-        workMode: t.workMode,
-        jobType: t.jobType,
-        salaryMin: t.salaryMin,
-        salaryMax: t.salaryMax,
-        salaryCurrency: t.currency,
-        description: buildDescription(t),
-        requirements: t.requirements,
-        skills: t.skills,
-        nocCode: t.nocCode,
-        applyUrl: `https://careers.example.com/${t.company.toLowerCase().replace(/[^a-z]/g, '-')}/${hash(t.title)}`,
-        applyMethod: seed % 3 === 0 ? 'ats_form' : 'external',
-        postedAt,
-      } satisfies RawJobPosting;
-    });
+  /**
+   * Every catalogue entry as a posting, regardless of any query — what the
+   * connector uses to answer fetch() and refresh() honestly.
+   */
+  all(): RawJobPosting[] {
+    return CATALOGUE.map((t) => this.toPosting(t));
+  }
+
+  /**
+   * Posting dates are spread across the last 14 days from the START of the
+   * current day, not from the current millisecond, so a posting's content is
+   * stable within a day: the pipeline hashes content, and a mock that moved
+   * every timestamp on every call would write a new snapshot per scan. The
+   * hour-of-day spread is derived from the template itself, never from the
+   * posting's position in a result list: the same posting must hash the same
+   * whichever query found it, or every agent with a different query would
+   * write a spurious "content changed" snapshot.
+   */
+  private toPosting(t: JobTemplate): RawJobPosting {
+    const dayStart = new Date();
+    dayStart.setUTCHours(0, 0, 0, 0);
+    const seed = hash(`${t.company}:${t.title}:${dayStart.toDateString()}`);
+    const variant = POSTING_VARIANTS[seed % POSTING_VARIANTS.length];
+    const daysAgo = (seed >> 3) % 14;
+    const hourOffset = hash(`${t.company}:${t.title}`) % 24;
+    const postedAt = new Date(dayStart.getTime() - daysAgo * 86400000 - hourOffset * 3600000);
+
+    return {
+      source: 'mock',
+      externalId: `mock-${hash(`${t.company}:${t.title}`)}`,
+      title: `${t.title}${variant}`,
+      company: t.company,
+      location: t.location,
+      country: t.country,
+      workMode: t.workMode,
+      jobType: t.jobType,
+      salaryMin: t.salaryMin,
+      salaryMax: t.salaryMax,
+      salaryCurrency: t.currency,
+      description: buildDescription(t),
+      requirements: t.requirements,
+      skills: t.skills,
+      nocCode: t.nocCode,
+      applyUrl: `https://careers.example.com/${t.company.toLowerCase().replace(/[^a-z]/g, '-')}/${hash(t.title)}`,
+      applyMethod: seed % 3 === 0 ? 'ats_form' : 'external',
+      postedAt,
+    } satisfies RawJobPosting;
   }
 
   async submit(input: {
