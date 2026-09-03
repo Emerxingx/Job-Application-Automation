@@ -7,7 +7,7 @@
   "current_branch": "claude/stage-10-job-folder-crm",
   "current_head": "08548a72f8c5478510c38750a9e09ecb96198480",
   "current_head_meaning": "SHA of the last commit whose full gate set was verified locally (lint, typecheck, tests, build). Set by the status-sync commit that immediately follows it, so it names a real, verified commit rather than the one it is written in.",
-  "current_pr": null,
+  "current_pr": 22,
   "main_head": "d6ae8b3a9180b529abe06f23417515432c0a7f0e",
   "run_complete": false,
   "stage_status": {
