@@ -22,8 +22,14 @@ GRANT USAGE ON SCHEMA public TO app_tenant;
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO app_tenant;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO app_tenant;
 -- Prisma's migration ledger is not application data and is not classified;
--- the blanket grant above must not reach it.
-REVOKE ALL ON "_prisma_migrations" FROM app_tenant;
+-- the blanket grant above must not reach it. Conditional because Prisma's
+-- SHADOW database (used by `migrate dev` to compute diffs) replays the
+-- migration files without creating the ledger table.
+DO $$ BEGIN
+  IF to_regclass('public._prisma_migrations') IS NOT NULL THEN
+    EXECUTE 'REVOKE ALL ON "_prisma_migrations" FROM app_tenant';
+  END IF;
+END $$;
 -- Tables created by later migrations get the same grants; their policies are
 -- still their own migration's job, and the coverage test fails until they exist.
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO app_tenant;

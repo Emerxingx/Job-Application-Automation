@@ -96,8 +96,14 @@ function render(): string {
   emit(`GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO ${TENANT_ROLE};`);
   emit(`GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO ${TENANT_ROLE};`);
   emit(`-- Prisma's migration ledger is not application data and is not classified;`);
-  emit(`-- the blanket grant above must not reach it.`);
-  emit(`REVOKE ALL ON "_prisma_migrations" FROM ${TENANT_ROLE};`);
+  emit(`-- the blanket grant above must not reach it. Conditional because Prisma's`);
+  emit(`-- SHADOW database (used by \`migrate dev\` to compute diffs) replays the`);
+  emit(`-- migration files without creating the ledger table.`);
+  emit(`DO $$ BEGIN`);
+  emit(`  IF to_regclass('public._prisma_migrations') IS NOT NULL THEN`);
+  emit(`    EXECUTE 'REVOKE ALL ON "_prisma_migrations" FROM ${TENANT_ROLE}';`);
+  emit(`  END IF;`);
+  emit(`END $$;`);
   emit(`-- Tables created by later migrations get the same grants; their policies are`);
   emit(`-- still their own migration's job, and the coverage test fails until they exist.`);
   emit(`ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ${TENANT_ROLE};`);
