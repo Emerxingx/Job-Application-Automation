@@ -131,7 +131,7 @@ Runs:
 | Local PostgreSQL 16.13, direct | full `npm test` | **754 / 754, 0 skipped** |
 | **PgBouncer 1.22, `pool_mode = transaction`, `default_pool_size = 4`**, Prisma URL with `pgbouncer=true` | tenancy + organizations + sessions | **28 / 28** |
 | Same pooler, sequentially, then the raw mechanism proof through the same pooler | tenancy + rls-isolation | **22 / 22** |
-| CI (`postgres:16` service) | full `npm test` | see PR #13 checks |
+| CI (`postgres:16` service), head `26813d2` | full `npm test` after `migrate deploy` | **success** — run `33730207735` |
 | **Supavisor on the staging project** | — | **NOT VERIFIED** (§1) |
 
 Finding from the pooled run, kept on record: the raw mechanism proof
@@ -211,7 +211,7 @@ psql "$DIRECT_URL" -Atc "select current_setting('server_version'), inet_server_a
 | `npm test` (with both database URLs) | 754 / 754, 0 skipped |
 | `npm run build` | exit 0, 89 routes |
 | `npm audit` | 8 (1 low, 7 moderate, **0 high**) |
-| CI on PR #13 | see the PR checks |
+| CI on PR #13, head `26813d2` | run [`33730207735`](https://github.com/Emerxingx/Job-Application-Automation/actions/runs/33730207735): **Verify (migrate deploy → drift check → status → lint → typecheck → test → build) success**, Generated-file determinism success, Line-ending policy success; [`33730207748`](https://github.com/Emerxingx/Job-Application-Automation/actions/runs/33730207748) npm audit success |
 
 ## 10. Stage 01 exit gate — verdict
 
