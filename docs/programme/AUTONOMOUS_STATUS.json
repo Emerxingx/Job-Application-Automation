@@ -433,7 +433,7 @@
       "Canonical folder live: full field set, complete status history, structured outcome",
       "Every write on the tenant path under RLS, audited without content; export honours retention and erasure",
       "Folder completeness against the acceptance question, on the page and tested",
-      "Full gate set green with the documented command only: lint 0/8, typecheck 0, 1012/1012 tests (0 skipped), build 0"
+      "Full gate set green with the documented command only: lint 0/8, typecheck 0, 1015/1015 tests (0 skipped), build 0"
     ],
     "not_met": [
       "Every ACCESS audited — reads are not audited per view (stated; Stage 20/23 decision)",
