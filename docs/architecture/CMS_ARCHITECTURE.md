@@ -29,14 +29,14 @@ writes a Prisma table, and no business logic depends on Payload being configured
 It is recorded here as normative so it is not eroded later.
 
 ## Planned refinement — staged by production-activation, not deferred to Stage 20
-Three current collections are **operational configuration, not editorial content**:
+Three collections were **operational configuration, not editorial content**:
 `AtsRulesets`, `PromptRegistry`, `FieldMappings`.
 
 They move to the platform admin (`ADR-0019`) **as each becomes production-active**:
 
 | Collection | Moves by |
 | --- | --- |
-| `PromptRegistry` | before or during **Stage 03** |
+| `PromptRegistry` | **DONE, Stage 03 (2026-09-03)** — removed from `payload.config.ts`; now `PromptVersion` in the transactional database, administered at `/console/prompts` (admin, step-up, approval, evaluation-gated promotion, rollback, audit). `prompt-engine.ts` deleted; `prompt-interpolate.ts` retained |
 | `AtsRulesets` / job-source config | before or during **Stage 05** |
 | `FieldMappings` / automation config | before production use of **Stage 12** |
 

@@ -17,12 +17,15 @@ export interface JobContext {
 }
 
 /**
- * Contract for the intelligence layer.
+ * Contract for the DETERMINISTIC intelligence layer.
  *
- * The mock implementation is a real, deterministic keyword/semantic engine —
- * not random numbers — so scores are explainable and stable. The Anthropic
- * implementation swaps in an LLM for higher-quality rewriting while keeping
- * the same shape.
+ * The implementation (`MockAIProvider`) is a real keyword/semantic engine, not
+ * random numbers: scores are explainable and stable, and it is built only from
+ * the résumé, so its output is evidence-grounded by construction. Stage 03
+ * made it the engine of record: every task runs it first (as the baseline the
+ * grounding checker falls back to per section), and it serves the whole
+ * request whenever the tenant's policy, the prompt registry or the provider
+ * does not permit an external model (`src/lib/ai/gateway.ts`).
  */
 export interface AIProvider {
   readonly name: string;
@@ -35,4 +38,29 @@ export interface AIProvider {
 
   /** Build an interview preparation pack for a submitted application. */
   prepareInterview(resume: ResumeContent, job: JobContext): Promise<InterviewPrepPackage>;
+}
+
+/** One structured-output request, fully rendered. The provider adds nothing. */
+export interface CompletionRequest {
+  model: string;
+  system: string;
+  prompt: string;
+  /** JSON schema the response must satisfy; the provider constrains output to it. */
+  schema: Record<string, unknown>;
+  maxTokens?: number;
+  effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+}
+
+/**
+ * Contract for an EXTERNAL model provider (Anthropic today).
+ *
+ * Deliberately narrow: it takes a rendered prompt and returns parsed JSON or
+ * null. It holds no prompt text (the governed registry does — ADR-0019), makes
+ * no routing decision (the gateway does — ADR-0015) and never falls back on
+ * its own: a null is the gateway's signal to degrade explicitly and record it.
+ * Only `src/lib/ai/gateway.ts` may call it (a static test enforces this).
+ */
+export interface ExternalModelProvider {
+  readonly name: string;
+  complete<T>(request: CompletionRequest): Promise<T | null>;
 }

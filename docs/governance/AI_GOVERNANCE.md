@@ -2,6 +2,16 @@
 
 **Architecture:** `../architecture/AI_ARCHITECTURE.md` · **Decision:** `../adr/ADR-0006-ai-abstraction.md`
 
+**Implementation status (Stage 03, 2026-09-03).** The controls below are code,
+not intent: the gateway (`src/lib/ai/gateway.ts`), the grounding checker
+(`src/lib/ai/grounding.ts`), the vault (`src/lib/evidence/vault.ts`), the
+governed registry (`src/lib/ai/prompt-registry.ts`, `/console/prompts`) and
+the `AiRun` record. The truthfulness suite runs on the deterministic path and
+on the live-model path **with a fake provider**; no real model has been
+evaluated, so no prompt version is `default` and every task is currently
+served by the deterministic engine. Evidence and limits:
+`../programme/STAGE03_EVIDENCE.md`.
+
 ## The truthfulness rule
 
 **AI may:** prioritise, reframe, summarise, reorganise, and truthfully adapt

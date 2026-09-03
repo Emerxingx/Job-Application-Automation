@@ -172,15 +172,18 @@ export class MockAIProvider implements AIProvider {
     const skillsReordered = prioritized.join('|') !== resume.skills.join('|');
     if (skillsReordered) changes.push('Reordered the skills section to lead with the requirements named in this posting.');
 
-    // 2. Inject genuinely-missing keywords the candidate plausibly holds. We
-    //    only add keywords adjacent to skills already evidenced, so the resume
-    //    stays truthful rather than keyword-stuffed.
+    // 2. Surface missing keywords the résumé ALREADY EVIDENCES outside the
+    //    skills list — a technology named in a bullet, a project or a
+    //    certification but never listed as a skill. Nothing else is ever
+    //    added: a keyword the résumé does not mention anywhere is a claim the
+    //    candidate has not made, and the grounding checker would reject it
+    //    (AI_GOVERNANCE.md — the truthfulness rule applies to this engine too).
     const injectable = analysis.missingKeywords
-      .filter((k) => this.isAdjacentToExisting(k, resume.skills))
+      .filter((k) => this.isEvidencedElsewhere(k, resume))
       .slice(0, 5);
     const finalSkills = [...prioritized, ...injectable.filter((k) => !prioritized.some((s) => normalize(s) === normalize(k)))];
     if (injectable.length) {
-      changes.push(`Surfaced ${injectable.length} adjacent skill${injectable.length > 1 ? 's' : ''} you already demonstrate: ${injectable.join(', ')}.`);
+      changes.push(`Listed ${injectable.length} skill${injectable.length > 1 ? 's' : ''} your experience already evidences: ${injectable.join(', ')}.`);
     }
 
     // 3. Rewrite the professional summary around the target title and company.
@@ -248,33 +251,25 @@ export class MockAIProvider implements AIProvider {
     };
   }
 
-  /** A missing keyword is safe to surface only if the resume shows a close cousin. */
-  private isAdjacentToExisting(keyword: string, skills: string[]): boolean {
-    const ADJACENCY: Record<string, string[]> = {
-      sql: ['mysql', 'postgresql', 'bigquery', 'snowflake', 'redshift', 'database'],
-      python: ['pandas', 'numpy', 'pytorch', 'tensorflow'],
-      'power bi': ['tableau', 'looker', 'dax', 'excel'],
-      tableau: ['power bi', 'looker'],
-      looker: ['tableau', 'power bi', 'lookml'],
-      etl: ['elt', 'airflow', 'dbt', 'pipeline'],
-      agile: ['scrum', 'kanban', 'jira'],
-      scrum: ['agile', 'kanban', 'jira'],
-      docker: ['kubernetes', 'containers'],
-      kubernetes: ['docker', 'terraform'],
-      typescript: ['javascript', 'react', 'node.js'],
-      javascript: ['typescript', 'react', 'node.js'],
-      react: ['javascript', 'typescript', 'next.js'],
-      aws: ['azure', 'gcp', 'cloud'],
-      documentation: ['communication', 'presentation'],
-      collaboration: ['communication', 'stakeholder management'],
-      'stakeholder management': ['communication', 'collaboration', 'presentation'],
-    };
-
+  /**
+   * A missing keyword may be surfaced only if the résumé itself evidences it
+   * somewhere other than the skills list — the candidate wrote it, so listing
+   * it is a reorganisation, not an assertion.
+   */
+  private isEvidencedElsewhere(keyword: string, resume: ResumeContent): boolean {
     const kw = normalize(keyword);
-    const neighbours = ADJACENCY[kw];
-    if (!neighbours) return false;
-    const owned = skills.map((s) => normalize(s));
-    return neighbours.some((n) => owned.some((o) => o.includes(n) || n.includes(o)));
+    if (!kw) return false;
+    const haystack = normalize(
+      [
+        resume.headline,
+        resume.summary,
+        ...resume.certifications,
+        ...(resume.projects ?? []).flatMap((p) => [p.name, p.description]),
+        ...resume.experience.flatMap((e) => [e.title, ...e.bullets]),
+      ].join(' '),
+    );
+    // Word-bounded so "r" does not match "react" and "go" does not match "google".
+    return new RegExp(`(^|[^a-z0-9+#])${kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}($|[^a-z0-9+#])`).test(haystack);
   }
 
   private coverLetter(resume: ResumeContent, job: JobContext, analysis: MatchAnalysis): string {
@@ -299,7 +294,10 @@ export class MockAIProvider implements AIProvider {
       ``,
       `In my most recent role at ${recent?.company ?? 'my current organization'}, I ${lowerFirst(proof)} That work maps closely to what this position requires: ${job.requirements[0] ? lowerFirst(job.requirements[0]) : 'delivering outcomes with measurable business impact'}.`,
       ``,
-      `What draws me to ${job.company} specifically is the opportunity to ${lowerFirst(job.description.split('\n').find((l) => l.trim() && !l.startsWith('About') && !l.startsWith('-')) ?? 'contribute to work that matters at scale')} I am confident I would contribute quickly, and I would welcome the chance to discuss how my background fits your team's priorities.`,
+      // Nothing from the posting's free text is copied into the letter: a
+      // description is untrusted input (it can carry instructions or claims),
+      // and quoting it would put the poster's words in the candidate's mouth.
+      `What draws me to ${job.company} specifically is the chance to apply ${top.length ? top.slice(0, 2).join(' and ') : 'this experience'} to the problems your posting describes. I am confident I would contribute quickly, and I would welcome the chance to discuss how my background fits your team's priorities.`,
       ``,
       `Thank you for your time and consideration.`,
       ``,
@@ -414,7 +412,7 @@ export class MockAIProvider implements AIProvider {
         title: t.title,
         situation: `While working as ${article(role.title)} ${role.title} at ${role.company}, the team faced a situation that required decisive ownership. (Replace this with the specific context — the constraint, the stakes, and who was affected.)`,
         task: `You were responsible for the outcome. State precisely what was yours to solve, and what success was defined as.`,
-        action: `${bullet} Break this into the two or three decisions you personally made, and why you chose each.`,
+        action: `${/[.!?]$/.test(bullet) ? bullet : `${bullet}.`} Break this into the two or three decisions you personally made, and why you chose each.`,
         result: `Close with the quantified outcome — the number, the timeline, and what changed for the business afterwards.`,
         mapsTo: t.maps,
       };

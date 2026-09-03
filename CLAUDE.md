@@ -26,7 +26,7 @@ remediation has begun.**
 npm ci                # install from the lockfile
 npm run dev           # http://localhost:3000
 npx tsc --noEmit      # typecheck  — PASSES
-npm test              # 788 tests  — PASSES with the two database URLs below set; the
+npm test              # 843 tests  — PASSES with the two database URLs below set; the
                       #   database suites skip WITH A REASON without them and THROW
                       #   when CI=true, so CI cannot pass by skipping them
 npm run build         # production — PASSES
@@ -135,6 +135,22 @@ npm run cms:types          # regenerate payload-types.ts
     itself** are all `IMPLEMENTED-NOT-VALIDATED`. Code existing is not evidence of
     working.
 
+13. **Every model-backed task goes through `src/lib/ai/gateway.ts`** (Stage 03).
+    It resolves the tenant's `aiProcessingPolicy` before dispatch (missing →
+    `EXTERNAL_AI_PROHIBITED`), refuses payloads carrying a `RESTRICTED` key,
+    always runs the deterministic engine, grounds every generated section in
+    code against the résumé + approved evidence, and writes an `AiRun` row
+    with the exact prompt version. Prompts live in `PromptVersion`
+    (`/console/prompts`), not in code and not in the CMS; **no version is
+    `default` yet**, so every task is served by the deterministic engine and
+    recorded as `deterministic` / `degraded` — that is the fail-closed design,
+    not a bug. A static test fails if anything outside the gateway touches
+    the SDK or the provider.
+
+14. **Approved evidence is immutable** (`CareerEvidence`): the service refuses
+    edits and a database trigger refuses them independently. A correction is
+    a new version with `supersedesId`.
+
 ## Conventions worth preserving
 
 - **The provider pattern** (`src/lib/providers/`): interface, mock default, lazy
@@ -174,6 +190,11 @@ npm run cms:types          # regenerate payload-types.ts
    **generated**. Regenerate them; never hand-edit.
 8. **Never print, log or commit `DATABASE_URL` / `DIRECT_URL`.** Diagnostics use
    `describeDatabaseUrl()` (redacted host, port, mode) and nothing else.
+
+9. **Never call a model provider outside `src/lib/ai/gateway.ts`, and never set
+   `PromptVersion.deploymentStatus = 'default'` by hand.** Promotion goes through
+   `promotePromptVersion`, which refuses until an evaluation has passed
+   (`docs/governance/AI_GOVERNANCE.md`).
 
 ## Dependency constraint you must know
 `@payloadcms/next@3.88.0` declares:

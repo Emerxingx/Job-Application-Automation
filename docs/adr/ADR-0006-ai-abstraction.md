@@ -1,6 +1,6 @@
 # ADR-0006 — AI provider abstraction and model routing
 
-**Status:** Proposed · **Date:** 2026-09-02
+**Status:** Proposed · **Date:** 2026-09-02 · **Implemented (Stage 03, 2026-09-03):** the task-shaped gateway exists at `src/lib/ai/gateway.ts` — policy resolved before dispatch, `RESTRICTED` payloads refused, deterministic engine always run as the grounded baseline, output grounded in code before render, an `AiRun` row per run with the exact prompt version. The Anthropic adapter is now a transport (`AnthropicModelProvider`) with no prompts, routing or fallback of its own; the fallback described in Context below moved into the gateway and is recorded, never silent. Evidence: `../programme/STAGE03_EVIDENCE.md` §6–7. Live-model path validated with a fake provider only.
 
 ## Context
 What exists is a genuine asset and must be preserved:

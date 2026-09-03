@@ -1,5 +1,6 @@
 import { db } from '@/lib/db';
-import { getAIProvider } from '@/lib/providers';
+import * as ai from '@/lib/ai/gateway';
+import { loadEvidenceForGeneration } from '@/lib/evidence/vault';
 import { getApplyProvider } from '@/lib/providers/apply';
 import type { ApplyChannel } from '@/lib/providers/apply';
 import { createApplicationFolder } from '@/lib/storage';
@@ -66,13 +67,16 @@ export async function applyToJobs(userId: string, jobIds: string[]): Promise<Bul
   // Stage 02: the structured profile, projected, loaded on the TENANT path
   // (as app_tenant — no privilege on the sensitive schema, ADR-0007). The
   // apply engine itself stays on the system client until Stage 12 (R-35).
-  const resumeContent = await withTenant({ userId }, (tx) => loadResumeContent(tx, userId));
+  // Stage 03: approved evidence (ids + claims) accompanies every generation.
+  const { resumeContent, evidence } = await withTenant({ userId }, async (tx) => ({
+    resumeContent: await loadResumeContent(tx, userId),
+    evidence: await loadEvidenceForGeneration(tx, userId),
+  }));
   if (!resumeContent) {
     await refundQuota(userId, granted);
     throw new Error('Add your resume before applying.');
   }
 
-  const ai = getAIProvider();
   const applyEngine = getApplyProvider();
 
   const [firstName = user.fullName, ...restName] = user.fullName.trim().split(/\s+/);
@@ -131,9 +135,11 @@ export async function applyToJobs(userId: string, jobIds: string[]): Promise<Bul
             missingKeywords: parseJson<string[]>(match.missingKeywords, []),
             rationale: match.rationale,
           }
-        : await ai.analyzeMatch(resumeContent, context);
+        : (await ai.analyzeMatch({ userId, evidence, inputRefs: [`job:${jobId}`] }, resumeContent, context)).value;
 
-      const tailored = await ai.tailor(resumeContent, context, analysis);
+      // Stage 03: the gateway resolves the tenant's AI policy, records the
+      // run, and rejects unevidenced claims in code before render.
+      const { value: tailored } = await ai.tailor({ userId, evidence, inputRefs: [`job:${jobId}`] }, resumeContent, context, analysis);
 
       const submission = await applyEngine.apply({
         job: {

@@ -88,11 +88,23 @@ warned on the key. The plan is complete.
 
 ## The database suites
 
-Since Stage 01 the transactional store is PostgreSQL, and five files need a
+Since Stage 01 the transactional store is PostgreSQL, and these files need a
 real one: `rls-isolation` (mechanism; creates its own schema and role),
-`tenancy-isolation`, `organizations`, `sessions` and `identity-link` (all run
-through the migrated schema — apply the history with `npm run db:migrate:deploy`
-first).
+`tenancy-isolation`, `organizations`, `sessions`, `identity-link`,
+`sensitive-segregation`, `digital-twin-backfill` (Stage 02), and
+`ai-gateway`, `evidence-vault`, `question-bank`, `prompt-registry` (Stage 03)
+— all run through the migrated schema (apply the history with
+`npm run db:migrate:deploy` first).
+
+**The AI suites (Stage 03).** `ai-grounding` is pure and runs everywhere: a
+fixed profile, a posting carrying a prompt injection, adversarial "model
+output" with an invented employer, degree, metric, technology and role, and
+the deterministic engine's own output as the false-positive check.
+`ai-gateway` runs the same fabrications through the real gateway with a
+**fake external provider** against the database, and proves the per-tenant
+policy routing, the `RESTRICTED`-payload refusal and the `AiRun` record. The
+fake is the boundary rule 4 below describes: what a real model returns has
+never been observed from this codebase, and the register says so.
 
 **Running them.** Set `RLS_TEST_DATABASE_URL` (any PostgreSQL 14+ the test may
 create and drop a schema and a role in) and `TENANCY_TEST_DATABASE_URL` (a

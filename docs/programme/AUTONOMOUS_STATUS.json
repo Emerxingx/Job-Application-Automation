@@ -2,19 +2,19 @@
   "$comment": "Machine-readable controller for the autonomous build programme. Authoritative over any chat transcript: if this file and a conversation disagree, this file wins. Updated at every stage checkpoint.",
   "schema_version": 1,
   "updated_at": "2026-09-03",
-  "current_stage": "02",
+  "current_stage": "03",
   "last_completed_stage": "00",
-  "current_branch": "claude/stage-02-candidate-digital-twin",
+  "current_branch": "claude/stage-03-career-evidence-vault",
   "current_head": "d2b26932ad0ec2fe2442a4f49d1c7b9b55e273dd",
   "current_head_meaning": "SHA of the last commit whose full gate set was verified locally (lint, typecheck, tests, build). Set by the status-sync commit that immediately follows it, so it names a real, verified commit rather than the one it is written in.",
-  "current_pr": 14,
+  "current_pr": null,
   "main_head": "d6ae8b3a9180b529abe06f23417515432c0a7f0e",
   "run_complete": false,
   "stage_status": {
     "00": "PASS",
     "01": "PARTIAL",
     "02": "PASS_PENDING_MERGE",
-    "03": "NOT_STARTED",
+    "03": "PASS_ENGINEERING_EXIT_BLOCKED_L3",
     "04": "NOT_STARTED",
     "05": "NOT_STARTED",
     "06": "NOT_STARTED",
@@ -83,7 +83,7 @@
     ],
     "verdict": "Stage 01 is PARTIAL, not PASS. Every unmet item traces to the staging project being unreachable from the build environment, except tenant-path adoption, which is engineering and continues in Stage 02 alongside the schema work that touches those handlers."
   },
-  "next_requirement": "Stage 03 (Career Evidence Vault and application-question architecture) begins on a branch stacked on Stage 02: evidence records with provenance, application-answer bank, PromptRegistry to governed admin, per-tenant AI policy enforced in the gateway (fail closed). L-3 (cross-border AI processing) is OPEN and gates Stage 03's exit: the gateway and the vault can be built; live external AI generation for restricted tenants cannot be enabled.",
+  "next_requirement": "Stage 03 engineering is complete (see stage_03_exit_gate). Its exit is BLOCKED on L-3 (LEGAL_COMPLIANCE): external generation stays off by construction until founder + counsel decide and an operator records an evaluation pass and promotes a prompt version. Independent work continues: Stage 04 (Canada occupation, skills and labour intelligence) begins on a branch stacked on Stage 03; its ingestion is gated on L-2 (dataset licences) and must not ingest before the licence is recorded.",
   "blockers": [
     {
       "id": "L-3",
@@ -91,7 +91,8 @@
       "issue": "Cross-border AI processing acceptability under intended customer contracts",
       "owner": "Founder + privacy counsel",
       "latest_blocking_stage": "03",
-      "status": "OPEN"
+      "status": "OPEN",
+      "effect": "Stage 03 exit BLOCKED. The gateway enforces the per-tenant policy in code (tests/ai-gateway.test.ts): EXTERNAL_AI_PROHIBITED and EXTERNAL_AI_RESTRICTED tenants never route externally, and no prompt version is default, so no candidate data leaves the boundary today for any tenant. Resolution is a legal decision recorded in COMPLIANCE_REGISTER.md, followed by an operator evaluation + promotion at /console/prompts; no code change is needed to enable or keep disabled."
     },
     {
       "id": "SUPABASE-RESIDENCY",
@@ -153,6 +154,12 @@
       "action": "Publish the Terms of Service and Privacy Policy text (with counsel) at /terms and /privacy under version 2026-09-01, or bump CONSENT_VERSIONS when the text lands.",
       "why": "Consent is captured against a version whose wording is not yet published (R-36). Fine with no real users; a launch blocker.",
       "status": "FOUNDER_DECISION"
+    },
+    {
+      "id": "PROMPT-EVALUATION",
+      "action": "With an Anthropic key available (never in the build), run the three seeded prompt versions (analyze-match, tailor, prepare-interview) against a golden set, record the result at /console/prompts with a note, and promote the versions that pass. Until then every AI task is served by the deterministic engine and recorded as deterministic/degraded.",
+      "why": "AI_GOVERNANCE.md: a version cannot be default until it has passed evaluation. No live-model evaluation has ever been run from this codebase.",
+      "status": "REQUIRED_BEFORE_EXTERNAL_AI"
     }
   ],
   "invariants_never_to_break": [
@@ -167,7 +174,10 @@
     "Every new table is classified in src/lib/tenancy/rls-tables.ts and the RLS migration regenerated; the coverage test enforces it.",
     "User-facing queries run inside requireTenant().run(tx => …); a db. call inside a run callback escapes the transaction and is a defect.",
     "prisma migrate deploy is the only production migration path; db push is local prototyping only.",
-    "DATABASE_URL and DIRECT_URL authenticate as the SAME role: the system RLS policy is bound to the migration role; a different application role sees nothing."
+    "DATABASE_URL and DIRECT_URL authenticate as the SAME role: the system RLS policy is bound to the migration role; a different application role sees nothing.",
+    "Every model-backed task goes through src/lib/ai/gateway.ts: the tenant's AI policy is resolved before dispatch, RESTRICTED fields are refused, the deterministic engine always runs, output is grounded in code before render, and an AiRun row records the route and the exact prompt version. Nothing else may import the SDK or an external provider (static test).",
+    "A prompt version serves traffic only as PromptVersion.deploymentStatus = default, reached only through promote, which refuses unless evaluationStatus = passed. Never set default by hand.",
+    "Approved evidence is immutable (service + database trigger); a correction is a new version."
   ],
   "stage_02_progress": {
     "digital_twin_schema": "DONE — 11 tables (CandidateProfile, EmploymentHistory, Education, Skill, CandidateSkill, Certification, Project, Achievement, CandidateLanguage, CareerPreferences, WorkAuthorization), classification comments, migration 20260903081338",
@@ -192,5 +202,30 @@
       "Assistive-technology accessibility review (NOT VERIFIED — Stage 23)"
     ],
     "verdict": "Stage 02 passes every engineering gate reachable from this environment. It is stacked on Stage 01 (PARTIAL) and inherits its merge posture: no autonomous merge until the founder either provides staging access or approves merging Stage 01 as PARTIAL."
+  },
+  "stage_03_progress": {
+    "schema_and_migrations": "DONE locally — CareerEvidence, ApplicationQuestion, AiRun, PromptVersion (20260903090000), generated RLS (20260903090100, 85/85 forced), immutability trigger (20260903090200); seeded prompts approved/pending; NOT VERIFIED on Supabase (R-34)",
+    "evidence_vault": "DONE — derivation with stable natural keys, supersede/revoke, draft→approved, revision as new version, immutable once approved (service + trigger), tenant isolation; /dashboard/evidence; 6 database tests",
+    "question_bank": "DONE — categories, risk, policy floors, sensitive pinned to NEVER_AUTOMATE with no evidence link, own-approved-evidence links only, resolveAutomation for Stage 12; 9 tests",
+    "prompt_registry_migration": "DONE — PromptRegistry removed from the CMS and prompt-engine.ts deleted; PromptVersion with admin-only + step-up (password re-entry, rate-limited, failures audited), approve, evaluation-gated promote, rollback recorded as rollback, retire rules, failed evaluation demotes the live default, audit row with content digest per change; /console/prompts; 10 tests",
+    "ai_gateway_policy_enforcement": "DONE — policy resolved before dispatch (missing org → PROHIBITED), RESTRICTED payload refused on every route, deterministic engine always runs, routes external/deterministic/degraded/refused with stable reasons, never silent, AiRun per run with evidence refs and prompt version; scanner/applicator/interview-prep switched; static tests confine the SDK and provider to the registry and the gateway; 12 tests",
+    "grounding_in_code": "DONE — corpus from résumé + approved claims; numbers, entities, structure; per-section baseline fallback; résumé sections do not admit posting vocabulary (injection resistance); deterministic engine passes its own check with zero violations and no longer injects unevidenced keywords or quotes posting text; 17 pure tests + gateway live-path test with a fabricating fake provider",
+    "truthfulness_live_model": "NOT VERIFIED against a real model — proven with a fake provider only; no key reaches the build",
+    "l3_cross_border": "BLOCKED (LEGAL_COMPLIANCE) — external generation off by construction until decided"
+  },
+  "stage_03_exit_gate": {
+    "met": [
+      "Grounding enforced in code, not prompt text (section-scoped lexical + structural checker, per-section baseline fallback, counted on every run)",
+      "Prompt registry under governed administration: admin-only, step-up, approval, evaluation-gated promotion, rollback, retirement rules, audit trail, exact version recorded per output",
+      "Per-tenant AI policy enforced in the gateway before dispatch, failing closed on a missing policy; a prohibited tenant completes every flow with no data leaving and is told",
+      "Truthfulness suite against the deterministic path (zero violations, no unevidenced injection) and against the live-model PATH with a fabricating fake provider (every fabricated employer, technology, credential, metric and role rejected before render)",
+      "Full gate set green: lint 0/8, typecheck 0, 843/843 tests (0 skipped), build 0; migrations applied fresh and incrementally, drift clean"
+    ],
+    "not_met": [
+      "Truthfulness suite against a REAL model (NOT VERIFIED — no provider key reaches the build; PROMPT-EVALUATION external action)",
+      "L-3 cross-border AI processing decision (BLOCKED — legal)",
+      "Staging rehearsal of the three new migrations (NOT VERIFIED — R-34, inherited)"
+    ],
+    "verdict": "Stage 03 passes every engineering gate reachable from this environment and is BLOCKED at its exit on L-3, per STAGE_STATUS.md's rule for a stage whose legal question is open. The code guarantees nothing leaves the boundary until that decision and an operator promotion. Merge posture inherited from Stages 01/02."
   }
 }

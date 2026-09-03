@@ -165,6 +165,16 @@ export const RLS_TABLES: Record<string, RlsKind> = {
   // path (Stage 04 taxonomy sync) only.
   Skill: { kind: 'reference' },
 
+  // --- Stage 03: evidence vault, question bank, AI traceability -------------
+  CareerEvidence: { kind: 'user', column: 'userId' },
+  ApplicationQuestion: { kind: 'user', column: 'userId' },
+  // A candidate may read the record of AI actions taken for them (own rows);
+  // rows are written by the gateway on the system client. A null userId
+  // (platform-level run) matches no tenant.
+  AiRun: { kind: 'user', column: 'userId' },
+  // Security-relevant configuration, staff-administered: never on the tenant path.
+  PromptVersion: { kind: 'system' },
+
   // --- Reference data (read-only through the tenant path) --------------------
   Plan: { kind: 'reference' },
   PlanPrice: { kind: 'reference', where: `"active" = true` },
@@ -238,7 +248,10 @@ export const STAGE_02_TABLES = [
   'Education', 'EmploymentHistory', 'Project', 'Skill', 'WorkAuthorization',
 ];
 
+export const STAGE_03_TABLES = ['AiRun', 'ApplicationQuestion', 'CareerEvidence', 'PromptVersion'];
+
 export const RLS_MANIFESTS: RlsManifest[] = [
   { migration: '20260903073000_row_level_security', preamble: true, tables: STAGE_01_TABLES },
   { migration: '20260903081400_rls_candidate_tables', preamble: false, tables: STAGE_02_TABLES },
+  { migration: '20260903090100_rls_evidence_tables', preamble: false, tables: STAGE_03_TABLES },
 ];

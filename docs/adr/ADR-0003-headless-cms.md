@@ -1,6 +1,6 @@
 # ADR-0003 — Headless CMS: Payload vs Strapi
 
-**Status:** Proposed · **Date:** 2026-09-02 · **Decision owner:** Founder
+**Status:** Proposed · **Date:** 2026-09-02 · **Decision owner:** Founder · **Partially implemented (Stage 03, 2026-09-03):** `PromptRegistry` has moved out of the CMS (see the migration schedule below); `prompt-engine.ts` is deleted and the interpolation core (`prompt-interpolate.ts`) now serves the governed registry. Payload keeps content and, for now, `AtsRulesets` and `FieldMappings`.
 
 ## Context
 

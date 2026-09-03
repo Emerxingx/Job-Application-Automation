@@ -31,6 +31,9 @@ export type SecurityEvent =
   | 'auth.sessions.revoked_all'
   | 'auth.password.changed'
   | 'auth.identity.linked'
+  // Stage 03: step-up re-authentication for prompt governance (failures only;
+  // a success is implied by the prompt.* audit row that follows it).
+  | 'auth.step_up.failed'
   | 'consent.granted'
   | 'consent.revoked'
   // ADR-0007: every access to the sensitive schema is audited — never its values.
