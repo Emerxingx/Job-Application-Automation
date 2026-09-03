@@ -7,6 +7,7 @@ import { describe, it } from 'node:test';
 import { APPLICATION_STATUSES, APPLICANT_STATUSES, canTransition, describeRefusal, isTerminal, outcomeFor, TRANSITIONS } from '../src/lib/applications/status-machine';
 import { folderCompleteness, type FolderFacts } from '../src/lib/applications/folder';
 import type { ApplicationStatus } from '../src/lib/types';
+import { offerSchema } from '../src/lib/applications/schemas';
 
 describe('application status machine', () => {
   it('lists every status exactly once and every target is a known status', () => {
@@ -74,5 +75,16 @@ describe('folder completeness', () => {
     const noDocs = folderCompleteness({ ...base, sealedDocuments: 0, hasTextCopies: true });
     assert.equal(noDocs.answers.find((a) => a.question === 'what_was_sent')!.ok, true, 'the database copies still answer it for a sent application');
     assert.match(noDocs.answers.find((a) => a.question === 'what_was_sent')!.detail, /no sealed files/);
+  });
+});
+
+describe('offer input', () => {
+  it('bounds the salary to the column and orders the range', () => {
+    assert.ok(offerSchema.safeParse({ salaryMin: 110000, salaryMax: 120000, decision: 'pending' }).success);
+    // The columns are PostgreSQL integers: an overflow is refused at the edge as a 400, never a 500 from the database.
+    assert.ok(!offerSchema.safeParse({ salaryMin: 99_999_999_999, decision: 'pending' }).success, 'an integer overflow must be refused');
+    assert.ok(!offerSchema.safeParse({ salaryMin: 120000, salaryMax: 110000 }).success, 'a minimum above the maximum must be refused');
+    assert.ok(offerSchema.safeParse({ salaryMin: 120000, salaryMax: null }).success, 'an open-ended range is fine');
+    assert.ok(!offerSchema.safeParse({ salaryMin: -1 }).success);
   });
 });

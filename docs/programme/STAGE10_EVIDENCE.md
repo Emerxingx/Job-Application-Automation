@@ -133,7 +133,7 @@ refused and returns to the real status.
 | --- | --- |
 | Lint | 0 errors, 8 warnings (baseline) |
 | Typecheck | 0 |
-| Tests | **1015 / 1015**, 0 skipped (Stage 09: 999) — new: `application-status-machine` 6, `application-folder` 6 |
+| Tests | **1016 / 1016**, 0 skipped (Stage 09: 999) — new: `application-status-machine` 7, `application-folder` 6 |
 | Build | passes; the folder routes (`contacts`, `interviews`, `assessments`, `follow-ups`, `notes`, `offer`, `outcome`) present |
 | Migrations | twenty-eight applied fresh; drift clean; 110/110 forced; RLS migration equals the generator output |
 
@@ -162,4 +162,24 @@ posture inherited from the stack.
 
 ## 12. Independent review
 
-PENDING — recorded here when done.
+An independent adversarial pass over the whole diff (tenant leakage, authz
+bypass, migration safety, audit content, input validation, dead code, false
+PASS, the buffered-audit pattern). Nothing HIGH or MEDIUM; every LOW fixed
+or stated:
+
+| Severity | Finding | Disposition |
+| --- | --- | --- |
+| LOW | `offerSchema` accepted any integer for the salary, so a value past the `Int` column surfaced as a 500 from the database, and no ordering of min/max was checked | **Fixed** — bounded to the column (2,147,483,647) and `min ≤ max` refined, with a pure test |
+| LOW | The applicator wrote the application row and its first history row as two statements, so a crash between them left a folder with an empty timeline | **Fixed** — both in one `db.$transaction`; the timeline cannot start blank |
+| LOW | `PATCH …/contacts/:contactId` (`updateContact`) is a wired, owner-scoped route with no UI affordance | **Stated** — API-reachable; the folder shows remove only; not dead code, but not surfaced |
+| LOW | `current_pr` in `AUTONOMOUS_STATUS.json` written as a number, against the file's URL convention | **Fixed** |
+| note | Contacts, notes and follow-ups can be added by a raw request to a closed (rejected / withdrawn) application; the UI hides the forms | **Stated, kept** — a post-mortem note on a closed folder is legitimate and the record is the owner's; no isolation or authorization effect |
+
+Found sound, with the line read: every route under `/api/applications/[id]`
+on `requireTenant()` → `run()`; every child mutation checks `applicationId`
+AND `userId`; `transitionApplication` is the only writer of `status`; the
+migration adds only defaulted columns and forced tables classified in the
+manifest; no name, email, note, salary or interviewer reaches an audit row;
+`flushAudit` runs only after a successful `run()` and the rollback test
+proves no history and no audit survive a failed transaction; the evidence
+claims match the assertions.

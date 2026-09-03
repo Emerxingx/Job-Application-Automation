@@ -7,7 +7,7 @@
   "current_branch": "claude/stage-10-job-folder-crm",
   "current_head": "08548a72f8c5478510c38750a9e09ecb96198480",
   "current_head_meaning": "SHA of the last commit whose full gate set was verified locally (lint, typecheck, tests, build). Set by the status-sync commit that immediately follows it, so it names a real, verified commit rather than the one it is written in.",
-  "current_pr": 22,
+  "current_pr": "https://github.com/Emerxingx/Job-Application-Automation/pull/22",
   "main_head": "d6ae8b3a9180b529abe06f23417515432c0a7f0e",
   "run_complete": false,
   "stage_status": {
@@ -426,14 +426,14 @@
     "completeness": "DONE — pure checklist against the acceptance question, shown on the page; tested on sent, unsent and undisclosed-employer folders and on real rows",
     "export_retention_erasure": "DONE — export carries outcome/rejection/offer/interviews/last activity; retention matrix row; erasure cascade tested",
     "surfaces": "DONE — application page folder (timeline, offer, people, interviews, assessments, follow-ups, notes, outcomes); status control shows refusals",
-    "independent_review": "PENDING"
+    "independent_review": "DONE — adversarial pass: nothing HIGH/MEDIUM; four LOW (salary bounds, atomic first history row, an unsurfaced contact PATCH route, the current_pr shape) — three fixed with a test, one stated (STAGE10_EVIDENCE.md §12)"
   },
   "stage_10_exit_gate": {
     "met": [
       "Canonical folder live: full field set, complete status history, structured outcome",
       "Every write on the tenant path under RLS, audited without content; export honours retention and erasure",
       "Folder completeness against the acceptance question, on the page and tested",
-      "Full gate set green with the documented command only: lint 0/8, typecheck 0, 1015/1015 tests (0 skipped), build 0"
+      "Full gate set green with the documented command only: lint 0/8, typecheck 0, 1016/1016 tests (0 skipped), build 0"
     ],
     "not_met": [
       "Every ACCESS audited — reads are not audited per view (stated; Stage 20/23 decision)",

@@ -57,14 +57,19 @@ export const followUpPatchSchema = z.object({ done: z.literal(true) });
 
 export const noteSchema = z.object({ body: z.string().trim().min(1, 'Write something first.').max(10000) });
 
-export const offerSchema = z.object({
-  receivedAt: isoDate.nullable().optional(),
-  deadline: isoDate.nullable().optional(),
-  salaryMin: z.number().int().min(0).nullable().optional(),
-  salaryMax: z.number().int().min(0).nullable().optional(),
-  currency: z.string().trim().length(3).toUpperCase().nullable().optional(),
-  decision: z.enum(['pending', 'accepted', 'declined']).nullable().optional(),
-});
+/** The column is a PostgreSQL integer: bound the input so overflow is a 400, not a 500. */
+const salary = z.number().int().min(0).max(2_147_483_647, 'That is not a salary.').nullable().optional();
+
+export const offerSchema = z
+  .object({
+    receivedAt: isoDate.nullable().optional(),
+    deadline: isoDate.nullable().optional(),
+    salaryMin: salary,
+    salaryMax: salary,
+    currency: z.string().trim().length(3).toUpperCase().nullable().optional(),
+    decision: z.enum(['pending', 'accepted', 'declined']).nullable().optional(),
+  })
+  .refine((o) => o.salaryMin == null || o.salaryMax == null || o.salaryMin <= o.salaryMax, { message: 'The minimum cannot exceed the maximum.', path: ['salaryMax'] });
 
 export const outcomeSchema = z.object({
   outcome: z.enum(['pending', 'ghosted', 'expired']),

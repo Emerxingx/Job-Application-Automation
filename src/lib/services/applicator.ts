@@ -173,30 +173,33 @@ export async function applyToJobs(userId: string, jobIds: string[]): Promise<Bul
       const isAssisted = submission.ok && submission.channel === 'assisted';
       const status = !submission.ok ? 'failed' : isAssisted ? 'ready_to_submit' : 'submitted';
 
-      const application = await db.application.create({
-        data: {
-          userId,
-          jobId,
-          agentId: match?.agentId ?? null,
-          status,
-          matchScore: analysis.matchScore,
-          tailoredResume: tailored.resumeText,
-          coverLetter: tailored.coverLetter,
-          tailoringNotes: JSON.stringify(tailored.notes),
-          keywordsInjected: JSON.stringify(tailored.notes.keywordsInjected),
-          atsScore: tailored.notes.atsScore,
-          appliedAt: status === 'submitted' ? appliedAt : null,
-          failureReason: submission.failureReason ?? null,
-          applyChannel: submission.channel,
-          atsVendor: submission.ats ?? null,
-          assistedFields: JSON.stringify(submission.assisted?.fields ?? []),
-          confirmation: submission.confirmation ?? null,
-        },
+      // Stage 10: the record and the first row of its status history — how it
+      // came into being — are written together, so a folder can never exist
+      // with an empty timeline (the history is the machine's evidence).
+      const application = await db.$transaction(async (tx) => {
+        const created = await tx.application.create({
+          data: {
+            userId,
+            jobId,
+            agentId: match?.agentId ?? null,
+            status,
+            matchScore: analysis.matchScore,
+            tailoredResume: tailored.resumeText,
+            coverLetter: tailored.coverLetter,
+            tailoringNotes: JSON.stringify(tailored.notes),
+            keywordsInjected: JSON.stringify(tailored.notes.keywordsInjected),
+            atsScore: tailored.notes.atsScore,
+            appliedAt: status === 'submitted' ? appliedAt : null,
+            failureReason: submission.failureReason ?? null,
+            applyChannel: submission.channel,
+            atsVendor: submission.ats ?? null,
+            assistedFields: JSON.stringify(submission.assisted?.fields ?? []),
+            confirmation: submission.confirmation ?? null,
+          },
+        });
+        await recordInitialStatus(tx, userId, created.id, status, 'applicator', appliedAt);
+        return created;
       });
-
-      // Stage 10: the first row of the status history — how the record came
-      // into being — so the folder's timeline starts at creation.
-      await recordInitialStatus(db, userId, application.id, status, 'applicator', appliedAt);
 
       // Write the application folder even on failure, so the applicant can
       // still submit manually with the tailored documents in hand.
