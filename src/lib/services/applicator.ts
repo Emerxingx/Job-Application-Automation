@@ -13,6 +13,29 @@ import type { MatchAnalysis } from '@/lib/types';
 import { loadResumeContent } from '@/lib/candidate/profile';
 import { withTenant } from '@/lib/tenancy/context';
 import { toJobContext } from './scanner';
+import { assertModePermits, storedApplicationMode, type ApplicationMode } from '@/lib/apply/modes';
+import { getActiveFieldMappings } from '@/lib/apply/field-mappings';
+import { carriesNeverAutomatedValue, prepareQuestions } from '@/lib/apply/prepare';
+import { listQuestions } from '@/lib/evidence/questions';
+import { atsDisplayName } from '@/lib/providers/apply';
+import type { ApplicantProfile, ApplyRequest } from '@/lib/providers/apply';
+import type { User } from '@prisma/client';
+
+/** The applicant as an employer form sees them — from the profile, never from a model. */
+export function applicantOf(user: Pick<User, 'fullName' | 'email' | 'phone' | 'city' | 'country' | 'linkedinUrl' | 'portfolioUrl' | 'workAuth'>): ApplicantProfile {
+  const [firstName = user.fullName, ...restName] = user.fullName.trim().split(/\s+/);
+  return {
+    fullName: user.fullName,
+    firstName,
+    lastName: restName.join(' ') || firstName,
+    email: user.email,
+    phone: user.phone ?? undefined,
+    location: [user.city, user.country].filter(Boolean).join(', ') || undefined,
+    linkedinUrl: user.linkedinUrl ?? undefined,
+    portfolioUrl: user.portfolioUrl ?? undefined,
+    workAuthorization: user.workAuth ?? undefined,
+  };
+}
 
 export interface ApplyOutcome {
   jobId: string;
@@ -32,9 +55,7 @@ export interface ApplyOutcome {
 
 export interface BulkApplyResult {
   requested: number;
-  /** Submitted end-to-end by JobPilot. */
-  submitted: number;
-  /** Prepared in full, awaiting the applicant's click on the employer form. */
+  /** Prepared in full, awaiting the applicant's review. Nothing is submitted here (Stage 12). */
   prepared: number;
   failed: number;
   skipped: number;
@@ -57,7 +78,6 @@ export async function applyToJobs(userId: string, jobIds: string[]): Promise<Bul
   if (granted === 0) {
     return {
       requested: unique.length,
-      submitted: 0,
       prepared: 0,
       failed: 0,
       skipped: unique.length,
@@ -67,13 +87,25 @@ export async function applyToJobs(userId: string, jobIds: string[]): Promise<Bul
   }
 
   const user = await db.user.findUniqueOrThrow({ where: { id: userId } });
+  // Stage 12 (ADR-0016): the applicant's mode. Recommend-only prepares
+  // nothing; nothing here ever submits — that is a separate, instructed step.
+  const mode: ApplicationMode = storedApplicationMode(user.applicationMode);
+  try {
+    assertModePermits(mode, 'generate_documents');
+  } catch (error) {
+    await refundQuota(userId, granted);
+    throw error;
+  }
   // Stage 02: the structured profile, projected, loaded on the TENANT path
   // (as app_tenant — no privilege on the sensitive schema, ADR-0007). The
   // apply engine itself stays on the system client until Stage 12 (R-35).
   // Stage 03: approved evidence (ids + claims) accompanies every generation.
-  const { resumeContent, evidence } = await withTenant({ userId }, async (tx) => ({
+  // Stage 12: the question bank, prepared per policy against the ACTIVE
+  // field-mapping register, whose version every application records.
+  const { resumeContent, evidence, questions } = await withTenant({ userId }, async (tx) => ({
     resumeContent: await loadResumeContent(tx, userId),
     evidence: await loadEvidenceForGeneration(tx, userId),
+    questions: await listQuestions(tx, userId),
   }));
   if (!resumeContent) {
     await refundQuota(userId, granted);
@@ -81,10 +113,12 @@ export async function applyToJobs(userId: string, jobIds: string[]): Promise<Bul
   }
 
   const applyEngine = getApplyProvider();
+  const applicant = applicantOf(user);
+  const mappings = await getActiveFieldMappings();
+  const preparedQuestions = prepareQuestions(questions, mappings.mappings, applicant);
+  // Defence in depth at the write site: a never-automated answer must not be persisted, whatever prepare.ts does one day.
+  if (carriesNeverAutomatedValue(preparedQuestions)) throw new Error('A NEVER_AUTOMATE question carried a value; refusing to prepare.');
 
-  const [firstName = user.fullName, ...restName] = user.fullName.trim().split(/\s+/);
-
-  let submitted = 0;
   let prepared = 0;
   let failed = 0;
   let skipped = 0;
@@ -144,7 +178,7 @@ export async function applyToJobs(userId: string, jobIds: string[]): Promise<Bul
       // run, and rejects unevidenced claims in code before render.
       const { value: tailored } = await ai.tailor({ userId, evidence, inputRefs: [`job:${jobId}`] }, resumeContent, context, analysis);
 
-      const submission = await applyEngine.apply({
+      const request: ApplyRequest = {
         job: {
           title: job.title,
           company: job.company,
@@ -154,24 +188,19 @@ export async function applyToJobs(userId: string, jobIds: string[]): Promise<Bul
         },
         resumeText: tailored.resumeText,
         coverLetter: tailored.coverLetter,
-        applicant: {
-          fullName: user.fullName,
-          firstName,
-          lastName: restName.join(' ') || firstName,
-          email: user.email,
-          phone: user.phone ?? undefined,
-          location: [user.city, user.country].filter(Boolean).join(', ') || undefined,
-          linkedinUrl: user.linkedinUrl ?? undefined,
-          portfolioUrl: user.portfolioUrl ?? undefined,
-          workAuthorization: user.workAuth ?? undefined,
-        },
-      });
+        applicant,
+      };
+      // Stage 12: preparation only. Nothing reaches the employer here, in any
+      // mode; a programmatic submission is a separate step the applicant
+      // instructs after review (submitThroughAts), and only where the mode
+      // permits it and the employer has authorised it.
+      const submission = await applyEngine.apply(request);
+      const atsSubmittable = mode === 'review_submit' && applyEngine.canSubmit(request);
 
       const appliedAt = new Date();
-      // An assisted application is prepared, not sent: it counts as delivered
+      // A prepared application is prepared, not sent: it counts as delivered
       // work, but the record must not claim a submission that hasn't happened.
-      const isAssisted = submission.ok && submission.channel === 'assisted';
-      const status = !submission.ok ? 'failed' : isAssisted ? 'ready_to_submit' : 'submitted';
+      const status = submission.ok ? 'ready_to_submit' : 'failed';
 
       // Stage 10: the record and the first row of its status history — how it
       // came into being — are written together, so a folder can never exist
@@ -189,12 +218,17 @@ export async function applyToJobs(userId: string, jobIds: string[]): Promise<Bul
             tailoringNotes: JSON.stringify(tailored.notes),
             keywordsInjected: JSON.stringify(tailored.notes.keywordsInjected),
             atsScore: tailored.notes.atsScore,
-            appliedAt: status === 'submitted' ? appliedAt : null,
+            // Stage 12: nothing is sent at preparation; appliedAt is stamped by the confirm or the instructed submission.
+            appliedAt: null,
             failureReason: submission.failureReason ?? null,
             applyChannel: submission.channel,
             atsVendor: submission.ats ?? null,
             assistedFields: JSON.stringify(submission.assisted?.fields ?? []),
-            confirmation: submission.confirmation ?? null,
+            preparedQuestions: JSON.stringify(preparedQuestions),
+            applicationMode: mode,
+            fieldMappingVersion: mappings.version,
+            atsSubmittable,
+            confirmation: null,
           },
         });
         await recordInitialStatus(tx, userId, created.id, status, 'applicator', appliedAt);
@@ -247,22 +281,20 @@ export async function applyToJobs(userId: string, jobIds: string[]): Promise<Bul
           resume: tailored.resumeContent,
           coverLetter: tailored.coverLetter,
           evidenceIds: evidence.ids,
-          seal: status === 'submitted',
+          // Stage 12: never sealed at preparation — sealed when the applicant confirms or instructs the submission.
+          seal: false,
         });
       } catch (error) {
         console.error('[documents] could not write the application documents:', error);
       }
 
-      if (match) {
-        await db.jobMatch.update({
-          where: { id: match.id },
-          data: { status: submission.ok ? 'applied' : 'reviewed' },
-        });
-      }
+      // Stage 12: a prepared match is `reviewed`, never `applied` — `applied` is
+      // written only when something actually reaches the employer (the
+      // applicant's confirmation or their instructed submission).
+      if (match) await db.jobMatch.update({ where: { id: match.id }, data: { status: 'reviewed' } });
 
       if (submission.ok) {
-        if (isAssisted) prepared += 1;
-        else submitted += 1;
+        prepared += 1;
         outcomes.push({
           jobId,
           jobTitle: job.title,
@@ -273,7 +305,7 @@ export async function applyToJobs(userId: string, jobIds: string[]): Promise<Bul
           atsScore: tailored.notes.atsScore,
           folderPath,
           channel: submission.channel,
-          needsConfirmation: isAssisted,
+          needsConfirmation: true,
         });
       } else {
         failed += 1;
@@ -301,29 +333,25 @@ export async function applyToJobs(userId: string, jobIds: string[]): Promise<Bul
 
   // Refund anything that produced no application at all. A prepared assisted
   // application consumed the tailoring work and counts against the plan.
-  const delivered = submitted + prepared;
+  const delivered = prepared;
   const unused = granted - delivered;
   if (unused > 0) await refundQuota(userId, unused);
 
   if (delivered > 0) {
-    const parts: string[] = [];
-    if (submitted > 0) parts.push(`applied to ${submitted} role${submitted === 1 ? '' : 's'}`);
-    if (prepared > 0) parts.push(`prepared ${prepared} ready to submit`);
-    const message = `${parts.join(' and ')} with customized resumes.`;
+    const message = `prepared ${prepared} application${prepared === 1 ? '' : 's'} for your review, with customized resumes.`;
 
     await db.activityEvent.create({
       data: {
         userId,
         type: 'apply',
         message: message.charAt(0).toUpperCase() + message.slice(1),
-        meta: JSON.stringify({ submitted, prepared, failed, skipped }),
+        meta: JSON.stringify({ prepared, failed, skipped }),
       },
     });
   }
 
   return {
     requested: unique.length,
-    submitted,
     prepared,
     failed,
     skipped,
@@ -356,6 +384,84 @@ export async function confirmAssistedSubmission(
   await flushAudit(actor);
   // Stage 09: what was prepared is now what was sent — seal it.
   await sealApplicationDocuments(db, userId, application.id);
+  await markMatchApplied(userId, application.jobId);
 
   return { ok: true };
+}
+
+/**
+ * Stage 12 — submit a prepared application through the employer's ATS API,
+ * on the applicant's explicit instruction after their review. The only
+ * programmatic submission path. Refused unless the mode is Review & submit,
+ * the record is `ready_to_submit`, and the employer has authorised this
+ * deployment for their board. A refusal by the ATS leaves the record
+ * ready for the applicant to use the form; nothing is retried unattended.
+ */
+/** Something actually reached the employer: the match is `applied` from now on. */
+async function markMatchApplied(userId: string, jobId: string): Promise<void> {
+  await db.jobMatch.updateMany({ where: { jobId, agent: { userId } }, data: { status: 'applied' } });
+}
+
+export async function submitThroughAts(userId: string, applicationId: string): Promise<{ ok: boolean; reason?: string; confirmation?: string }> {
+  const user = await db.user.findUniqueOrThrow({ where: { id: userId } });
+  const mode = storedApplicationMode(user.applicationMode);
+  assertModePermits(mode, 'submit_on_instruction');
+  const actor = folderActor({ id: userId });
+
+  // The CLAIM: under an advisory lock on the application, the record moves
+  // ready_to_submit → applying through the status machine. A second click, a
+  // retry or a second tab arrives to find it `applying` (or `submitted`) and is
+  // refused here — so one instruction can never reach the employer twice.
+  const claimed = await db.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`application:submit:${applicationId}`}::text))`;
+    const application = await tx.application.findFirst({ where: { id: applicationId, userId }, include: { job: true } });
+    if (!application) return { refused: 'Application not found.' as const };
+    if (application.status === 'applying') return { refused: 'This application is already being submitted.' as const };
+    if (application.status !== 'ready_to_submit') return { refused: 'This application is not awaiting your review.' as const };
+    if (!application.atsSubmittable) return { refused: "This employer has not authorised JobPilot to submit to their applicant-tracking system. Use their form and confirm here." as const };
+    await transitionApplication(tx, actor, application.id, 'applying', { actor: 'applicant', source: 'ats_api', reason: 'submission instructed by the applicant after review' });
+    return { application };
+  });
+  await flushAudit(actor);
+  if ('refused' in claimed) return { ok: false, reason: claimed.refused };
+  const application = claimed.application;
+
+  const request: ApplyRequest = {
+    job: { title: application.job.title, company: application.job.company, applyUrl: application.job.applyUrl, applyMethod: application.job.applyMethod, description: application.job.description },
+    resumeText: application.tailoredResume,
+    coverLetter: application.coverLetter,
+    applicant: applicantOf(user),
+  };
+  const engine = getApplyProvider();
+  let outcome: Awaited<ReturnType<typeof engine.submit>> = null;
+  let failure: string | null = null;
+  try {
+    outcome = engine.canSubmit(request) ? await engine.submit(request) : null;
+    if (!outcome) failure = 'No authorised submission channel exists for this posting. Use the employer’s form and confirm here.';
+    else if (!outcome.ok) failure = outcome.failureReason ?? 'The employer system refused the submission. You can still submit on their form.';
+  } catch (error) {
+    failure = 'The employer system could not be reached. You can still submit on their form.';
+    console.error('[apply] instructed submission failed:', error instanceof Error ? error.message : error);
+  }
+
+  if (failure || !outcome) {
+    // Release the claim: back to ready for the applicant, with the reason on the record. Nothing retries unattended.
+    await db.$transaction(async (tx) => {
+      await tx.application.update({ where: { id: application.id }, data: { failureReason: failure } });
+      await transitionApplication(tx, actor, application.id, 'ready_to_submit', { actor: 'system', source: 'ats_api', reason: failure ?? 'no channel' });
+    });
+    await flushAudit(actor);
+    return { ok: false, reason: failure ?? 'That could not be submitted.' };
+  }
+
+  const via = application.atsVendor ? atsDisplayName(application.atsVendor as Parameters<typeof atsDisplayName>[0]) : 'the employer system';
+  await db.$transaction(async (tx) => {
+    await tx.application.update({ where: { id: application.id }, data: { applyChannel: 'ats_api', confirmation: outcome.confirmation ?? null, failureReason: null } });
+    await transitionApplication(tx, actor, application.id, 'submitted', { actor: 'applicant', source: 'ats_api', reason: `submitted through ${via} on the applicant's instruction after review` });
+  });
+  await flushAudit(actor);
+  // Stage 09: what was reviewed is now what was sent — seal it.
+  await sealApplicationDocuments(db, userId, application.id);
+  await markMatchApplied(userId, application.jobId);
+  return { ok: true, confirmation: outcome.confirmation };
 }

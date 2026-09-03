@@ -2,12 +2,12 @@
   "$comment": "Machine-readable controller for the autonomous build programme. Authoritative over any chat transcript: if this file and a conversation disagree, this file wins. Updated at every stage checkpoint.",
   "schema_version": 1,
   "updated_at": "2026-09-03",
-  "current_stage": "11",
+  "current_stage": "12",
   "last_completed_stage": "00",
-  "current_branch": "claude/stage-11-email-calendar-intelligence",
-  "current_head": "1c9f608970dd5d23785abec013d3285fd6ba5159",
+  "current_branch": "claude/stage-12-assisted-application",
+  "current_head": "902228ee530a6c5f3a313c61271f3d64f9569cf0",
   "current_head_meaning": "SHA of the last commit whose full gate set was verified locally (lint, typecheck, tests, build). Set by the status-sync commit that immediately follows it, so it names a real, verified commit rather than the one it is written in.",
-  "current_pr": "https://github.com/Emerxingx/Job-Application-Automation/pull/23",
+  "current_pr": "https://github.com/Emerxingx/Job-Application-Automation/pull/24",
   "main_head": "d6ae8b3a9180b529abe06f23417515432c0a7f0e",
   "run_complete": false,
   "stage_status": {
@@ -23,7 +23,7 @@
     "09": "PASS_ENGINEERING_EXIT_PARTIAL",
     "10": "PASS_ENGINEERING_EXIT_PARTIAL",
     "11": "PASS_ENGINEERING_EXIT_BLOCKED_CREDENTIALS",
-    "12": "NOT_STARTED",
+    "12": "PASS_ENGINEERING_EXIT_BLOCKED_CREDENTIALS",
     "13": "NOT_STARTED",
     "14": "NOT_STARTED",
     "15": "NOT_STARTED",
@@ -85,6 +85,15 @@
   },
   "next_requirement": "Stage 05 engineering is complete; its exit is PARTIAL: the two conditions that need a live, credentialed source (≥2 lawful sources live; Adzuna PRODUCTION-VALIDATED) are BLOCKED on ADZUNA_APP_ID / ADZUNA_APP_KEY and a recorded terms review (external action ADZUNA-LIVE-VALIDATION). Independent work continues: Stage 06 (normalization, deduplication, freshness) begins on a branch stacked on Stage 05 — canonical job with normalized_title / occupation_family / canonical_hash, deduplication preserving provenance across sources, closure detection, expiry, quality scoring.",
   "blockers": [
+    {
+      "id": "ATS-SANDBOX-CREDENTIAL",
+      "type": "CREDENTIAL",
+      "issue": "No Greenhouse or Lever sandbox board credential exists in this environment, so the instructed ATS submission path has never reached a real board",
+      "owner": "Founder / operator",
+      "latest_blocking_stage": "12",
+      "status": "OPEN",
+      "effect": "Stage 12 exit BLOCKED on 'assisted path validated end-to-end; ATS reclassified SANDBOX-VALIDATED'. Everything else is proven: preparation never submits in any engine (tested with a credential set), modes enforced with Auto-Apply refused in code, submission only as the applicant's instructed click (mock end-to-end: prepare → review → submit → submitted with confirmation, sealed), question bank in the package, FieldMappings governed. Resolution: obtain a sandbox board credential (STAGE12_EVIDENCE.md §11), set ATS_<VENDOR>_<BOARD>, run prepare → review → submit, record it in INTEGRATION_REGISTER.md."
+    },
     {
       "id": "MAILBOX-CREDENTIALS",
       "type": "CREDENTIAL",
@@ -479,5 +488,30 @@
       "Staging rehearsal (NOT VERIFIED — R-34)"
     ],
     "verdict": "Stage 11 passes every engineering gate that can be run here and is BLOCKED at its exit on provider credentials, stated rather than approximated; the adapters are IMPLEMENTED-NOT-VALIDATED in the register. Merge posture inherited from the stack."
+  },
+  "stage_12_progress": {
+    "schema_and_migrations": "DONE locally — User.applicationMode; Application.preparedQuestions / applicationMode / fieldMappingVersion / atsSubmittable; FieldMappingVersion (20260903200000); generated RLS (20260903200100, system-only); thirty-two applied fresh, drift clean, 117 public tables forced; NOT VERIFIED on Supabase (R-34)",
+    "modes": "DONE — three reachable modes (recommend_only / prepare / review_submit) stored per applicant, chosen in Settings, enforced at the apply route, the applicator and the submission step; approved_auto_apply refused by parseApplicationMode (403 with the ADR-0016 reason), no permission row, no flag; no mode permits submit_unattended (tested)",
+    "preparation_never_submits": "DONE — every provider's apply() prepares only (tested with an employer credential set; the mock too); records are ready_to_submit or failed at preparation, never submitted",
+    "instructed_submission": "DONE on the mock, proven against the database (tests/assisted-submission.test.ts) — POST /api/applications/:id/submit → submitThroughAts: owner, review_submit, an advisory-locked claim ready_to_submit → applying through the machine, atsSubmittable and canSubmit re-checked, the provider's submit, applying → submitted (source ats_api, reason recorded), confirmation stored, documents sealed, match applied; an engine refusal releases the claim with the reason; two simultaneous clicks reach the engine once. REAL BOARD NEVER CALLED (no sandbox credential)",
+    "question_bank": "DONE — prepareQuestions (pure): fill / ask / review / never per Stage 03 policy; a never entry carries no value and no evidence ids (tested with a stored answer); profile facts stand in only where the active register maps a profile key (never a salary); shown on the folder with decision chips",
+    "field_mappings": "DONE — CMS collection removed (types and import map regenerated); FieldMappingVersion governed at /console/field-mappings (draft → second-admin approval → active with mandatory reason → retired; rollback; step-up; audit; invalid row → built-in set uncached); thirteen built-in mappings as builtin:1; every application records fieldMappingVersion — the last ADR-0019 Tier-1 migration",
+    "browser_extension": "NOT IMPLEMENTED (optional in the plan); PreparedField remains the contract",
+    "independent_review": "DONE — adversarial pass: 1 HIGH (the instructed submission had no end-to-end test behind its MET claim), 3 MEDIUM (unlocked double-submit window, unmapped FieldMappingError, match marked applied on mere preparation), 3 LOW (dead submitted counter, unwired guard, regex backtracking) — all seven fixed with tests (STAGE12_EVIDENCE.md §12)"
+  },
+  "stage_12_exit_gate": {
+    "met": [
+      "Assisted apply completes in one click after review (mock end-to-end)",
+      "Autonomous submission is impossible — no provider, mode, flag or route submits without the applicant's click (tested at the mode table, the providers and the routes)",
+      "Question bank wired with its policy states; NEVER_AUTOMATE always human",
+      "FieldMappings under governed administration; exact version recorded per application",
+      "Full gate set green with the documented command only: lint 0/8, typecheck 0, 1054/1054 tests (0 skipped), build 0"
+    ],
+    "not_met": [
+      "Assisted path validated end-to-end against a REAL board; ATS reclassified SANDBOX-VALIDATED — BLOCKED (CREDENTIAL)",
+      "Browser extension (optional) — NOT IMPLEMENTED",
+      "Staging rehearsal (NOT VERIFIED — R-34)"
+    ],
+    "verdict": "Stage 12 passes every engineering gate that can be run here and is BLOCKED at its exit on a sandbox ATS credential, stated rather than approximated; the submission channel stays IMPLEMENTED-NOT-VALIDATED in the register. Merge posture inherited from the stack."
   }
 }

@@ -74,7 +74,6 @@ export interface Config {
     'learning-paths': LearningPath;
     'career-guides': CareerGuide;
     certifications: Certification;
-    'field-mappings': FieldMapping;
     'seo-pages': SeoPage;
     'payload-kv': PayloadKv;
     'payload-locked-documents': PayloadLockedDocument;
@@ -90,7 +89,6 @@ export interface Config {
     'learning-paths': LearningPathsSelect<false> | LearningPathsSelect<true>;
     'career-guides': CareerGuidesSelect<false> | CareerGuidesSelect<true>;
     certifications: CertificationsSelect<false> | CertificationsSelect<true>;
-    'field-mappings': FieldMappingsSelect<false> | FieldMappingsSelect<true>;
     'seo-pages': SeoPagesSelect<false> | SeoPagesSelect<true>;
     'payload-kv': PayloadKvSelect<false> | PayloadKvSelect<true>;
     'payload-locked-documents': PayloadLockedDocumentsSelect<false> | PayloadLockedDocumentsSelect<true>;
@@ -427,47 +425,6 @@ export interface Certification {
   createdAt: string;
 }
 /**
- * Maps the free-text questions ATS forms ask onto canonical profile keys, so the engine can answer them consistently.
- *
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "field-mappings".
- */
-export interface FieldMapping {
-  id: number;
-  /**
-   * Stable key on the user profile, e.g. "work_authorization_us", "salary_expectation_usd".
-   */
-  canonicalFieldKey: string;
-  /**
-   * Human-readable name for operators, e.g. "US work authorization".
-   */
-  label?: string | null;
-  dataType: 'boolean' | 'numeric' | 'text' | 'select';
-  /**
-   * Patterns matched against an ATS form label. Choose "contains" for a substring, or "regex" for a full regular expression.
-   */
-  fuzzyQuestionPatterns: {
-    kind: 'contains' | 'regex';
-    pattern: string;
-    id?: string | null;
-  }[];
-  /**
-   * For dropdown fields: the canonical option values the engine may choose from.
-   */
-  selectOptions?:
-    | {
-        value: string;
-        id?: string | null;
-      }[]
-    | null;
-  /**
-   * Instruction for the LLM when the profile has no value for this key, e.g. "If unknown, answer No and do not fabricate authorization." Never invents credentials.
-   */
-  defaultFallbackRule: string;
-  updatedAt: string;
-  createdAt: string;
-}
-/**
  * Programmatic SEO landing pages, e.g. "AI Resume Builder for Data Analyst in Toronto". Templated and high-volume.
  *
  * This interface was referenced by `Config`'s JSON-Schema
@@ -577,10 +534,6 @@ export interface PayloadLockedDocument {
     | ({
         relationTo: 'certifications';
         value: number | Certification;
-      } | null)
-    | ({
-        relationTo: 'field-mappings';
-        value: number | FieldMapping;
       } | null)
     | ({
         relationTo: 'seo-pages';
@@ -862,31 +815,6 @@ export interface CertificationsSelect<T extends boolean = true> {
         code?: T;
         id?: T;
       };
-  updatedAt?: T;
-  createdAt?: T;
-}
-/**
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "field-mappings_select".
- */
-export interface FieldMappingsSelect<T extends boolean = true> {
-  canonicalFieldKey?: T;
-  label?: T;
-  dataType?: T;
-  fuzzyQuestionPatterns?:
-    | T
-    | {
-        kind?: T;
-        pattern?: T;
-        id?: T;
-      };
-  selectOptions?:
-    | T
-    | {
-        value?: T;
-        id?: T;
-      };
-  defaultFallbackRule?: T;
   updatedAt?: T;
   createdAt?: T;
 }

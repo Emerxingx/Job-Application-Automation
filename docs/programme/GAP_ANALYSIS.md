@@ -330,6 +330,7 @@ Explicitly recorded so later stages do not discard it:
    Over-built relative to the product, but sound. Re-scope it; do not rewrite it.
 10. **The documentation culture.** The in-source commentary explains *why*, and
     `HANDOFF.md` names its own unverified claims. Preserve this standard.
+   **Stage 12 (ADR-0026):** preserved and made structural — preparation never submits in any engine; modes enforced with Auto-Apply refused in code; the question bank in the package; `FieldMappings` governed. The ATS channel is still unvalidated (no sandbox credential); no browser extension.
 
 ## Part 6 — What should be refactored, replaced, or not yet built
 

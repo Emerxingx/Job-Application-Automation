@@ -110,5 +110,18 @@ export interface AtsTarget {
 
 export interface ApplyProvider {
   readonly name: string;
+  /**
+   * Prepare everything the employer's form will ask for. NEVER submits —
+   * in every provider, in every mode (Stage 12, ADR-0016). The outcome's
+   * channel is `assisted` (with the prepared payload) or `unavailable`.
+   */
   apply(request: ApplyRequest): Promise<ApplyOutcome>;
+  /** Whether this deployment may submit programmatically to the posting's ATS, on the applicant's instruction, after their review. */
+  canSubmit(request: ApplyRequest): boolean;
+  /**
+   * Submit through the employer-authorised ATS API. Called only from the
+   * applicant's explicit instruction on a prepared application they have
+   * reviewed. Null when no authorised channel exists.
+   */
+  submit(request: ApplyRequest): Promise<ApplyOutcome | null>;
 }

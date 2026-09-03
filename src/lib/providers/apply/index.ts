@@ -1,5 +1,5 @@
-import { atsDisplayName, detectAts, submitToAts } from './ats';
-import type { ApplyOutcome, ApplyProvider, ApplyRequest, PreparedField } from './types';
+import { atsDisplayName, canSubmitToAts, detectAts, submitToAts } from './ats';
+import type { ApplyOutcome, ApplyProvider, ApplyRequest, AtsTarget, PreparedField } from './types';
 
 export type {
   ApplicantProfile,
@@ -59,90 +59,102 @@ function prepareFields(request: ApplyRequest): PreparedField[] {
   return fields;
 }
 
+/** The prepared, assisted outcome every provider hands back: nothing has been sent. */
+function prepared(request: ApplyRequest, applyUrl: string, target: AtsTarget | null): ApplyOutcome {
+  const via = target ? ` on ${atsDisplayName(target.vendor)}` : '';
+  return {
+    ok: true,
+    channel: 'assisted',
+    ats: target?.vendor,
+    assisted: {
+      applyUrl,
+      fields: prepareFields(request),
+      guidance:
+        `Your tailored resume and cover letter are ready. Open the employer's form${via}, ` +
+        'paste each field below, and submit — usually under a minute.',
+    },
+  };
+}
+
+const NO_LINK: ApplyOutcome = {
+  ok: false,
+  channel: 'unavailable',
+  failureReason: 'This posting has no application link. The tailored documents are saved in your folder.',
+};
+
 /**
- * The default engine: submit through an authorized ATS API where one is
- * available, and prepare an assisted application everywhere else.
+ * The default engine. Stage 12 (ADR-0016): preparation NEVER submits. Where
+ * an employer has issued a credential for their own board, `canSubmit` says
+ * so and `submit` performs it — only on the applicant's instruction after
+ * their review (the Review & submit mode), never at preparation time.
  */
 export class DefaultApplyProvider implements ApplyProvider {
   readonly name = 'default';
 
   async apply(request: ApplyRequest): Promise<ApplyOutcome> {
     const applyUrl = request.job.applyUrl?.trim();
+    if (!applyUrl) return NO_LINK;
+    return prepared(request, applyUrl, detectAts(applyUrl));
+  }
 
-    if (!applyUrl) {
-      return {
-        ok: false,
-        channel: 'unavailable',
-        failureReason: 'This posting has no application link. The tailored documents are saved in your folder.',
-      };
-    }
-
+  canSubmit(request: ApplyRequest): boolean {
+    const applyUrl = request.job.applyUrl?.trim();
+    if (!applyUrl) return false;
     const target = detectAts(applyUrl);
+    return target !== null && canSubmitToAts(target);
+  }
 
-    // 1. Authorized programmatic submission, where it is genuinely available.
-    if (target) {
-      const submitted = await submitToAts(target, request);
-      if (submitted) return submitted;
-    }
-
-    // 2. Assisted: everything prepared, applicant confirms on the employer's form.
-    const via = target ? ` on ${atsDisplayName(target.vendor)}` : '';
-    return {
-      ok: true,
-      channel: 'assisted',
-      ats: target?.vendor,
-      assisted: {
-        applyUrl,
-        fields: prepareFields(request),
-        guidance:
-          `Your tailored resume and cover letter are ready. Open the employer's form${via}, ` +
-          'paste each field below, and submit — usually under a minute.',
-      },
-    };
+  async submit(request: ApplyRequest): Promise<ApplyOutcome | null> {
+    const applyUrl = request.job.applyUrl?.trim();
+    if (!applyUrl) return null;
+    const target = detectAts(applyUrl);
+    if (!target || !canSubmitToAts(target)) return null;
+    return submitToAts(target, request);
   }
 }
 
 /**
  * A provider that never submits on the applicant's behalf, for deployments
  * that want the strictest possible posture. Selected with APPLY_MODE=assisted.
+ * `canSubmit` is false whatever credentials exist.
  */
 export class AssistedOnlyApplyProvider implements ApplyProvider {
   readonly name = 'assisted-only';
 
   async apply(request: ApplyRequest): Promise<ApplyOutcome> {
     const applyUrl = request.job.applyUrl?.trim();
-    if (!applyUrl) {
-      return {
-        ok: false,
-        channel: 'unavailable',
-        failureReason: 'This posting has no application link. The tailored documents are saved in your folder.',
-      };
-    }
-    const target = detectAts(applyUrl);
-    const via = target ? ` on ${atsDisplayName(target.vendor)}` : '';
-    return {
-      ok: true,
-      channel: 'assisted',
-      ats: target?.vendor,
-      assisted: {
-        applyUrl,
-        fields: prepareFields(request),
-        guidance:
-          `Your tailored resume and cover letter are ready. Open the employer's form${via}, ` +
-          'paste each field below, and submit — usually under a minute.',
-      },
-    };
+    if (!applyUrl) return NO_LINK;
+    return prepared(request, applyUrl, detectAts(applyUrl));
+  }
+
+  canSubmit(): boolean {
+    return false;
+  }
+
+  async submit(): Promise<ApplyOutcome | null> {
+    return null;
   }
 }
 
 /**
- * Simulated submission for the demo build. Keeps the walkthrough end-to-end
- * without contacting any employer, and never claims a real confirmation.
+ * Simulated engine for the demo build. Preparation is real (the same
+ * prepared field set); `submit` returns a deterministic confirmation without
+ * contacting any employer, and never claims a real one. Stage 12: even the
+ * mock prepares first and submits only on instruction.
  */
 export class MockApplyProvider implements ApplyProvider {
   readonly name = 'mock';
 
   async apply(request: ApplyRequest): Promise<ApplyOutcome> {
+    const applyUrl = request.job.applyUrl?.trim() || 'https://example.test/apply';
+    return prepared(request, applyUrl, detectAts(applyUrl));
+  }
+
+  canSubmit(): boolean {
+    return true;
+  }
+
+  async submit(request: ApplyRequest): Promise<ApplyOutcome | null> {
     await new Promise((r) => setTimeout(r, 180));
     let seed = 0;
     const key = `${request.job.company}:${request.job.title}`;
@@ -170,8 +182,9 @@ let cached: ApplyProvider | null = null;
  *
  * APPLY_MODE:
  *   mock     — simulated, for the demo build (default when JOB_PROVIDER=mock)
- *   auto     — ATS API where authorized, assisted everywhere else (default otherwise)
- *   assisted — never submit on the applicant's behalf
+ *   auto     — prepare everywhere; may submit through an authorized ATS API on the
+ *              applicant's instruction after review (default otherwise)
+ *   assisted — never submit on the applicant's behalf, whatever credentials exist
  */
 export function getApplyProvider(): ApplyProvider {
   if (cached) return cached;

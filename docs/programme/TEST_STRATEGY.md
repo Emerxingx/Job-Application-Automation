@@ -265,3 +265,25 @@ never occurred.
   applicant's decision sticks across re-syncs and unlocks the detections it
   files; another tenant sees nothing; revocation purges every derived row
   and the secret and audits counts with no subject, address or token.
+
+## Stage 12 — assisted application
+
+- `tests/application-modes.test.ts` (pure): the unreachable mode refused
+  wherever a mode is parsed, with the reason; an unknown stored value reads
+  back as the default; no mode permits an unattended submission and the
+  unreachable mode has no permission row; refusals in the applicant's words.
+- `tests/apply-engine.test.ts` (pure): with an employer credential set,
+  `apply()` still prepares and never posts; `canSubmit` follows the
+  credential; the assisted-only engine never can; the mock prepares first
+  and "submits" only on `submit()`.
+- `tests/prepared-questions.test.ts` (pure): a NEVER_AUTOMATE question
+  carries no value even with a stored answer (and the guard sees a leak);
+  the policies map to fill / ask / review; a profile fact stands in only
+  where a mapping names one and never for a salary; ordering; the matcher
+  and the validator (duplicate key, bad regex, select without options, a
+  fabricating fallback rule).
+- `tests/field-mappings.test.ts` (database): the built-in set until a
+  version is active; create → second-admin approval → activate with a
+  mandatory reason, served by the read path, audited; rollback recorded as
+  rollback with the demoted version approved; retirement rules; an invalid
+  stored row falls back to the built-in set and is not cached.

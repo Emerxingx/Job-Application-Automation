@@ -1,6 +1,8 @@
 import { z } from 'zod';
 import { requireUser } from '@/lib/auth';
 import { applyToJobs } from '@/lib/services/applicator';
+import { assertModePermits, storedApplicationMode } from '@/lib/apply/modes';
+import { db } from '@/lib/db';
 import { getQuota } from '@/lib/subscription';
 import { describeWait, fail, ok, route, tooMany } from '@/lib/api';
 import { LIMITS, rateLimit } from '@/lib/rate-limit';
@@ -27,6 +29,10 @@ export const POST = route(async (request: Request) => {
   }
 
   const body = schema.parse(await request.json());
+
+  // Stage 12: the applicant's mode decides whether anything is prepared at all.
+  const { applicationMode } = await db.user.findUniqueOrThrow({ where: { id: user.id }, select: { applicationMode: true } });
+  assertModePermits(storedApplicationMode(applicationMode), 'generate_documents');
 
   const quota = await getQuota(user.id);
   if (!quota) return fail('No active subscription found. Choose a plan to start applying.', 403);

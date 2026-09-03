@@ -96,7 +96,7 @@ async function touch(tx: Tx, applicationId: string, at = new Date()): Promise<vo
 
 export interface TransitionOptions {
   actor: 'applicant' | 'system';
-  source: 'ui' | 'applicator' | 'confirm' | 'api';
+  source: 'ui' | 'applicator' | 'confirm' | 'api' | 'ats_api';
   reason?: string | null;
   /** For a move to `rejected`. */
   rejectionReason?: string | null;

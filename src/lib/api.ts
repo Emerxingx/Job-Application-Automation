@@ -4,6 +4,7 @@ import { ZodError } from 'zod';
 import { UnauthorizedError } from './auth';
 import { TenantContextError } from './tenancy/context';
 import { OrganizationAccessError } from './tenancy/organizations';
+import { ApplicationModeError } from './apply/modes';
 
 /** Standard JSON success response. */
 export function ok<T>(data: T, init?: ResponseInit) {
@@ -51,6 +52,10 @@ export function route<Args extends unknown[]>(
         return fail(error.issues[0]?.message ?? 'Invalid request.', 422);
       }
       if (error instanceof OrganizationAccessError) {
+        return fail(error.message, error.status);
+      }
+      if (error instanceof ApplicationModeError) {
+        // A mode refusal is the applicant's own setting, said in their words.
         return fail(error.message, error.status);
       }
       if (error instanceof TenantContextError) {
