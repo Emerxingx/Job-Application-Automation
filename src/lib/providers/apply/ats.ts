@@ -153,6 +153,11 @@ export function atsDisplayName(vendor: AtsVendor): string {
  * `ATS_GREENHOUSE_ACME=<token>`, so one deployment can serve many employers
  * without them sharing a credential.
  */
+/** True when the posting's board is one an employer has authorised this deployment to submit to. */
+export function canSubmitToAts(target: AtsTarget): boolean {
+  return Boolean(target.submittable && target.postingId && credentialFor(target));
+}
+
 function credentialFor(target: AtsTarget): string | undefined {
   const slug = target.tenant.toUpperCase().replace(/[^A-Z0-9]/g, '_');
   return (

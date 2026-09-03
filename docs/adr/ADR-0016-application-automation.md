@@ -1,6 +1,6 @@
 # ADR-0016 — Application automation and human approval policy
 
-**Status:** Proposed · **Date:** 2026-09-02
+**Status:** Proposed · **Date:** 2026-09-02 · **Enforced in code (Stage 12, 2026-09-03, ADR-0026):** the three reachable modes are stored per applicant and enforced at the apply route, the applicator and the submission step; `approved_auto_apply` is refused by `parseApplicationMode` and has no permission row; preparation never submits in any engine; a programmatic submission exists only as the applicant's instructed click after review, where an employer has authorised their board.
 
 ## Context
 The existing implementation already made the right call, and documented it well.

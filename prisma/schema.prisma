@@ -36,6 +36,10 @@ model User {
   portfolioUrl      String?
   // Work authorization matters a great deal for CA/US postings.
   workAuth          String?   @default("Canadian Citizen")
+  // Stage 12 (ADR-0016, ADR-0026): recommend_only | prepare | review_submit.
+  // `approved_auto_apply` is modelled and REFUSED by parseApplicationMode —
+  // it cannot be stored here by any route.
+  applicationMode   String    @default("review_submit")
   onboardedAt       DateTime?
   // Staff identity. Staff reach /console; customers never do. There is no
   // separate staff table on purpose — one identity keeps requireUser() and
@@ -520,6 +524,16 @@ model Application {
   // JSON: the pre-filled fields for an assisted submission, so the applicant
   // confirms rather than retypes. Empty for programmatic submissions.
   assistedFields String  @default("[]")
+  // Stage 12: the question-bank answers prepared for this application —
+  // JSON PreparedQuestion[]: decision fill | ask | review | never, and a
+  // `never` entry carries NO value. The mode the application was prepared
+  // under, the exact field-mapping register version used to prepare it
+  // (`builtin:1` or `v<n>`), and whether the employer's ATS accepts a
+  // programmatic submission on the applicant's instruction.
+  preparedQuestions   String  @default("[]")
+  applicationMode     String  @default("review_submit")
+  fieldMappingVersion String  @default("builtin:1")
+  atsSubmittable      Boolean @default(false)
   // Confirmation reference returned by the employer system, when there is one.
   confirmation   String?
 
@@ -3224,6 +3238,31 @@ model AtsRuleset {
 
   @@unique([platform, version])
   @@index([platform, status])
+}
+
+// Stage 12 (ADR-0019 Tier 1, ADR-0026): the field-mapping register — how
+// the free-text questions employer forms ask map onto canonical keys — as
+// governed data, out of the content CMS. draft → approved by a SECOND admin
+// → active (one at a time; activating an older version is the rollback) →
+// retired. Every application records the version it was prepared with.
+// `mappings` is a JSON array validated by validateMappings(). System-only.
+model FieldMappingVersion {
+  id              String    @id @default(cuid())
+  version         Int       @unique
+  // draft | approved | active | retired
+  status          String    @default("draft")
+  mappings        String    @default("[]")
+  notes           String    @default("")
+  createdById     String?
+  createdByEmail  String    @default("")
+  approvedById    String?
+  approvedByEmail String?
+  approvedAt      DateTime?
+  activatedAt     DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([status])
 }
 
 // Stage 09 (MASTER_BUILD_PLAN "Resume, cover letter and document engine"):

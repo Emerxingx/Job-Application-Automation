@@ -66,6 +66,7 @@ const NAV: NavItem[] = [
   { href: '/console/sources', label: 'Job sources', icon: Plug, minRole: 'admin' },
   { href: '/console/ats-rulesets', label: 'ATS rulesets', icon: ListChecks, minRole: 'admin' },
   { href: '/console/match-weights', label: 'Match weights', icon: SlidersHorizontal, minRole: 'admin' },
+  { href: '/console/field-mappings', label: 'Field mappings', icon: ListChecks, minRole: 'admin' },
 ];
 
 const ROLE_LABEL: Record<StaffRole, string> = {

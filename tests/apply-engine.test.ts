@@ -101,13 +101,37 @@ describe('apply engine', () => {
     assert.equal(outcome.ats, 'lever');
   });
 
-  it('produces a deterministic mock outcome for the demo build', async () => {
+  it('preparation NEVER submits, even when an employer credential exists — submission is a separate, instructed step', async () => {
+    const saved = process.env.ATS_GREENHOUSE_DEFAULT;
+    process.env.ATS_GREENHOUSE_DEFAULT = 'board-token-for-test';
+    try {
+      const provider = new DefaultApplyProvider();
+      const req = request({ applyUrl: 'https://boards.greenhouse.io/acme/jobs/4012345' });
+      const outcome = await provider.apply(req);
+      assert.equal(outcome.channel, 'assisted', 'apply() prepares; it does not post to the board');
+      assert.equal(outcome.confirmation, undefined);
+      assert.equal(provider.canSubmit(req), true, 'the credential makes an instructed submission possible');
+      assert.equal(provider.canSubmit(request({ applyUrl: 'https://jobs.lever.co/acme/abc-123' })), false, 'no Lever credential');
+      assert.equal(await provider.submit(request({ applyUrl: 'https://jobs.lever.co/acme/abc-123' })), null);
+      const strict = new AssistedOnlyApplyProvider();
+      assert.equal(strict.canSubmit(), false, 'assisted-only never submits whatever credentials exist');
+      assert.equal(await strict.submit(), null);
+    } finally {
+      if (saved === undefined) delete process.env.ATS_GREENHOUSE_DEFAULT;
+      else process.env.ATS_GREENHOUSE_DEFAULT = saved;
+    }
+  });
+
+  it('produces a deterministic mock outcome for the demo build — prepared first, submitted only on instruction', async () => {
     const provider = new MockApplyProvider();
-    const a = await provider.apply(request());
-    const b = await provider.apply(request());
-    assert.equal(a.ok, b.ok);
-    assert.equal(a.confirmation, b.confirmation);
-    assert.equal(a.channel, 'ats_api');
+    const preparedA = await provider.apply(request());
+    assert.equal(preparedA.channel, 'assisted', 'even the mock prepares rather than claiming a submission');
+    assert.ok(preparedA.assisted?.fields.length);
+    const a = await provider.submit(request());
+    const b = await provider.submit(request());
+    assert.equal(a?.ok, b?.ok);
+    assert.equal(a?.confirmation, b?.confirmation);
+    assert.equal(a?.channel, 'ats_api');
   });
 
   describe('provider resolution', () => {

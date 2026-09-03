@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { AlertCircle, CheckCircle2, Loader2 } from 'lucide-react';
 import { Card } from '@/components/ui';
+import { APPLICATION_MODES, MODE_DESCRIPTIONS, MODE_LABELS, UNREACHABLE_MODE } from '@/lib/apply/modes';
 
 export interface ProfileValues {
   fullName: string;
@@ -15,6 +16,8 @@ export interface ProfileValues {
   linkedinUrl: string;
   portfolioUrl: string;
   workAuth: string;
+  /** Stage 12: recommend_only | prepare | review_submit. */
+  applicationMode: string;
 }
 
 const WORK_AUTH_CA = [
@@ -86,6 +89,30 @@ export function SettingsForm({ initial }: { initial: ProfileValues }) {
           <span>{error}</span>
         </div>
       )}
+
+      <Card className="space-y-3 p-6">
+        <h2 className="font-semibold text-ink">How applications are handled</h2>
+        <p className="text-sm text-muted">JobPilot never sends an application without your instruction, in any mode. Choose how far it goes before you take over.</p>
+        <fieldset className="space-y-2">
+          <legend className="sr-only">Application mode</legend>
+          {APPLICATION_MODES.map((mode) => (
+            <label key={mode} className="flex cursor-pointer items-start gap-3 rounded-xl border border-line p-3 text-sm has-[:checked]:border-brand-500">
+              <input type="radio" name="applicationMode" value={mode} checked={values.applicationMode === mode} onChange={() => set('applicationMode', mode)} className="mt-1" />
+              <span>
+                <span className="block font-medium text-ink">{MODE_LABELS[mode]}</span>
+                <span className="block text-xs text-muted">{MODE_DESCRIPTIONS[mode]}</span>
+              </span>
+            </label>
+          ))}
+          <div className="flex items-start gap-3 rounded-xl border border-dashed border-line p-3 text-sm opacity-70" aria-disabled="true">
+            <input type="radio" name="applicationMode" value={UNREACHABLE_MODE} disabled className="mt-1" />
+            <span>
+              <span className="block font-medium text-ink">Approved Auto-Apply — not available</span>
+              <span className="block text-xs text-muted">Autonomous submission is not offered. It is gated on a lawfulness review and an explicit founder decision (Stage 22); no setting turns it on.</span>
+            </span>
+          </div>
+        </fieldset>
+      </Card>
 
       <Card className="space-y-4 p-6">
         <h2 className="font-semibold text-ink">Profile</h2>

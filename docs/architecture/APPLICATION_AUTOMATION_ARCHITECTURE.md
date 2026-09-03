@@ -7,10 +7,17 @@
 
 | Mode | Behaviour | Status |
 | --- | --- | --- |
-| Recommend Only | Surface matches; no documents generated | Available |
-| Prepare | Generate tailored documents; nothing sent | Available |
-| Review & Submit | Prepare, candidate reviews and confirms | Available — **default** |
-| Approved Auto-Apply | Submit within approved parameters | **Modelled, disabled, unreachable** (Stage 22) |
+| Recommend Only | Surface matches; no documents generated | Available — `recommend_only`, enforced (Stage 12) |
+| Prepare | Generate tailored documents and every field; nothing sent | Available — `prepare`, enforced |
+| Review & Submit | Prepare, candidate reviews; on their click JobPilot may submit through an employer-authorised ATS API | Available — **default**, `review_submit`, enforced |
+| Approved Auto-Apply | Submit within approved parameters | **Modelled, disabled, unreachable** (Stage 22) — refused by `parseApplicationMode`; no permission row; no flag |
+
+Stage 12 (ADR-0026): **preparation never submits in any engine.** A record is
+`ready_to_submit` or `failed` at preparation; it becomes `submitted` only by
+the applicant's confirmation ("I submitted this on the employer's form") or
+their instructed submission (`POST /api/applications/:id/submit`, Review &
+submit mode, employer-authorised board only). The question bank is in the
+package under its policies; `NEVER_AUTOMATE` entries carry no value.
 
 ## Channels (implemented)
 - **`ats_api`** — programmatic submission, only where an **employer** has issued a

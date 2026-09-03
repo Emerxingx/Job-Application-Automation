@@ -26,7 +26,7 @@ remediation has begun.**
 npm ci                # install from the lockfile
 npm run dev           # http://localhost:3000
 npx tsc --noEmit      # typecheck  — PASSES
-npm test              # 1033 tests  — PASSES with the two database URLs below set; the
+npm test              # 1050 tests  — PASSES with the two database URLs below set; the
                       #   database suites skip WITH A REASON without them and THROW
                       #   when CI=true, so CI cannot pass by skipping them
 npm run build         # production — PASSES
@@ -54,7 +54,7 @@ npm run cms:types          # regenerate payload-types.ts
 ## Things that will surprise you
 
 1. **The database is PostgreSQL with a versioned migration history** since
-   Stage 01 (`ADR-0002`). Thirty migrations under `prisma/migrations/`; CI applies
+   Stage 01 (`ADR-0002`). Thirty-two migrations under `prisma/migrations/`; CI applies
    them to an empty database and fails on drift. `DATABASE_URL` is the
    transaction pooler, `DIRECT_URL` the session endpoint for migrations. The RLS
    migration is **generated** from `src/lib/tenancy/rls-tables.ts` — regenerate
@@ -266,6 +266,23 @@ npm run cms:types          # regenerate payload-types.ts
     nor Microsoft has been called from this codebase — no credentials exist
     here; `MAILBOX_CONNECTOR=mock` works outside production only and the
     registry never falls back to it. Revocation purges in one transaction.
+
+23. **Preparation never submits; submission is the applicant's click**
+    (Stage 12, ADR-0026). Every apply provider's `apply()` prepares and
+    returns `assisted` or `unavailable` — even with an employer credential,
+    even the mock. A record is `ready_to_submit` or `failed` at preparation
+    and becomes `submitted` only through `confirmAssistedSubmission` (the
+    applicant did it on the form) or `submitThroughAts` (their instructed
+    click, Review & submit mode, an employer-authorised board, source
+    `ats_api`). `src/lib/apply/modes.ts` holds the three reachable modes;
+    `approved_auto_apply` is refused by `parseApplicationMode` and has no
+    permission row — do not add one. The question bank is prepared into
+    `Application.preparedQuestions` under its policies and a `never` entry
+    carries no value. Field mappings are `FieldMappingVersion` (system-only,
+    governed at `/console/field-mappings`, built-in set as `builtin:1` until
+    a version is active); every application records the version it was
+    prepared with. The CMS no longer holds any automation configuration. No
+    real board has ever been submitted to.
 
 ## Conventions worth preserving
 

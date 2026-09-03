@@ -47,6 +47,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
           linkedinUrl: user.linkedinUrl ?? '',
           portfolioUrl: user.portfolioUrl ?? '',
           workAuth: user.workAuth ?? '',
+          applicationMode: user.applicationMode,
         }}
       />
 

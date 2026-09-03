@@ -18,7 +18,7 @@ import type { TailoringNotes } from '@/lib/types';
 import { Card, ScoreRing, StatusBadge, formatSalary } from '@/components/ui';
 import { ApplicationStatusControl } from '@/components/application-status';
 import { InterviewPrepButton } from '@/components/interview-prep-button';
-import { AssistedApply, type AssistedField } from '@/components/assisted-apply';
+import { AssistedApply, type AssistedField, type AssistedQuestion } from '@/components/assisted-apply';
 import { ApplicationDocuments, type DocumentVersionView } from '@/components/application-documents';
 import { ApplicationMessages } from '@/components/application-messages';
 import { KIND_LABELS, MESSAGE_KINDS, type DocumentKind } from '@/lib/documents/kinds';
@@ -53,6 +53,8 @@ export default async function ApplicationDetailPage({
   const eventSuggestions = await run((tx) => tx.calendarEventRef.findMany({ where: { userId: user.id, associationStatus: 'pending', applicationId: application.id }, orderBy: { startsAt: 'asc' } }));
 
   const assistedFields = parseJson<AssistedField[]>(application.assistedFields, []);
+  // Stage 12: the question bank as prepared for this application; a `never` entry carries no value by construction.
+  const preparedQuestions = parseJson<AssistedQuestion[]>(application.preparedQuestions, []);
   const notes = parseJson<TailoringNotes>(application.tailoringNotes, {
     summaryRewritten: false,
     bulletsAdjusted: 0,
@@ -202,6 +204,10 @@ export default async function ApplicationDetailPage({
               applyUrl={application.job.applyUrl}
               atsName={application.atsVendor ? atsDisplayName(application.atsVendor as AtsVendor) : undefined}
               fields={assistedFields}
+              questions={preparedQuestions}
+              atsSubmittable={application.atsSubmittable}
+              mode={application.applicationMode}
+              mappingVersion={application.fieldMappingVersion}
             />
           )}
 

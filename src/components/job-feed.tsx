@@ -204,16 +204,16 @@ export function JobFeed({ items, remaining }: { items: JobFeedItem[]; remaining:
                 {[
                   result.submitted > 0 &&
                     `${result.submitted} application${result.submitted === 1 ? '' : 's'} submitted`,
-                  result.prepared > 0 && `${result.prepared} ready for you to send`,
+                  result.prepared > 0 && `${result.prepared} prepared for your review`,
                 ]
                   .filter(Boolean)
-                  .join(', ') || 'Nothing was applied to'}
+                  .join(', ') || 'Nothing was prepared'}
                 {result.failed > 0 && `, ${result.failed} need${result.failed === 1 ? 's' : ''} attention`}
                 {result.skipped > 0 && `, ${result.skipped} skipped`}
               </p>
               <p className="mt-0.5 text-sm text-muted">
                 {result.prepared > 0
-                  ? 'Each one has its own folder. The ready ones open the employer form with every field pre-filled — one click each.'
+                  ? 'Each one has its own folder with every field prepared. Nothing has been sent: review it, then submit on the employer form — or, where the employer has authorised it, from the folder with one click.'
                   : 'Each one has its own folder with the resume and cover letter that were sent.'}
               </p>
               <Link
