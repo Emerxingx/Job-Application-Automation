@@ -5,7 +5,7 @@
   "current_stage": "13",
   "last_completed_stage": "00",
   "current_branch": "claude/stage-13-candidate-analytics",
-  "current_head": "5884d4285bae6091927be06110c3d293a9297d47",
+  "current_head": "3b1561d6cd46f74025c2b433a765f3686981422f",
   "current_head_meaning": "SHA of the last commit whose full gate set was verified locally (lint, typecheck, tests, build). Set by the status-sync commit that immediately follows it, so it names a real, verified commit rather than the one it is written in.",
   "current_pr": null,
   "main_head": "d6ae8b3a9180b529abe06f23417515432c0a7f0e",
