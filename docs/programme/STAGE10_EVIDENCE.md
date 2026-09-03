@@ -135,7 +135,7 @@ refused and returns to the real status.
 | Typecheck | 0 |
 | Tests | **1012 / 1012**, 0 skipped (Stage 09: 999) — new: `application-status-machine` 6, `application-folder` 6 |
 | Build | passes; the folder routes (`contacts`, `interviews`, `assessments`, `follow-ups`, `notes`, `offer`, `outcome`) present |
-| Migrations | twenty-seven applied fresh; drift clean; 110/110 forced; RLS migration equals the generator output |
+| Migrations | twenty-eight applied fresh; drift clean; 110/110 forced; RLS migration equals the generator output |
 
 ## 10. Exit gate — verdict
 
