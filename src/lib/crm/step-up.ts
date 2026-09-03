@@ -1,14 +1,16 @@
-import { db } from '@/lib/db';
-import { verifyPassword } from '@/lib/auth';
-import { fail } from '@/lib/api';
-import { consoleRoute, type StaffContext } from '@/lib/crm/auth';
-import { PromptGovernanceError } from '@/lib/ai/prompt-registry';
-import { LIMITS, rateLimit } from '@/lib/rate-limit';
-import { recordSecurityEvent, type RequestMeta } from '@/lib/security-audit';
+import { db } from '../db';
+import { verifyPassword } from '../auth';
+import { fail } from '../api';
+import { consoleRoute, type StaffContext } from './auth';
+import { PromptGovernanceError } from '../ai/prompt-registry';
+import { TaxonomyLicenceError } from '../taxonomy/datasets';
+import { LIMITS, rateLimit } from '../rate-limit';
+import { recordSecurityEvent, type RequestMeta } from '../security-audit';
 
 /**
- * Step-up authentication for prompt governance (MASTER_BUILD_PLAN Stage 03:
- * "step-up authentication for prompt changes").
+ * Step-up authentication for governance actions: prompt changes (Stage 03,
+ * MASTER_BUILD_PLAN: "step-up authentication for prompt changes") and
+ * taxonomy licence records (Stage 04: opening or closing the L-2 gate).
  *
  * A staff session is a bearer of considerable power; a system prompt is a
  * security control. Changing one requires the actor to prove presence again
@@ -36,15 +38,15 @@ export async function requireStepUp(staff: StaffContext, currentPassword: string
       event: 'auth.step_up.failed',
       user: { id: staff.id, email: staff.email, role: staff.storedRole },
       actor: { type: 'staff', id: staff.id, email: staff.email, role: staff.role },
-      summary: 'Step-up re-authentication failed for a prompt governance action.',
+      summary: 'Step-up re-authentication failed for a governance action.',
       meta,
     });
     throw new StepUpError();
   }
 }
 
-/** consoleRoute plus the two governance errors → clean statuses. */
-export function promptGovernanceRoute<Args extends unknown[]>(
+/** consoleRoute plus the governance errors → clean statuses. */
+export function governanceRoute<Args extends unknown[]>(
   handler: (...args: Args) => Promise<Response>,
 ): (...args: Args) => Promise<Response> {
   return consoleRoute(async (...args: Args) => {
@@ -53,6 +55,7 @@ export function promptGovernanceRoute<Args extends unknown[]>(
     } catch (error) {
       if (error instanceof StepUpError) return fail(error.message, error.status);
       if (error instanceof PromptGovernanceError) return fail(error.message, error.status);
+      if (error instanceof TaxonomyLicenceError) return fail(error.message, error.status);
       throw error;
     }
   });

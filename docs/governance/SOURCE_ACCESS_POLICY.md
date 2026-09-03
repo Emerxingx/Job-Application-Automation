@@ -59,6 +59,32 @@ carry distinct terms. **No dataset is ingested before its licence and attributio
 obligations are recorded here.** Attribution is surfaced in the product where
 required.
 
+**Enforced in code since Stage 04 (2026-09-03).** Every dataset has a
+`TaxonomyDataset` row (`src/lib/taxonomy/datasets.ts`); its `licenceStatus`
+starts `unrecorded`, and the loaders obtain a dataset only through
+`requireIngestible()`, which refuses anything not `recorded` with ingestion
+approved. Recording is an admin action at `/console/taxonomy`, requires the
+attribution text the product will display and a reason, and writes an audit
+row (`taxonomy.licence.recorded`). A `prohibited` decision can never be
+loaded, and recording it — or withdrawing approval — on a dataset that has
+been loaded purges its rows in the same transaction: the gate covers what is
+already in the database, not only what is about to enter it, and each load
+is one transaction. The attribution is shown on any job page whose occupation came from that
+dataset.
+
+| Dataset | Publisher | What the publisher states (to be CONFIRMED by counsel — L-2) | Record status |
+| --- | --- | --- | --- |
+| NOC 2021 V1.0 | Statistics Canada / ESDC | Open Government Licence – Canada: copy, modify, redistribute with attribution | **unrecorded** — not ingested |
+| SOC 2018 | U.S. Bureau of Labor Statistics | U.S. federal work, public domain in the U.S. | **unrecorded** — not ingested |
+| OaSIS | ESDC | Government of Canada content; terms to confirm | **unrecorded** — not ingested |
+| Canadian Skills and Competencies Taxonomy | ESDC | Government of Canada content; terms to confirm | **unrecorded** — not ingested |
+| O*NET | U.S. DOL / National Center for O*NET Development | CC BY 4.0 with a required attribution statement | **unrecorded** — not ingested |
+| Test fixture | this repository | a dozen hand-written nodes in NOC's shape, attributed (`tests/fixtures/README-taxonomy.md`) | approvable only inside a test database |
+
+The "what the publisher states" column is what a developer read on the
+publisher's site. It is not a licence record and grants nothing: the row
+turns `recorded` only when a person with the review in hand records it.
+
 ## Outbound data
 Queries to job sources carry **search criteria only — never candidate identity**.
 A source must not be able to profile the platform's candidates from its query log.

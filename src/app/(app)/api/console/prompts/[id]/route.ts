@@ -8,7 +8,7 @@ import {
   retirePromptVersion,
 } from '@/lib/ai/prompt-registry';
 import { requestMeta } from '@/lib/security-audit';
-import { promptGovernanceRoute, requireStepUp } from '../step-up';
+import { governanceRoute, requireStepUp } from '@/lib/crm/step-up';
 
 const actionSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('approve') }),
@@ -26,7 +26,7 @@ const bodySchema = z.object({
  * `promote` on an older version is the rollback; the registry records it as
  * such. Every transition writes an audit row (`prompt.*`).
  */
-export const PATCH = promptGovernanceRoute(async (request: Request, { params }: { params: Promise<{ id: string }> }) => {
+export const PATCH = governanceRoute(async (request: Request, { params }: { params: Promise<{ id: string }> }) => {
   const staff = await requireStaff('admin');
   const { id } = await params;
   const body = bodySchema.parse(await request.json());

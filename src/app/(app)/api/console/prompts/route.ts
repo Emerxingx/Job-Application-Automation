@@ -3,7 +3,7 @@ import { ok } from '@/lib/api';
 import { consoleRoute, requireStaff } from '@/lib/crm/auth';
 import { createPromptVersion, listPromptVersions } from '@/lib/ai/prompt-registry';
 import { requestMeta } from '@/lib/security-audit';
-import { promptGovernanceRoute, requireStepUp } from './step-up';
+import { governanceRoute, requireStepUp } from '@/lib/crm/step-up';
 
 /**
  * GET /api/console/prompts — every version of every prompt. Admin only, like
@@ -35,7 +35,7 @@ const createSchema = z.object({
  * the caller re-enters their password, so a hijacked staff session cannot
  * rewrite a system prompt on its own (ADR-0019 Tier 1, AI_GOVERNANCE.md).
  */
-export const POST = promptGovernanceRoute(async (request: Request) => {
+export const POST = governanceRoute(async (request: Request) => {
   const staff = await requireStaff('admin');
   const body = createSchema.parse(await request.json());
   await requireStepUp(staff, body.currentPassword, requestMeta(request));

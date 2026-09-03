@@ -3,6 +3,7 @@ import { getJobProvider } from '@/lib/providers';
 import type { JobContext } from '@/lib/providers';
 import * as ai from '@/lib/ai/gateway';
 import { loadEvidenceForGeneration } from '@/lib/evidence/vault';
+import { classifyStoredJob } from '@/lib/taxonomy/classify';
 import { parseJson } from '@/lib/types';
 import type { Country, JobType, WorkMode } from '@/lib/types';
 import { loadResumeContent } from '@/lib/candidate/profile';
@@ -107,6 +108,11 @@ export async function runAgentScan(userId: string, agentId: string): Promise<Sca
       },
       update: { scrapedAt: new Date(), description: posting.description },
     });
+
+    // Stage 04: classify the posting against the occupational spine once,
+    // recording the METHOD alongside the id so a regex fallback is never
+    // mistaken for a real match (ADR-0009). A no-op until a dataset is loaded.
+    await classifyStoredJob(job);
 
     const existing = await db.jobMatch.findUnique({
       where: { agentId_jobId: { agentId: agent.id, jobId: job.id } },

@@ -168,7 +168,7 @@ describe('prompt registry — lifecycle against the database', { skip: SKIP }, (
 
   it('step-up: a wrong password is refused and audited; an account without a local password cannot step up; attempts are rate-limited', async () => {
     const { hashPassword } = await import('../src/lib/auth');
-    const { requireStepUp, StepUpError } = await import('../src/app/(app)/api/console/prompts/step-up');
+    const { requireStepUp, StepUpError } = await import('../src/lib/crm/step-up');
     await db.user.create({ data: { id: STAFF.id, email: STAFF.email, passwordHash: await hashPassword('correct horse battery staple'), fullName: 'Staff', role: 'admin' } });
     await db.user.create({ data: { id: SECOND.id, email: SECOND.email, passwordHash: '', fullName: 'Second', role: 'admin' } });
     await requireStepUp(STAFF, 'correct horse battery staple', {});

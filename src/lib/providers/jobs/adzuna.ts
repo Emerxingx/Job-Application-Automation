@@ -1,5 +1,6 @@
 import type { Country, JobSearchQuery, JobType, RawJobPosting, SubmissionResult, WorkMode } from '@/lib/types';
 import { extractSkills } from '../ai/keywords';
+import { inferNocCode } from '@/lib/taxonomy/fallback';
 import type { JobProvider } from './types';
 
 /**
@@ -47,36 +48,10 @@ interface AdzunaResponse {
   results?: AdzunaJob[];
 }
 
-/** Titles that reliably map to a Canadian NOC code. Extended over time. */
-const NOC_BY_TITLE: ReadonlyArray<readonly [RegExp, string]> = [
-  [/\bdata\s+analyst\b/i, '21223'],
-  [/\bbusiness\s+analyst\b/i, '21221'],
-  [/\bdata\s+scientist\b/i, '21211'],
-  [/\bdata\s+engineer\b/i, '21231'],
-  [/\bmachine\s+learning\b|\bml\s+engineer\b/i, '21211'],
-  [/\bsoftware\s+(engineer|developer)\b|\bfull.?stack\b|\bbackend\b|\bfrontend\b/i, '21232'],
-  [/\bweb\s+developer\b/i, '21234'],
-  [/\bdevops\b|\bsite\s+reliability\b|\bsre\b/i, '21233'],
-  [/\bdatabase\s+administrator\b|\bdba\b/i, '21223'],
-  [/\bcyber\s*security\b|\binformation\s+security\b/i, '21220'],
-  [/\bnetwork\s+(engineer|administrator)\b/i, '21222'],
-  [/\bproduct\s+manager\b/i, '10029'],
-  [/\bproject\s+manager\b/i, '20012'],
-  [/\baccountant\b/i, '11100'],
-  [/\bfinancial\s+analyst\b/i, '11101'],
-  [/\bmarketing\s+manager\b/i, '10022'],
-  [/\bregistered\s+nurse\b/i, '31301'],
-  [/\bcivil\s+engineer\b/i, '21300'],
-  [/\bmechanical\s+engineer\b/i, '21301'],
-  [/\belectrical\s+engineer\b/i, '21310'],
-];
-
-function inferNocCode(title: string): string | undefined {
-  for (const [pattern, code] of NOC_BY_TITLE) {
-    if (pattern.test(title)) return code;
-  }
-  return undefined;
-}
+// Stage 04: the title → NOC regex table moved to src/lib/taxonomy/fallback.ts,
+// where it is the recorded LOW-CONFIDENCE fallback behind real classification
+// (ADR-0009). The scanner classifies the stored posting against the
+// occupational spine after capture and records the method.
 
 function inferWorkMode(text: string): Exclude<WorkMode, 'any'> {
   if (/\bhybrid\b|\bmode\s+hybride\b/i.test(text)) return 'hybrid';

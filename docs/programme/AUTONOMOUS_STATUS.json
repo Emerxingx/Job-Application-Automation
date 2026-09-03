@@ -2,12 +2,12 @@
   "$comment": "Machine-readable controller for the autonomous build programme. Authoritative over any chat transcript: if this file and a conversation disagree, this file wins. Updated at every stage checkpoint.",
   "schema_version": 1,
   "updated_at": "2026-09-03",
-  "current_stage": "03",
+  "current_stage": "04",
   "last_completed_stage": "00",
-  "current_branch": "claude/stage-03-career-evidence-vault",
-  "current_head": "273a32dc7a79af352aab966da41627c4ca9ebe52",
+  "current_branch": "claude/stage-04-occupation-skills-spine",
+  "current_head": "462d98997fabd2c43c50bec937ad363e6542d233",
   "current_head_meaning": "SHA of the last commit whose full gate set was verified locally (lint, typecheck, tests, build). Set by the status-sync commit that immediately follows it, so it names a real, verified commit rather than the one it is written in.",
-  "current_pr": 15,
+  "current_pr": 16,
   "main_head": "d6ae8b3a9180b529abe06f23417515432c0a7f0e",
   "run_complete": false,
   "stage_status": {
@@ -15,7 +15,7 @@
     "01": "PARTIAL",
     "02": "PASS_PENDING_MERGE",
     "03": "PASS_ENGINEERING_EXIT_BLOCKED_L3",
-    "04": "NOT_STARTED",
+    "04": "PASS_ENGINEERING_EXIT_BLOCKED_L2",
     "05": "NOT_STARTED",
     "06": "NOT_STARTED",
     "07": "NOT_STARTED",
@@ -83,7 +83,7 @@
     ],
     "verdict": "Stage 01 is PARTIAL, not PASS. Every unmet item traces to the staging project being unreachable from the build environment, except tenant-path adoption, which is engineering and continues in Stage 02 alongside the schema work that touches those handlers."
   },
-  "next_requirement": "Stage 03 engineering is complete (see stage_03_exit_gate). Its exit is BLOCKED on L-3 (LEGAL_COMPLIANCE): external generation stays off by construction until founder + counsel decide and an operator records an evaluation pass and promotes a prompt version. Independent work continues: Stage 04 (Canada occupation, skills and labour intelligence) begins on a branch stacked on Stage 03; its ingestion is gated on L-2 (dataset licences) and must not ingest before the licence is recorded.",
+  "next_requirement": "Stage 04 engineering is complete; its exit is BLOCKED on L-2 (LEGAL_COMPLIANCE): the occupational vocabulary stays empty until counsel confirms the dataset terms and an admin records them at /console/taxonomy, after which loading is an operator action. Independent work continues: Stage 05 (job source connector framework) begins on a branch stacked on Stage 04 — JobSourceConnector contract, per-connector config/credentials/rate limits/health/audit, contract suite, Adzuna live validation (BLOCKED on credentials + egress), object storage, AtsRulesets → governed admin.",
   "blockers": [
     {
       "id": "L-3",
@@ -123,6 +123,15 @@
       ],
       "effect": "Blocks the four NOT VERIFIED / BLOCKED items of the Stage 01 exit gate. Blocks nothing else: all engineering that does not need the live project is done and proven locally and in CI.",
       "note": "SUPABASE_REGION and SUPABASE_PROJECT_NAME, listed in the brief, are not set in this environment; nothing depends on them."
+    },
+    {
+      "id": "L-2",
+      "type": "LEGAL_COMPLIANCE",
+      "issue": "Which Canadian taxonomy datasets (NOC 2021, TEER, OaSIS, Canadian Skills and Competencies Taxonomy) and which US datasets (SOC 2018, O*NET) may be redistributed within a commercial product, and on what attribution terms.",
+      "owner": "Founder + IP / data-licensing counsel",
+      "latest_blocking_stage": "04",
+      "status": "OPEN",
+      "effect": "Stage 04 exit BLOCKED for real data. The spine, loaders, crosswalk and classifier are proven on an attributed fixture; every real dataset is registered `unrecorded` and requireIngestible() refuses it (tests/taxonomy.test.ts). Resolution: record each licence + attribution at /console/taxonomy (audited), then load."
     }
   ],
   "external_actions": [
@@ -160,6 +169,12 @@
       "action": "With an Anthropic key available (never in the build), run the three seeded prompt versions (analyze-match, tailor, prepare-interview) against a golden set, record the result at /console/prompts with a note, and promote the versions that pass. Until then every AI task is served by the deterministic engine and recorded as deterministic/degraded.",
       "why": "AI_GOVERNANCE.md: a version cannot be default until it has passed evaluation. No live-model evaluation has ever been run from this codebase.",
       "status": "REQUIRED_BEFORE_EXTERNAL_AI"
+    },
+    {
+      "id": "TAXONOMY-LICENCE-RECORD",
+      "action": "With counsel's review in hand, record the licence, attribution text and ingestion approval for NOC 2021 and SOC 2018 (then OaSIS, CSCT, O*NET) at /console/taxonomy, and run the loader against the published files.",
+      "why": "SOURCE_ACCESS_POLICY.md and ADR-0009: no dataset is ingested before its licence is recorded; the code enforces it.",
+      "status": "REQUIRED_BEFORE_REAL_OCCUPATION_DATA"
     }
   ],
   "invariants_never_to_break": [
@@ -177,7 +192,8 @@
     "DATABASE_URL and DIRECT_URL authenticate as the SAME role: the system RLS policy is bound to the migration role; a different application role sees nothing.",
     "Every model-backed task goes through src/lib/ai/gateway.ts: the tenant's AI policy is resolved before dispatch, RESTRICTED fields are refused, the deterministic engine always runs, output is grounded in code before render, and an AiRun row records the route and the exact prompt version. Nothing else may import the SDK or an external provider (static test).",
     "A prompt version serves traffic only as PromptVersion.deploymentStatus = default, reached only through promote, which refuses unless evaluationStatus = passed. Never set default by hand.",
-    "Approved evidence is immutable (service + database trigger); a correction is a new version."
+    "Approved evidence is immutable (service + database trigger); a correction is a new version.",
+    "No taxonomy dataset is loaded except through requireIngestible(): the dataset's licence must be recorded and ingestion approved by an admin, with the attribution text the product displays (ADR-0009, SOURCE_ACCESS_POLICY.md). Never flip TaxonomyDataset.licenceStatus or ingestionApproved by hand."
   ],
   "stage_02_progress": {
     "digital_twin_schema": "DONE — 11 tables (CandidateProfile, EmploymentHistory, Education, Skill, CandidateSkill, Certification, Project, Achievement, CandidateLanguage, CareerPreferences, WorkAuthorization), classification comments, migration 20260903081338",
@@ -228,5 +244,30 @@
       "Staging rehearsal of the three new migrations (NOT VERIFIED — R-34, inherited)"
     ],
     "verdict": "Stage 03 passes every engineering gate reachable from this environment and is BLOCKED at its exit on L-3, per STAGE_STATUS.md's rule for a stage whose legal question is open. The code guarantees nothing leaves the boundary until that decision and an operator promotion. Merge posture inherited from Stages 01/02."
+  },
+  "stage_04_progress": {
+    "schema_and_migrations": "DONE locally — 10 reference tables + Job.occupationId/occupationSource (20260903100000), generated RLS (20260903100100, 95/95 forced); NOT VERIFIED on Supabase (R-34)",
+    "licence_gate": "DONE — TaxonomyDataset register (system-only, 6 datasets, all unrecorded, publisher terms labelled unconfirmed), requireIngestible() refuses unrecorded/unapproved/prohibited, admin + step-up recording with attribution + reason, audited; a withdrawal or prohibition PURGES loaded rows; loads are single transactions; /console/taxonomy",
+    "noc_loader": "DONE on the attributed fixture — structure-file and elements-file parsers (published EN/FR headers, BOM), prefix hierarchy with missing parents refused, explicit TEER, bilingual labels with stored normal forms, one transaction per load, idempotent; NOT RUN on the real files (L-2)",
+    "crosswalk": "DONE on the fixture — SOC 2018 attached to canonical occupations, both directions, many-to-one preserved, coverage measured",
+    "classification": "DONE — normalised-both-sides matching on unit groups (title_exact / title_alternate), head-of-title candidate, ambiguity → none, regex_fallback (low) with three mappings corrected, confidence recorded on Job.occupationSource; classifyStoredJob overwrites the capture-time guess on high confidence and is a no-op on an empty spine; job page qualifies both chips unless high-confidence and shows attribution read on the system client",
+    "skills_and_career_paths": "SCHEMA ONLY — OccupationSkill, SkillMapping, SkillLabel, CareerPath, Region tables and RLS exist; no OaSIS/CSCT/O*NET loader (each needs its own licence review first)",
+    "bilingual_model": "DONE — labels are per-locale records; completeness report; fixture complete in EN and FR",
+    "independent_review": "DONE — 15 findings + nits (3 HIGH: write-time-only licence gate left loaded data serving; hyphen/raw-title normalisation made real titles unmatchable; parser rejected the published BOM/FR headers and had no elements-file loader), all HIGH/MEDIUM fixed with tests in the same PR, LOW fixed or recorded; STAGE04_EVIDENCE.md §7"
+  },
+  "stage_04_exit_gate": {
+    "met": [
+      "Taxonomy queryable and jurisdiction-aware on the tenant path (search, crosswalk, completeness)",
+      "SOC attached with no schema change",
+      "Licence gate enforced in code and audited",
+      "Full gate set green: lint 0/8, typecheck 0, 871/871 tests (0 skipped), build 0"
+    ],
+    "not_met": [
+      "Licence records for any real dataset (BLOCKED — L-2)",
+      "Real row counts and crosswalk coverage (0 — nothing ingested)",
+      "Skills-mapping loaders for OaSIS / CSCT / O*NET (NOT IMPLEMENTED — own licence review first)",
+      "Staging rehearsal (NOT VERIFIED — R-34)"
+    ],
+    "verdict": "Stage 04 passes every engineering gate reachable from this environment and is BLOCKED at its exit on L-2. The vocabulary is empty by construction until a licence is recorded. Merge posture inherited from the stack."
   }
 }

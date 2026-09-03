@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { ArrowLeft, Calendar, ExternalLink, MapPin, Wallet } from 'lucide-react';
 import { requireTenant } from '@/lib/tenancy/request';
+import { attributionFor } from '@/lib/taxonomy/datasets';
 import { getQuota } from '@/lib/subscription';
 import { parseJson } from '@/lib/types';
 import type { ScoreBreakdown } from '@/lib/types';
@@ -27,7 +28,7 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
   // application are the user's own rows.
   const [loaded, quota] = await Promise.all([
     run(async (tx) => {
-      const job = await tx.job.findUnique({ where: { id } });
+      const job = await tx.job.findUnique({ where: { id }, include: { occupation: { include: { labels: true, codes: true } } } });
       if (!job) return null;
       const [match, application] = await Promise.all([
         tx.jobMatch.findFirst({
@@ -42,6 +43,8 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
   ]);
   if (!loaded) notFound();
   const { job, match, application } = loaded;
+  // The dataset register is system-only; this reads the one column a page needs.
+  const attribution = await attributionFor(job.occupationId);
 
   const breakdown = parseJson<ScoreBreakdown>(match?.scoreBreakdown, {
     skills: 0,
@@ -87,8 +90,26 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
 
             <div className="mt-4 flex flex-wrap gap-1.5">
               <span className="chip">{job.jobType.replace(/_/g, ' ')}</span>
-              {job.nocCode && <span className="chip">NOC {job.nocCode}</span>}
+              {/*
+               * A NOC code is only certain when the spine classified the title
+               * with high confidence; a capture-time regex guess or a fallback
+               * is shown as approximate (ADR-0009: confidence recorded, never
+               * implied). `occupationSource` is meaningful only with an id.
+               */}
+              {job.nocCode && (
+                <span className="chip">
+                  NOC {job.nocCode}
+                  {job.occupationId && (job.occupationSource === 'title_exact' || job.occupationSource === 'title_alternate') ? '' : ' (approx.)'}
+                </span>
+              )}
+              {job.occupation && (
+                <span className="chip">
+                  {job.occupation.labels.find((l) => l.locale === 'en')?.title ?? job.occupation.slug}
+                  {job.occupationSource === 'title_exact' || job.occupationSource === 'title_alternate' ? '' : ' (approx.)'}
+                </span>
+              )}
             </div>
+            {attribution && <p className="mt-2 text-xs text-faint">Occupation data: {attribution}</p>}
           </Card>
 
           <Card className="p-6">

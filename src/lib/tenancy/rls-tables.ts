@@ -180,6 +180,22 @@ export const RLS_TABLES: Record<string, RlsKind> = {
 
   // --- Reference data (read-only through the tenant path) --------------------
   Plan: { kind: 'reference' },
+
+  // --- Stage 04: the occupational spine (ADR-0009). Shared, non-personal
+  //     reference data written only by the licence-gated ingestion path.
+  //     The dataset REGISTER is system-only: it carries who recorded a licence
+  //     and governance notes; the attribution line a page shows is read on the
+  //     system client through `loadedAttributions()` / `attributionFor()`.
+  TaxonomyDataset: { kind: 'system' },
+  Occupation: { kind: 'reference' },
+  OccupationLabel: { kind: 'reference' },
+  OccupationCode: { kind: 'reference' },
+  SkillLabel: { kind: 'reference' },
+  SkillMapping: { kind: 'reference' },
+  OccupationSkill: { kind: 'reference' },
+  CareerPath: { kind: 'reference' },
+  Region: { kind: 'reference' },
+  RegionLabel: { kind: 'reference' },
   PlanPrice: { kind: 'reference', where: `"active" = true` },
   Job: { kind: 'reference' },
   TaxRate: { kind: 'reference', where: `"active" = true` },
@@ -253,8 +269,14 @@ export const STAGE_02_TABLES = [
 
 export const STAGE_03_TABLES = ['AiRun', 'ApplicationQuestion', 'CareerEvidence', 'PromptVersion'];
 
+export const STAGE_04_TABLES = [
+  'CareerPath', 'Occupation', 'OccupationCode', 'OccupationLabel', 'OccupationSkill', 'Region', 'RegionLabel',
+  'SkillLabel', 'SkillMapping', 'TaxonomyDataset',
+];
+
 export const RLS_MANIFESTS: RlsManifest[] = [
   { migration: '20260903073000_row_level_security', preamble: true, tables: STAGE_01_TABLES },
   { migration: '20260903081400_rls_candidate_tables', preamble: false, tables: STAGE_02_TABLES },
   { migration: '20260903090100_rls_evidence_tables', preamble: false, tables: STAGE_03_TABLES },
+  { migration: '20260903100100_rls_taxonomy_tables', preamble: false, tables: STAGE_04_TABLES },
 ];

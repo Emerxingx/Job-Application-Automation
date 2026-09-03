@@ -26,7 +26,7 @@ remediation has begun.**
 npm ci                # install from the lockfile
 npm run dev           # http://localhost:3000
 npx tsc --noEmit      # typecheck  — PASSES
-npm test              # 853 tests  — PASSES with the two database URLs below set; the
+npm test              # 871 tests  — PASSES with the two database URLs below set; the
                       #   database suites skip WITH A REASON without them and THROW
                       #   when CI=true, so CI cannot pass by skipping them
 npm run build         # production — PASSES
@@ -54,7 +54,7 @@ npm run cms:types          # regenerate payload-types.ts
 ## Things that will surprise you
 
 1. **The database is PostgreSQL with a versioned migration history** since
-   Stage 01 (`ADR-0002`). Three migrations under `prisma/migrations/`; CI applies
+   Stage 01 (`ADR-0002`). Thirteen migrations under `prisma/migrations/`; CI applies
    them to an empty database and fails on drift. `DATABASE_URL` is the
    transaction pooler, `DIRECT_URL` the session endpoint for migrations. The RLS
    migration is **generated** from `src/lib/tenancy/rls-tables.ts` — regenerate
@@ -76,7 +76,10 @@ npm run cms:types          # regenerate payload-types.ts
 3. **Many Prisma models still have no application code references.** Some are
    nested-write models genuinely in use (`InvoiceLine`, `PaymentAllocation`,
    `DocumentSequence`). Others are designed-but-unwired — `AgentSchedule` (a
-   complete scheduler with no scheduler) is the clearest. Stage 01 wired
+   complete scheduler with no scheduler) is the clearest; since Stage 04 so are
+   `Region`, `RegionLabel`, `CareerPath`, `SkillLabel`, `SkillMapping` and
+   `OccupationSkill` (schema and RLS only; their loaders wait on their own
+   licence reviews). Stage 01 wired
    `Organization` / `Membership` (every user owns a personal workspace) and
    `WebhookEvent` (replay and ordering). Check before assuming a model does
    something.
@@ -151,6 +154,14 @@ npm run cms:types          # regenerate payload-types.ts
     edits and a database trigger refuses them independently. A correction is
     a new version with `supersedesId`.
 
+15. **The occupational spine is empty until a licence is recorded** (Stage 04,
+    ADR-0009). `Occupation` / `OccupationCode` / labels exist, the NOC loader
+    and the NOC↔SOC crosswalk are proven on a fixture, but every
+    `TaxonomyDataset` is `unrecorded` and `requireIngestible()` refuses to
+    load until an admin records the licence and attribution at
+    `/console/taxonomy` (L-2). Classification falls back to the old regex
+    table and records `regex_fallback` — a low-confidence method, not a match.
+
 ## Conventions worth preserving
 
 - **The provider pattern** (`src/lib/providers/`): interface, mock default, lazy
@@ -195,6 +206,10 @@ npm run cms:types          # regenerate payload-types.ts
    `PromptVersion.deploymentStatus = 'default'` by hand.** Promotion goes through
    `promotePromptVersion`, which refuses until an evaluation has passed
    (`docs/governance/AI_GOVERNANCE.md`).
+
+10. **Never load a taxonomy dataset except through `requireIngestible()`**, and
+    never set `TaxonomyDataset.licenceStatus` / `ingestionApproved` by hand
+    (`docs/governance/SOURCE_ACCESS_POLICY.md`, ADR-0009).
 
 ## Dependency constraint you must know
 `@payloadcms/next@3.88.0` declares:
