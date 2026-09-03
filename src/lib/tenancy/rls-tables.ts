@@ -240,5 +240,5 @@ export const STAGE_02_TABLES = [
 
 export const RLS_MANIFESTS: RlsManifest[] = [
   { migration: '20260903073000_row_level_security', preamble: true, tables: STAGE_01_TABLES },
-  { migration: '20260903081600_rls_candidate_tables', preamble: false, tables: STAGE_02_TABLES },
+  { migration: '20260903081400_rls_candidate_tables', preamble: false, tables: STAGE_02_TABLES },
 ];

@@ -37,6 +37,35 @@ export const PROFILE_INCLUDE = {
 
 export type CandidateProfileRecord = Prisma.CandidateProfileGetPayload<{ include: typeof PROFILE_INCLUDE }>;
 
+/**
+ * What the résumé projection needs — and nothing more. Preferences and work
+ * authorisation are deliberately absent: they are CONFIDENTIAL settings that
+ * eligibility reads (Stage 07), not material for a prompt, and a record that
+ * never carried them cannot be serialised into one by mistake.
+ */
+export const RESUME_INCLUDE = {
+  employment: { orderBy: { sortOrder: 'asc' as const } },
+  education: { orderBy: { sortOrder: 'asc' as const } },
+  skills: { orderBy: { sortOrder: 'asc' as const } },
+  certifications: { orderBy: { sortOrder: 'asc' as const } },
+  projects: { orderBy: { sortOrder: 'asc' as const } },
+} satisfies Prisma.CandidateProfileInclude;
+
+export type ResumeProfileRecord = Prisma.CandidateProfileGetPayload<{ include: typeof RESUME_INCLUDE }>;
+
+/**
+ * A profile row can exist with nothing in it (saving preferences creates one).
+ * That is not a résumé, and must not satisfy "add your résumé first" guards.
+ */
+export function hasResumeContent(profile: ResumeProfileRecord): boolean {
+  return (
+    profile.employment.length > 0 ||
+    profile.skills.length > 0 ||
+    profile.education.length > 0 ||
+    profile.summary.trim().length > 0
+  );
+}
+
 /** Normalise a skill label for de-duplication and matching. */
 export function normalizeSkill(name: string): string {
   return name.trim().replace(/\s+/g, ' ').toLowerCase();
@@ -66,7 +95,7 @@ export interface ContactFields {
  * Project the structured profile to the résumé shape. Pure, so the AI and
  * document paths can be tested against a fixed profile.
  */
-export function toResumeContent(profile: CandidateProfileRecord, contact: ContactFields): ResumeContent {
+export function toResumeContent(profile: ResumeProfileRecord, contact: ContactFields): ResumeContent {
   const experience: ResumeExperience[] = profile.employment.map((e) => ({
     company: e.company,
     title: e.title,
@@ -105,11 +134,17 @@ export function toResumeContent(profile: CandidateProfileRecord, contact: Contac
  * preferences, work authorisation) are left untouched.
  *
  * Replacement, not merge: the editor submits the whole list, so the list is
- * the truth. Ids are regenerated; nothing else references them yet (Stage 03
- * evidence will, and will need a stable-id strategy — recorded there).
+ * the truth. Ids are regenerated, so `Achievement.employmentId` (SET NULL) is
+ * cleared on every save — nothing writes achievements yet; Stage 03 gives
+ * them their evidence role and brings a stable-id strategy with it.
  */
 export async function saveResumeSections(tx: Client, userId: string, content: ResumeContent) {
   const id = profileIdFor(userId);
+  // Serialise concurrent saves for one user: two PUTs racing through the
+  // delete-then-create below would otherwise both insert. FOR UPDATE on the
+  // profile row (created on first save, so a first-ever race is bounded by the
+  // upsert's unique key) makes the second wait for the first to commit.
+  await tx.$queryRaw`SELECT "id" FROM "public"."CandidateProfile" WHERE "userId" = ${userId} FOR UPDATE`;
   const profile = await tx.candidateProfile.upsert({
     where: { userId },
     create: { id, userId, headline: content.headline ?? '', summary: content.summary ?? '', source: 'editor' },
@@ -212,8 +247,11 @@ export async function loadResumeContent(tx: Client, userId: string): Promise<Res
     select: { fullName: true, email: true, phone: true, city: true, linkedinUrl: true, portfolioUrl: true, headline: true },
   });
   if (!user) return null;
-  const profile = await loadProfile(tx, userId);
-  if (profile) return toResumeContent(profile, user);
+  const profile = await tx.candidateProfile.findFirst({ where: { userId }, include: RESUME_INCLUDE });
+  if (profile && hasResumeContent(profile)) return toResumeContent(profile, user);
+  // No profile, or an empty one (preferences saved before a résumé): the
+  // legacy JSON, if any, is still the candidate's résumé; otherwise there is
+  // none, and callers refuse rather than run on an empty document.
   const legacy = await tx.resume.findFirst({ where: { userId, isMaster: true }, orderBy: { updatedAt: 'desc' } });
   return parseJson<ResumeContent | null>(legacy?.content, null);
 }

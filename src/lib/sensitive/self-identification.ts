@@ -21,9 +21,19 @@ import { recordSecurityEvent, type RequestMeta } from '../security-audit';
  * the matching, scoring or AI path fails with a permission error at runtime,
  * which tests/sensitive-segregation.test.ts proves.
  *
- * Every read and every write is audited WITHOUT the values: the audit row says
- * that the candidate viewed or changed their self-identification, never what
- * it says. Aggregate EEO reporting with small-cohort suppression is a later
+ * Every read and every write is audited WITHOUT the values, and audited FIRST:
+ * the audit row is a precondition of the access (strict), so an access whose
+ * record cannot be written does not happen. The row says that the candidate
+ * viewed or changed their self-identification, never what it says.
+ *
+ * A known limit of single-login-role RLS, stated plainly: a transaction that
+ * has assumed app_tenant can still `SET LOCAL ROLE app_sensitive`, because
+ * SET ROLE is checked against the connection's login role, which is a member
+ * of both. The segregation therefore holds for every query issued AS the
+ * tenant role — which is every Prisma model query — and is why raw SQL is
+ * confined to src/lib/tenancy and this module (the static test enforces it).
+ * A dedicated login role and pool for the sensitive path would close this
+ * and is recorded for a later stage. Aggregate EEO reporting with small-cohort suppression is a later
  * stage and will need its own, separately authorised path.
  *
  * "Prefer not to say" is a stored value, distinct from "never asked".
@@ -110,21 +120,29 @@ function fromRow(r: Row): SelfIdentification {
   };
 }
 
-/** The candidate's own answers, or null if never recorded. Audited. */
+/**
+ * The candidate's own answers, or null if never recorded.
+ *
+ * AUDIT FIRST, STRICTLY. The audit row is written before the read and the read
+ * does not happen if it cannot be; an unaudited access is not an option. The
+ * cost is an occasional audit row for a read that then failed — acceptable,
+ * the reverse is not.
+ */
 export async function readSelfIdentification(
   user: { id: string; email: string },
   options: { meta?: RequestMeta; client?: typeof db } = {},
 ): Promise<SelfIdentification | null> {
+  await recordSecurityEvent(
+    { event: 'sensitive.read', user, entityType: 'SelfIdentification', entityId: user.id, summary: 'Viewed own self-identification', meta: options.meta },
+    options.client,
+    { strict: true },
+  );
   const rows = await asSensitive(
     user.id,
     (tx) => tx.$queryRaw<Row[]>`
       SELECT gender, ethnicity, indigenous_status, veteran_status, disability_status, notice_version, updated_at
         FROM sensitive.self_identification
        WHERE user_id = ${user.id}`,
-    options.client,
-  );
-  await recordSecurityEvent(
-    { event: 'sensitive.read', user, entityType: 'SelfIdentification', entityId: user.id, summary: 'Viewed own self-identification', meta: options.meta },
     options.client,
   );
   return rows[0] ? fromRow(rows[0]) : null;
@@ -139,6 +157,11 @@ export async function writeSelfIdentification(
   if (!isSelfIdentificationInput(input)) {
     throw new TenantContextError('self-identification values are outside the permitted vocabulary');
   }
+  await recordSecurityEvent(
+    { event: 'sensitive.write', user, entityType: 'SelfIdentification', entityId: user.id, summary: 'Updated own self-identification', detail: { noticeVersion: SELF_IDENTIFICATION_NOTICE_VERSION }, meta: options.meta },
+    options.client,
+    { strict: true },
+  );
   const rows = await asSensitive(
     user.id,
     (tx) => tx.$queryRaw<Row[]>`
@@ -152,10 +175,6 @@ export async function writeSelfIdentification(
       RETURNING gender, ethnicity, indigenous_status, veteran_status, disability_status, notice_version, updated_at`,
     options.client,
   );
-  await recordSecurityEvent(
-    { event: 'sensitive.write', user, entityType: 'SelfIdentification', entityId: user.id, summary: 'Updated own self-identification', detail: { noticeVersion: SELF_IDENTIFICATION_NOTICE_VERSION }, meta: options.meta },
-    options.client,
-  );
   return fromRow(rows[0]);
 }
 
@@ -164,17 +183,16 @@ export async function eraseSelfIdentification(
   user: { id: string; email: string },
   options: { meta?: RequestMeta; client?: typeof db; actor?: 'user' | 'system' } = {},
 ): Promise<boolean> {
+  await recordSecurityEvent(
+    { event: 'sensitive.erased', user, actor: options.actor === 'system' ? { type: 'system' } : undefined, entityType: 'SelfIdentification', entityId: user.id, summary: 'Self-identification erasure requested', meta: options.meta },
+    options.client,
+    { strict: true },
+  );
   const count = await asSensitive(
     user.id,
     (tx) => tx.$executeRaw`DELETE FROM sensitive.self_identification WHERE user_id = ${user.id}`,
     options.client,
   );
-  if (count > 0) {
-    await recordSecurityEvent(
-      { event: 'sensitive.erased', user, actor: options.actor === 'system' ? { type: 'system' } : undefined, entityType: 'SelfIdentification', entityId: user.id, summary: 'Self-identification erased', meta: options.meta },
-      options.client,
-    );
-  }
   return count > 0;
 }
 

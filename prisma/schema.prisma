@@ -2287,6 +2287,12 @@ model CandidateProfile {
   languages      CandidateLanguage[]
   preferences    CareerPreferences?
   workAuth       WorkAuthorization?
+
+  // Lets every child reference (profileId, userId) as a pair, so a row can
+  // never carry one user's profileId with another user's userId: the RLS
+  // policies key on userId, and the composite foreign key makes the two agree
+  // structurally rather than by convention.
+  @@unique([id, userId])
 }
 
 model EmploymentHistory {
@@ -2308,7 +2314,7 @@ model EmploymentHistory {
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
-  profile      CandidateProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  profile      CandidateProfile @relation(fields: [profileId, userId], references: [id, userId], onDelete: Cascade)
   achievements Achievement[]
 
   @@index([userId, sortOrder])
@@ -2330,16 +2336,17 @@ model Education {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  profile CandidateProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  profile CandidateProfile @relation(fields: [profileId, userId], references: [id, userId], onDelete: Cascade)
 
   @@index([userId, sortOrder])
   @@index([profileId])
 }
 
-// A shared, non-personal skill vocabulary. Seeded from the candidate's own
-// free text today; Stage 04 links rows to the Canadian skills taxonomy by
-// `taxonomyCode`. Reference data: readable by every tenant, written only on
-// the system path.
+// A shared, non-personal skill vocabulary. EMPTY until Stage 04 fills it from
+// the Canadian skills taxonomy; candidate-typed labels live on CandidateSkill
+// and must NEVER be inserted here — this table is readable by every tenant,
+// so one candidate's free text would become visible to all. Reference data:
+// written only on the system path from licensed taxonomy sources.
 model Skill {
   id             String   @id @default(cuid())
   name           String
@@ -2372,7 +2379,7 @@ model CandidateSkill {
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
-  profile CandidateProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  profile CandidateProfile @relation(fields: [profileId, userId], references: [id, userId], onDelete: Cascade)
   skill   Skill?           @relation(fields: [skillId], references: [id], onDelete: SetNull)
 
   @@unique([profileId, normalizedName])
@@ -2394,7 +2401,7 @@ model Certification {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
-  profile CandidateProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  profile CandidateProfile @relation(fields: [profileId, userId], references: [id, userId], onDelete: Cascade)
 
   @@index([userId, sortOrder])
   @@index([profileId])
@@ -2414,7 +2421,7 @@ model Project {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  profile CandidateProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  profile CandidateProfile @relation(fields: [profileId, userId], references: [id, userId], onDelete: Cascade)
 
   @@index([userId, sortOrder])
   @@index([profileId])
@@ -2435,7 +2442,7 @@ model Achievement {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  profile    CandidateProfile   @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  profile    CandidateProfile   @relation(fields: [profileId, userId], references: [id, userId], onDelete: Cascade)
   employment EmploymentHistory? @relation(fields: [employmentId], references: [id], onDelete: SetNull)
 
   @@index([userId, sortOrder])
@@ -2452,7 +2459,7 @@ model CandidateLanguage {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  profile CandidateProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  profile CandidateProfile @relation(fields: [profileId, userId], references: [id, userId], onDelete: Cascade)
 
   @@unique([profileId, language])
   @@index([userId])
@@ -2484,7 +2491,9 @@ model CareerPreferences {
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 
-  profile CandidateProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  profile CandidateProfile @relation(fields: [profileId, userId], references: [id, userId], onDelete: Cascade)
+
+  @@unique([profileId, userId])
 }
 
 // Operationally relevant to eligibility, so NOT sensitive-segregated
@@ -2505,5 +2514,7 @@ model WorkAuthorization {
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
-  profile CandidateProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  profile CandidateProfile @relation(fields: [profileId, userId], references: [id, userId], onDelete: Cascade)
+
+  @@unique([profileId, userId])
 }

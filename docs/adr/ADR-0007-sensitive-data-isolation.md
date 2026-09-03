@@ -1,6 +1,6 @@
 # ADR-0007 — Candidate sensitive-data isolation
 
-**Status:** Proposed · **Date:** 2026-09-02 · **Implemented (Stage 02, 2026-09-03):** `sensitive` schema and `app_sensitive` role created by SQL with no Prisma model (`prisma/migrations/20260903081500_sensitive_schema`); only `src/lib/sensitive/self-identification.ts` reaches it, own row only, every access audited without values; the tenant role and every decision path are proven unable to reach it (`tests/sensitive-segregation.test.ts`). Aggregate EEO reporting with small-cohort suppression is not built yet.
+**Status:** Proposed · **Date:** 2026-09-02 · **Implemented (Stage 02, 2026-09-03):** `sensitive` schema and `app_sensitive` role created by SQL with no Prisma model (`prisma/migrations/20260903081500_sensitive_schema`); only `src/lib/sensitive/self-identification.ts` reaches it, own row only, every access audited first and without values. **Scope of the runtime guarantee, precisely:** the `app_tenant` role holds no privilege on the schema, and the résumé projection the scanner, applicator and interview prep consume is loaded as that role (`tests/sensitive-segregation.test.ts`); the rest of the scanner and apply engine still run as the system role (R-35) and are guarded by the allowlist static test, not by a grant. A raw `SET ROLE` inside tenant code could still reach the schema because the connection role is a member of both — which is why raw SQL is confined to `lib/tenancy` and `lib/sensitive`; a dedicated login role for the sensitive path would close that and is recorded for a later stage. Aggregate EEO reporting with small-cohort suppression is not built yet.
 
 ## Context
 The brief requires voluntary demographic and self-identification data — gender,
@@ -33,7 +33,9 @@ so it is not segregated — but it is access-controlled and audited.
   document-generation code has grants to the schema.
 - The database role used by the matching and AI paths **has no privileges** on
   the sensitive schema, so inclusion is a runtime permission error, not a silent
-  leak.
+  leak. *(Stage 02 delivers this for the tenant role, which the résumé
+  projection is loaded as; the remaining system-role code on those paths is
+  covered by the static test until R-35 completes.)*
 - Never serialised into an AI prompt. Enforced by construction (the AI gateway
   receives evidence references, not raw profile rows) **and** by test.
 - Collection is voluntary, with an explicit "prefer not to say" that is stored as

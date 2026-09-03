@@ -173,18 +173,19 @@
     "digital_twin_schema": "DONE — 11 tables (CandidateProfile, EmploymentHistory, Education, Skill, CandidateSkill, Certification, Project, Achievement, CandidateLanguage, CareerPreferences, WorkAuthorization), classification comments, migration 20260903081338",
     "expand_and_backfill": "DONE locally — PL/pgSQL backfill in the migration, measured by tests/digital-twin-backfill.test.ts (counts, idempotency, round trip); Resume.content retained as a projection; NOT VERIFIED on Supabase (R-34)",
     "rls_on_new_tables": "DONE — manifest-driven generator; migration 20260903081600; 81/81 forced; coverage + determinism tests",
-    "sensitive_segregation_adr_0007": "DONE — sensitive schema + app_sensitive role by SQL (no Prisma model), own-row policy, audited access without values, static/database/payload tests",
+    "sensitive_segregation_adr_0007": "DONE for the tenant role — sensitive schema + app_sensitive role by SQL (no Prisma model), own-row policy, audit-first strict access without values, allowlist static test, database and payload tests; scanner/applicator load the résumé as app_tenant. The system-role remainder of those services is guarded by the static test only (R-35). SET ROLE limit documented.",
     "application_paths": "DONE — /api/resume dual-writes; scanner, applicator, interview prep read the structured projection; preferences and work-authorization services, routes and settings UI on the tenant path; self-identification page and route",
     "accessibility": "PARTIAL — labels/fieldsets/live regions in place; no assistive-technology review performed (Stage 23)",
-    "stage_01_defect_fixed": "DONE — shadow-database break of migrate dev (ledger revoke) fixed and ported to the Stage 01 branch (250ae94)"
+    "stage_01_defect_fixed": "DONE — shadow-database break of migrate dev (ledger revoke) fixed and ported to the Stage 01 branch (250ae94)",
+    "independent_review": "DONE — 16 findings (1 HIGH: overclaimed runtime scope), all HIGH/MEDIUM fixed with tests, LOW fixed or documented; STAGE02_EVIDENCE.md §8"
   },
   "stage_02_exit_gate": {
     "met": [
       "Structured profile live as relations, read and written by the product paths",
-      "Sensitive isolation proven by database, static and payload tests",
+      "Sensitive isolation proven by database, allowlist-static and payload tests for the tenant role, which the AI-path résumé projection is loaded as",
       "RLS on every new table, classification declared",
       "Backfill measured: counts, idempotency, round trip",
-      "Full gate set green: lint 0/8, typecheck 0, 788/788 tests (0 skipped), build 0"
+      "Full gate set green: lint 0/8, typecheck 0, 790/790 tests (0 skipped), build 0; independent review findings closed"
     ],
     "not_met": [
       "Backfill rehearsal against the Supabase project (NOT VERIFIED — R-34, inherited)",

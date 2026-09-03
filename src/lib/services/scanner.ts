@@ -4,6 +4,7 @@ import type { JobContext } from '@/lib/providers';
 import { parseJson } from '@/lib/types';
 import type { Country, JobType, WorkMode } from '@/lib/types';
 import { loadResumeContent } from '@/lib/candidate/profile';
+import { withTenant } from '@/lib/tenancy/context';
 
 export interface ScanResult {
   agentId: string;
@@ -44,9 +45,12 @@ export function toJobContext(job: {
 export async function runAgentScan(userId: string, agentId: string): Promise<ScanResult> {
   const agent = await db.agent.findFirstOrThrow({ where: { id: agentId, userId } });
 
-  // Stage 02: the structured profile, projected; falls back to the legacy JSON
-  // only for a user whose profile has not been created yet.
-  const resumeContent = await loadResumeContent(db, userId);
+  // Stage 02: the structured profile, projected — loaded on the TENANT path so
+  // this read runs as app_tenant, which holds no privilege on the sensitive
+  // schema (ADR-0007: inclusion would be a permission error, not a leak). The
+  // rest of the scan stays on the system client until the scanner is reworked
+  // in Stage 05/06 (R-35).
+  const resumeContent = await withTenant({ userId }, (tx) => loadResumeContent(tx, userId));
   if (!resumeContent) throw new Error('Add your resume before running a scan.');
 
   const user = await db.user.findUniqueOrThrow({ where: { id: userId } });

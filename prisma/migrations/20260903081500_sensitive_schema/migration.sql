@@ -26,7 +26,7 @@ BEGIN
   EXECUTE format('GRANT app_sensitive TO %I', current_user);
 END $$;
 
-CREATE TABLE sensitive.self_identification (
+CREATE TABLE IF NOT EXISTS sensitive.self_identification (
   user_id           text PRIMARY KEY REFERENCES public."User"("id") ON DELETE CASCADE,
   -- Every attribute is a closed vocabulary that INCLUDES 'prefer_not_to_say',
   -- stored as a real value so "declined" is distinguishable from "never asked".
@@ -46,7 +46,12 @@ COMMENT ON TABLE sensitive.self_identification IS 'classification: RESTRICTED';
 ALTER TABLE sensitive.self_identification ENABLE ROW LEVEL SECURITY;
 ALTER TABLE sensitive.self_identification FORCE ROW LEVEL SECURITY;
 
--- The migration role's access is named, as in the public schema.
+-- The migration role's access is named, as in the public schema. Policies are
+-- dropped-if-exists first so the migration is idempotent: Prisma's shadow
+-- database reset clears only the schemas it manages (`public`), so this file
+-- may run twice against one shadow database during `migrate dev`.
+DROP POLICY IF EXISTS system_full_access ON sensitive.self_identification;
+DROP POLICY IF EXISTS owner_only ON sensitive.self_identification;
 DO $$ BEGIN EXECUTE format('CREATE POLICY system_full_access ON sensitive.self_identification TO %I USING (true) WITH CHECK (true)', current_user); END $$;
 
 -- The candidate's own row, and nothing else, for the sensitive role — keyed on

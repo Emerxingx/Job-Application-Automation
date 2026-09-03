@@ -28,7 +28,7 @@ const RESUME = {
   fullName: 'Alex Morgan', headline: 'Senior Data Analyst', email: U.email, summary: 'Six years of turning data into decisions.',
   skills: ['SQL', 'Python', 'sql', ' Tableau '],
   experience: [
-    { company: 'Northbridge', title: 'Senior Data Analyst', location: 'Toronto, ON', startDate: '2022-03', endDate: 'Present', bullets: ['Rebuilt reporting', 'Ran 40 tests'] },
+    { company: 'Northbridge', title: 'Senior Data Analyst', location: 'Toronto, ON', startDate: '2022-03', endDate: 'Present ', bullets: ['Rebuilt reporting', 'Ran 40 tests'] },
     { company: 'Halcyon', title: 'Data Analyst', startDate: '2020-01', endDate: '2022-02', bullets: [] },
     'not an object',
   ],
@@ -56,6 +56,7 @@ describe('Digital Twin backfill — measured', { skip: SKIP }, () => {
   });
   after(async () => {
     await db.user.deleteMany({ where: { id: { in: [U.id, BAD.id] } } }); // cascades resume + profile rows
+    await db.auditLog.deleteMany({ where: { action: 'migration.backfill', entityId: 'candidate_digital_twin' } });
     await db.$disconnect();
   });
 
@@ -68,7 +69,7 @@ describe('Digital Twin backfill — measured', { skip: SKIP }, () => {
     assert.ok(p.backfilledAt);
     assert.equal(p.headline, 'Senior Data Analyst');
     assert.equal(p.employment.length, 2, 'the non-object entry is skipped');
-    assert.equal(p.employment[0].isCurrent, true);
+    assert.equal(p.employment[0].isCurrent, true, '"Present " with trailing space is still current');
     assert.equal(p.employment[0].endDate, null);
     assert.deepEqual(JSON.parse(p.employment[0].bullets), ['Rebuilt reporting', 'Ran 40 tests']);
     assert.equal(p.employment[1].endDate, '2022-02');
@@ -79,6 +80,19 @@ describe('Digital Twin backfill — measured', { skip: SKIP }, () => {
     assert.deepEqual(p.certifications.map((c) => c.name), ['Google Data Analytics'], 'empty and non-string entries skipped');
     assert.deepEqual(p.projects.map((x) => x.name), ['Rental tracker'], 'a nameless project is skipped');
     assert.equal(await db.candidateProfile.count({ where: { userId: BAD.id } }), 0, 'unparseable JSON skips the user, with a NOTICE, without failing');
+
+    // The persisted report: counts of rows INSERTED (a duplicate skill is not
+    // a row), readable after `migrate deploy`, which does not relay NOTICEs.
+    const report = await db.auditLog.findFirst({ where: { action: 'migration.backfill', entityId: 'candidate_digital_twin' }, orderBy: { createdAt: 'desc' } });
+    assert.ok(report, 'the backfill writes a system audit row with its counts');
+    const counts = JSON.parse(report.after) as Record<string, number>;
+    assert.equal(counts.profiles, 1);
+    assert.equal(counts.skipped, 1);
+    assert.equal(counts.employment, 2);
+    assert.equal(counts.education, 2);
+    assert.equal(counts.skills, 3, 'four entries, one duplicate on the normalised form → three rows');
+    assert.equal(counts.certifications, 1);
+    assert.equal(counts.projects, 1);
   });
 
   it('is idempotent: running it again inserts nothing', async () => {
@@ -90,6 +104,19 @@ describe('Digital Twin backfill — measured', { skip: SKIP }, () => {
       db.candidateProfile.count(), db.employmentHistory.count(), db.education.count(), db.candidateSkill.count(), db.certification.count(), db.project.count(),
     ]);
     assert.deepEqual(after_, before);
+  });
+
+  it('an EMPTY profile (created by saving preferences) is not a résumé: the guard still refuses', async () => {
+    const { savePreferences, preferencesSchema } = await import('../src/lib/candidate/preferences');
+    const empty = { id: `bfempty_${S}`, email: `bfempty-${S}@twin.test` };
+    await db.user.create({ data: { id: empty.id, email: empty.email, passwordHash: 'x', fullName: 'Empty' } });
+    try {
+      await db.$transaction((tx) => savePreferences(tx, empty.id, preferencesSchema.parse({})));
+      assert.ok(await db.candidateProfile.findFirst({ where: { userId: empty.id } }), 'a profile row exists');
+      assert.equal(await profile.loadResumeContent(db, empty.id), null, 'but it is not a résumé');
+    } finally {
+      await db.user.delete({ where: { id: empty.id } });
+    }
   });
 
   it('round-trips: the projection of the backfilled rows equals the résumé the editor would show', async () => {

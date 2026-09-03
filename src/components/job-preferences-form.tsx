@@ -40,23 +40,33 @@ const list = (s: string) =>
     .map((x) => x.trim())
     .filter(Boolean);
 
+/**
+ * Save button plus two SEPARATE announcements: a polite status for "Saved"
+ * and an assertive alert for errors. The button sits outside both regions so
+ * its label is not re-read on every state change, and the two regions are
+ * siblings so an error is announced once, not twice.
+ */
 function Status({ saving, saved, error }: { saving: boolean; saved: boolean; error: string | null }) {
   return (
-    <div className="mt-4 flex items-center gap-3" role="status" aria-live="polite">
+    <div className="mt-4 flex flex-wrap items-center gap-3">
       <button type="submit" disabled={saving} className="btn-primary">
         {saving && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
-        Save
+        {saving ? 'Saving…' : 'Save'}
       </button>
-      {saved && (
-        <span className="flex items-center gap-1 text-sm text-success">
-          <CheckCircle2 className="h-4 w-4" aria-hidden="true" /> Saved
-        </span>
-      )}
-      {error && (
-        <span className="flex items-center gap-1 text-sm text-danger" role="alert">
-          <AlertCircle className="h-4 w-4" aria-hidden="true" /> {error}
-        </span>
-      )}
+      <p role="status" aria-live="polite" className="m-0 flex items-center gap-1 text-sm text-success">
+        {saved && (
+          <>
+            <CheckCircle2 className="h-4 w-4" aria-hidden="true" /> Saved
+          </>
+        )}
+      </p>
+      <p role="alert" className="m-0 flex items-center gap-1 text-sm text-danger">
+        {error && (
+          <>
+            <AlertCircle className="h-4 w-4" aria-hidden="true" /> {error}
+          </>
+        )}
+      </p>
     </div>
   );
 }
@@ -108,7 +118,7 @@ export function JobPreferencesForm({ initial }: { initial: PreferencesValues }) 
   }
 
   return (
-    <form onSubmit={save} aria-labelledby="prefs-heading">
+    <form onSubmit={save} aria-labelledby="prefs-heading" aria-busy={saving}>
       <Card className="max-w-2xl p-6">
       <h2 id="prefs-heading" className="font-semibold text-ink">
         Job preferences
@@ -271,7 +281,7 @@ export function WorkAuthorizationForm({ initial }: { initial: WorkAuthorizationV
   }
 
   return (
-    <form onSubmit={save} aria-labelledby="workauth-heading">
+    <form onSubmit={save} aria-labelledby="workauth-heading" aria-busy={saving}>
       <Card className="mt-6 max-w-2xl p-6">
       <h2 id="workauth-heading" className="font-semibold text-ink">
         Work authorization

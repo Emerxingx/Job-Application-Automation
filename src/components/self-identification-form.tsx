@@ -33,7 +33,10 @@ export function SelfIdentificationForm() {
   useEffect(() => {
     let cancelled = false;
     fetch('/api/profile/self-identification')
-      .then((r) => r.json())
+      .then(async (r) => {
+        if (!r.ok) throw new Error('not ok');
+        return r.json();
+      })
       .then((data) => {
         if (cancelled) return;
         setOptions(data.options);
@@ -74,6 +77,8 @@ export function SelfIdentificationForm() {
   }
 
   async function erase() {
+    // Irreversible; a native confirm is keyboard- and screen-reader-accessible.
+    if (!window.confirm('Delete your self-identification answers? This cannot be undone.')) return;
     setSaving(true);
     setError(null);
     try {
@@ -84,6 +89,8 @@ export function SelfIdentificationForm() {
         setRecorded(false);
         setSaved(false);
       }
+    } catch {
+      setError('Could not reach the server.');
     } finally {
       setSaving(false);
     }
@@ -98,7 +105,7 @@ export function SelfIdentificationForm() {
   }
 
   return (
-    <form onSubmit={save} aria-labelledby="selfid-heading">
+    <form onSubmit={save} aria-labelledby="selfid-heading" aria-busy={saving}>
       <Card className="max-w-2xl p-6">
       <h2 id="selfid-heading" className="font-semibold text-ink">
         Self-identification (voluntary)
@@ -109,7 +116,10 @@ export function SelfIdentificationForm() {
         never sent to an AI service, and are never shown to an employer. Only you can see them, and
         each time they are viewed or changed it is recorded. You can delete them at any time.
       </p>
-      <div className="mt-4 grid gap-4">
+      {/* The notice describes the GROUP once, via the fieldset, rather than
+          being re-read on every select. */}
+      <fieldset className="mt-4 grid gap-4" aria-describedby="selfid-notice">
+        <legend className="sr-only">Self-identification questions</legend>
         {QUESTIONS.map((q) => (
           <div key={q.key}>
             <label className="label" htmlFor={`selfid-${q.key}`}>
@@ -119,7 +129,6 @@ export function SelfIdentificationForm() {
               id={`selfid-${q.key}`}
               className="input"
               value={answers[q.key]}
-              aria-describedby="selfid-notice"
               onChange={(e) => {
                 setAnswers({ ...answers, [q.key]: e.target.value });
                 setSaved(false);
@@ -133,27 +142,31 @@ export function SelfIdentificationForm() {
             </select>
           </div>
         ))}
-      </div>
-      <div className="mt-4 flex flex-wrap items-center gap-3" role="status" aria-live="polite">
+      </fieldset>
+      <div className="mt-4 flex flex-wrap items-center gap-3">
         <button type="submit" disabled={saving} className="btn-primary">
           {saving && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
-          Save answers
+          {saving ? 'Saving…' : 'Save answers'}
         </button>
         {recorded && (
           <button type="button" disabled={saving} className="btn-secondary" onClick={erase}>
             Delete my answers
           </button>
         )}
-        {saved && (
-          <span className="flex items-center gap-1 text-sm text-success">
-            <CheckCircle2 className="h-4 w-4" aria-hidden="true" /> Saved
-          </span>
-        )}
-        {error && (
-          <span className="flex items-center gap-1 text-sm text-danger" role="alert">
-            <AlertCircle className="h-4 w-4" aria-hidden="true" /> {error}
-          </span>
-        )}
+        <p role="status" aria-live="polite" className="m-0 flex items-center gap-1 text-sm text-success">
+          {saved && (
+            <>
+              <CheckCircle2 className="h-4 w-4" aria-hidden="true" /> Saved
+            </>
+          )}
+        </p>
+        <p role="alert" className="m-0 flex items-center gap-1 text-sm text-danger">
+          {error && (
+            <>
+              <AlertCircle className="h-4 w-4" aria-hidden="true" /> {error}
+            </>
+          )}
+        </p>
       </div>
       </Card>
     </form>

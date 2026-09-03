@@ -7,6 +7,7 @@ import { consumeQuota, refundQuota } from '@/lib/subscription';
 import { parseJson } from '@/lib/types';
 import type { MatchAnalysis } from '@/lib/types';
 import { loadResumeContent } from '@/lib/candidate/profile';
+import { withTenant } from '@/lib/tenancy/context';
 import { toJobContext } from './scanner';
 
 export interface ApplyOutcome {
@@ -62,8 +63,10 @@ export async function applyToJobs(userId: string, jobIds: string[]): Promise<Bul
   }
 
   const user = await db.user.findUniqueOrThrow({ where: { id: userId } });
-  // Stage 02: the structured profile, projected (legacy JSON only as fallback).
-  const resumeContent = await loadResumeContent(db, userId);
+  // Stage 02: the structured profile, projected, loaded on the TENANT path
+  // (as app_tenant — no privilege on the sensitive schema, ADR-0007). The
+  // apply engine itself stays on the system client until Stage 12 (R-35).
+  const resumeContent = await withTenant({ userId }, (tx) => loadResumeContent(tx, userId));
   if (!resumeContent) {
     await refundQuota(userId, granted);
     throw new Error('Add your resume before applying.');

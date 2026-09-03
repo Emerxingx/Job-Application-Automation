@@ -24,18 +24,18 @@ if (!CONNECTION_STRING && REQUIRED) throw new Error('TENANCY_TEST_DATABASE_URL i
 const SKIP = CONNECTION_STRING ? false : 'TENANCY_TEST_DATABASE_URL is not set. REQUIRED in CI.';
 
 // --- 2. STATIC — runs everywhere, no database needed --------------------------
-const DECISION_PATHS = [
-  'src/lib/services',
-  'src/lib/providers/ai',
-  'src/lib/providers/apply',
-  'src/lib/providers/jobs',
-  'src/lib/resume-render.ts',
-  'src/lib/prompt-engine.ts',
-  'src/lib/prompt-interpolate.ts',
-  'src/lib/candidate',
-  'src/lib/analytics',
-  'src/lib/exports',
-];
+// An ALLOWLIST, not a denylist: every TypeScript file under src/ and scripts/
+// is scanned, and only the files that ARE the sensitive path may mention it.
+// A new module anywhere that names the schema, table, role or module fails
+// here until it is deliberately added below.
+const ALLOWED_TO_REFERENCE = new Set([
+  'src/lib/sensitive/self-identification.ts',
+  'src/app/(app)/api/profile/self-identification/route.ts',
+  'src/components/self-identification-form.tsx',
+  'src/app/(app)/dashboard/settings/self-identification/page.tsx',
+  'src/app/(app)/dashboard/settings/page.tsx', // the link to the page, nothing else
+  'src/lib/security-audit.ts', // the event names
+]);
 const FORBIDDEN = [/lib\/sensitive/, /sensitive\.self_identification/, /self_identification/, /SelfIdentification/, /app_sensitive/];
 
 function* files(p: string): Generator<string> {
@@ -51,25 +51,29 @@ function* files(p: string): Generator<string> {
   }
 }
 
-describe('ADR-0007 — static: no decision path references the sensitive schema', () => {
-  it('matching, scoring, AI, apply, document, analytics and export code never name it', () => {
+describe('ADR-0007 — static: nothing outside the sensitive path names the sensitive schema', () => {
+  it('every file under src/ and scripts/ that mentions it is on the allowlist', () => {
+    const root = path.resolve(__dirname, '..');
     const offenders: string[] = [];
-    for (const p of DECISION_PATHS) {
-      for (const f of files(p)) {
+    for (const dir of ['src', 'scripts']) {
+      for (const f of files(dir)) {
+        const rel = path.relative(root, f);
+        if (ALLOWED_TO_REFERENCE.has(rel)) continue;
         const src = readFileSync(f, 'utf8');
-        for (const re of FORBIDDEN) if (re.test(src)) offenders.push(`${path.relative(process.cwd(), f)} matches ${re}`);
+        for (const re of FORBIDDEN) if (re.test(src)) offenders.push(`${rel} matches ${re}`);
       }
     }
-    assert.deepEqual(offenders, []);
+    assert.deepEqual(offenders, [], 'add a file to ALLOWED_TO_REFERENCE only if it IS the sensitive path');
   });
-  it('the sensitive module is imported only by its own route and the erasure path', () => {
+  it('the module itself is imported only by its route and its form', () => {
+    const root = path.resolve(__dirname, '..');
     const importers: string[] = [];
     for (const f of files('src')) {
-      if (f.includes(`${path.sep}lib${path.sep}sensitive${path.sep}`)) continue;
-      if (/lib\/sensitive\//.test(readFileSync(f, 'utf8'))) importers.push(path.relative(path.resolve(__dirname, '..'), f));
+      const rel = path.relative(root, f);
+      if (rel.startsWith('src/lib/sensitive/')) continue;
+      if (/from '@\/lib\/sensitive\//.test(readFileSync(f, 'utf8'))) importers.push(rel);
     }
-    assert.deepEqual(importers.sort(), ['src/app/(app)/api/profile/self-identification/route.ts', 'src/components/self-identification-form.tsx'].filter((x) => importers.includes(x)).sort());
-    assert.ok(importers.every((f) => f.startsWith('src/app/(app)/api/profile/self-identification/') || f === 'src/lib/security-audit.ts'), `unexpected importer: ${importers.join(', ')}`);
+    assert.deepEqual(importers.sort(), ['src/app/(app)/api/profile/self-identification/route.ts']);
   });
 });
 
@@ -141,13 +145,28 @@ describe('ADR-0007 — database and payload segregation', { skip: SKIP }, () => 
     const client = db as unknown as Record<string, unknown>;
     assert.equal(Object.keys(client).some((k) => /sensitive|selfIdentification/i.test(k)), false);
   });
-  it('every access is audited without the values', async () => {
+  it('every access is audited without the values, and the audit is a precondition of the access', async () => {
     const rows = await db.auditLog.findMany({ where: { actorId: A.id, action: { startsWith: 'sensitive.' } } });
     assert.ok(rows.length >= 2, 'a write and a read were audited');
+    // Strict: if the audit row cannot be written the read does not happen.
+    const broken = { ...db, auditLog: { create: async () => { throw new Error('audit store down'); } } } as unknown as typeof db;
+    await assert.rejects(sens.readSelfIdentification(A, { client: broken }), /audit store down/);
     const text = JSON.stringify(rows);
     for (const v of ['woman', 'racialized', 'first_nations', 'veteran', 'person_with_disability']) {
       assert.equal(text.includes(v), false, `audit must not contain the value ${v}`);
     }
+  });
+  it('the matching path loads the résumé AS THE TENANT ROLE, which cannot reach the schema — and gets a full projection', async () => {
+    // This is how scanner.ts and applicator.ts load the résumé since the
+    // review: the read runs as app_tenant, so a query touching the sensitive
+    // schema on this path would be a permission error, not a leak.
+    const content = await ctx.withTenant({ userId: A.id }, (tx) => profile.loadResumeContent(tx, A.id));
+    assert.ok(content);
+    assert.deepEqual(content.skills, ['SQL']);
+    await assert.rejects(
+      ctx.withTenant({ userId: A.id }, (tx) => tx.$queryRaw`SELECT count(*) FROM sensitive.self_identification`),
+      (e: unknown) => sens.isSensitiveAccessDenied(e),
+    );
   });
   it('the AI payload for a candidate who answered contains none of the answers', async () => {
     const content = await profile.loadResumeContent(db, A.id);

@@ -373,14 +373,14 @@ BEGIN
     i := 0;
     IF jsonb_typeof(c->'experience') = 'array' THEN
       FOR e IN SELECT value FROM jsonb_array_elements(c->'experience') LOOP
-        IF jsonb_typeof(e) = 'object' THEN
+        IF jsonb_typeof(e) = 'object' AND jsonb_typeof(e->'company') = 'string' AND jsonb_typeof(e->'title') = 'string' THEN
           INSERT INTO "EmploymentHistory" ("id", "profileId", "userId", "company", "title", "location", "startDate", "endDate", "isCurrent", "description", "bullets", "sortOrder", "createdAt", "updatedAt")
           VALUES (
             pid || '_emp_' || i, pid, r."userId",
             coalesce(e->>'company', ''), coalesce(e->>'title', ''), nullif(e->>'location', ''),
             coalesce(e->>'startDate', ''),
-            CASE WHEN lower(coalesce(e->>'endDate', '')) IN ('', 'present', 'current') THEN NULL ELSE e->>'endDate' END,
-            lower(coalesce(e->>'endDate', '')) IN ('', 'present', 'current'),
+            CASE WHEN lower(btrim(coalesce(e->>'endDate', ''))) IN ('', 'present', 'current') THEN NULL ELSE btrim(e->>'endDate') END,
+            lower(btrim(coalesce(e->>'endDate', ''))) IN ('', 'present', 'current'),
             '',
             CASE WHEN jsonb_typeof(e->'bullets') = 'array' THEN (e->'bullets')::text ELSE '[]' END,
             i, now(), now());
@@ -416,7 +416,9 @@ BEGIN
           INSERT INTO "CandidateSkill" ("id", "profileId", "userId", "name", "normalizedName", "source", "sortOrder", "createdAt", "updatedAt")
           VALUES (pid || '_skill_' || i, pid, r."userId", txt, lower(regexp_replace(txt, '\s+', ' ', 'g')), 'self', i, now(), now())
           ON CONFLICT ("profileId", "normalizedName") DO NOTHING;
-          n_skill := n_skill + 1;
+          -- Count what was INSERTED, not what was attempted: a duplicate hits
+          -- the conflict clause and must not be reported as a row.
+          IF FOUND THEN n_skill := n_skill + 1; END IF;
           i := i + 1;
         END IF;
       END LOOP;
@@ -449,7 +451,20 @@ BEGIN
     END IF;
   END LOOP;
 
-  -- The row-count report ADR-0002 asks for, in the migration output.
+  -- The row-count report ADR-0002 asks for. A NOTICE alone is not enough:
+  -- `prisma migrate deploy` does not relay server notices, so the counts are
+  -- also persisted as a system audit row the operator (and the evidence) can
+  -- read back. Written even when nothing was backfilled, so "it ran" is
+  -- distinguishable from "it never ran".
   RAISE NOTICE 'digital-twin backfill: profiles=% skipped=% employment=% education=% skills=% certifications=% projects=%',
     n_profiles, n_skipped, n_emp, n_edu, n_skill, n_cert, n_proj;
+  INSERT INTO "AuditLog" ("id", "actorType", "actorId", "actorEmail", "actorRole", "action", "entityType", "entityId", "summary", "before", "after", "changedFields", "createdAt")
+  VALUES (
+    'audit_backfill_dt_' || to_char(clock_timestamp(), 'YYYYMMDDHH24MISSUS'),
+    'system', NULL, '', '', 'migration.backfill', 'CandidateProfile', 'candidate_digital_twin',
+    format('Digital Twin backfill: %s profiles created, %s users skipped', n_profiles, n_skipped),
+    '{}',
+    json_build_object('profiles', n_profiles, 'skipped', n_skipped, 'employment', n_emp, 'education', n_edu,
+                      'skills', n_skill, 'certifications', n_cert, 'projects', n_proj)::text,
+    '[]', now());
 END $$;
