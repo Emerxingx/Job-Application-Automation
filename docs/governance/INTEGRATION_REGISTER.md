@@ -19,9 +19,11 @@ promoted on the strength of an observed run against the real service.
 | Ashby / SmartRecruiters | PLANNED | Postings | — | — |
 | Employer career pages | PLANNED | Postings | — | — |
 | Job Bank | **PLANNED — not implemented** | Canadian postings | CA | **No prohibited scraping.** Permitted datasets / approved feeds only (`ADR-0008`) |
-| NOC / TEER / OaSIS | PLANNED | Occupations | CA | Licence must be recorded before ingestion |
-| Canadian Skills & Competencies Taxonomy | PLANNED | Skills | CA | Licence-gated |
-| O*NET / SOC | PLANNED | US occupations | US | Licence-gated |
+| NOC 2021 / TEER | **REGISTERED, NOT INGESTED** (licence unrecorded) | Occupations | CA | Stage 04: loader, hierarchy, TEER, bilingual labels and classifier proven on an attributed test fixture; `requireIngestible()` refuses the real dataset until an admin records the licence at `/console/taxonomy` (L-2) |
+| SOC 2018 | **REGISTERED, NOT INGESTED** | US occupations (NOC↔SOC crosswalk) | US | Stage 04: crosswalk loader proven on a fixture; gated as above |
+| OaSIS | REGISTERED, NOT INGESTED | Occupation ↔ skills | CA | No loader yet; gated |
+| Canadian Skills & Competencies Taxonomy | REGISTERED, NOT INGESTED | Skills | CA | No loader yet; gated |
+| O*NET | REGISTERED, NOT INGESTED | US occupation ↔ skills | US | No loader yet; gated |
 
 ## Services out
 

@@ -215,7 +215,8 @@ No NOC, TEER, OaSIS, economic region, or skills-taxonomy tables. The 9-entry NOC
 regex in the Adzuna adapter is the entire current implementation. No French/EN
 bilingual content model. No SOC for the US.
 **Remediation:** Stage 04. Licensing must be confirmed before ingestion — see
-`docs/governance/SOURCE_ACCESS_POLICY.md`.
+`docs/governance/SOURCE_ACCESS_POLICY.md`. **Stage 04 (2026-09-03) built the
+spine, the loaders and the gate; no dataset is ingested until L-2 is recorded.**
 
 ### G-22 — Single job source, unvalidated · PARTIAL
 `JobProvider` is a clean two-method interface (`search`, `submit`) with one real

@@ -1,0 +1,18 @@
+Level,Hierarchical structure,Code,Class title,Class definition,Example titles
+1,Grande catégorie professionnelle,2,Sciences naturelles et appliquées et domaines apparentés,"Cette grande catégorie comprend les professions des sciences naturelles et appliquées.",
+2,Catégorie FEER,21,Professions des sciences naturelles et appliquées exigeant un diplôme universitaire,"FEER 1.",
+3,Grand groupe,212,Personnel professionnel des sciences naturelles et appliquées,"Personnel professionnel des sciences naturelles et appliquées.",
+4,Sous-grand groupe,2122,Personnel professionnel en informatique et en systèmes d'information,"Personnel professionnel en informatique.",
+5,Groupe de base,21223,Analystes de bases de données et administrateurs/administratrices de données,"Les analystes de bases de données conçoivent et administrent des solutions de gestion des données.",Analyste de données; Analyste de bases de données
+5,Groupe de base,21221,Spécialistes des systèmes d'entreprise,"Les spécialistes des systèmes d'entreprise analysent les besoins des entreprises.",Analyste d'affaires
+5,Groupe de base,21211,Scientifiques des données,"Les scientifiques des données développent des modèles pour extraire des connaissances des données.",Scientifique des données
+5,Groupe de base,21231,Ingénieurs/ingénieures et concepteurs/conceptrices en logiciel,"Les ingénieurs en logiciel conçoivent et développent des logiciels.",Ingénieur logiciel
+5,Groupe de base,21232,Développeurs/développeuses et programmeurs/programmeuses de logiciels,"Les développeurs de logiciels écrivent et testent des logiciels.",Développeur de logiciels
+5,Groupe de base,21234,Développeurs/développeuses et programmeurs/programmeuses Web,"Les développeurs Web conçoivent des sites et des applications Web.",Développeur Web
+5,Groupe de base,21233,Concepteurs/conceptrices Web,"Les concepteurs Web conçoivent l'interface des sites Web.",Concepteur Web
+5,Groupe de base,21220,Spécialistes de la cybersécurité,"Les spécialistes de la cybersécurité protègent les systèmes d'information.",Spécialiste de la cybersécurité
+1,Grande catégorie professionnelle,1,"Affaires, finance et administration","Professions des affaires, de la finance et de l'administration.",
+2,Catégorie FEER,11,"Affaires, finance et administration exigeant un diplôme universitaire","FEER 1.",
+3,Grand groupe,111,Vérificateurs/vérificatrices et comptables,"Vérificateurs et comptables.",
+4,Sous-grand groupe,1110,Vérificateurs/vérificatrices et comptables,"Vérificateurs et comptables.",
+5,Groupe de base,11100,Vérificateurs/vérificatrices et comptables,"Les vérificateurs et comptables planifient et administrent des systèmes comptables.",Comptable; Vérificateur financier

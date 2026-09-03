@@ -92,8 +92,8 @@ Since Stage 01 the transactional store is PostgreSQL, and these files need a
 real one: `rls-isolation` (mechanism; creates its own schema and role),
 `tenancy-isolation`, `organizations`, `sessions`, `identity-link`,
 `sensitive-segregation`, `digital-twin-backfill` (Stage 02), and
-`ai-gateway`, `evidence-vault`, `question-bank`, `prompt-registry` (Stage 03)
-— all run through the migrated schema (apply the history with
+`ai-gateway`, `evidence-vault`, `question-bank`, `prompt-registry` (Stage 03),
+`taxonomy` (Stage 04) — all run through the migrated schema (apply the history with
 `npm run db:migrate:deploy` first).
 
 **The AI suites (Stage 03).** `ai-grounding` is pure and runs everywhere: a

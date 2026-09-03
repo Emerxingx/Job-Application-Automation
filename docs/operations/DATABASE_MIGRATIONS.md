@@ -19,6 +19,8 @@ against the staging project until the evidence section says so.
 | `20260903090000_career_evidence_vault` | `CareerEvidence` (versioned, provenance-keyed claims), `ApplicationQuestion`, `AiRun` (references only), `PromptVersion`; classification comments; an idempotent **seed** of the three prompts lifted from `anthropic.ts` at `approved / pending` — never `default` (`AI_GOVERNANCE.md`: no version serves before an evaluation passes) | Additive. Forward-fix for the seed: `DELETE FROM "PromptVersion" WHERE id LIKE 'prompt_%_v1'` |
 | `20260903090100_rls_evidence_tables` | Generated policies for the Stage 03 tables (manifest `RLS_MANIFESTS[2]`); `AiRun` is SELECT-only for its subject; `PromptVersion` is `system` kind — the tenant role cannot read prompts | Reversible |
 | `20260903090200_evidence_immutability` | `BEFORE UPDATE` trigger on `CareerEvidence`: an approved / superseded / revoked row's claim, facts, kind, source, version, lineage, owner and approval time cannot change; status only moves forward. Idempotent (`CREATE OR REPLACE`, `DROP TRIGGER IF EXISTS`) | Reversible (drop trigger + function) |
+| `20260903100000_occupational_spine` | Ten `INTERNAL` reference tables for the occupational spine (ADR-0009) and `Job.occupationId` / `occupationSource`; classification comments. No data: loading is a licence-gated operator action, never a migration | Additive. Reversible (drop tables; `Job` columns nullable) |
+| `20260903100100_rls_taxonomy_tables` | Generated `reference` policies (manifest `RLS_MANIFESTS[3]`): SELECT for every tenant, no write policy | Reversible |
 | `20260903083000_profile_ownership_keys` | `(id, userId)` unique on `CandidateProfile` and composite `(profileId, userId)` foreign keys on the nine child tables, so a child row cannot carry another user's profile. Generated with `migrate diff --from-migrations` because `migrate dev` refuses unique-constraint warnings non-interactively | Reversible (constraints only) |
 
 `prisma/migrations/migration_lock.toml` pins the provider to PostgreSQL. There
@@ -140,6 +142,11 @@ reports "No difference detected" after both; 85/85 public tables
 `tests/evidence-vault.test.ts` proves it refuses an edit from the migration
 role itself. `20260903090200` was replayed twice into one shadow database
 with no error (idempotent). **Not rehearsed on Supabase** (R-34).
+
+**Stage 04 (2026-09-03), local PostgreSQL 16 only.** The two Stage 04
+migrations applied fresh and incrementally; drift clean; 95/95 forced. No
+data migration: the tables start empty by design. **Not rehearsed on
+Supabase** (R-34).
 
 ## Deliberately not done in the baseline
 

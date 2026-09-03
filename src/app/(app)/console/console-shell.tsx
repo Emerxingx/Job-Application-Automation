@@ -11,6 +11,7 @@ import {
   Menu,
   Receipt,
   Sparkles,
+  BookOpen,
   Users,
   X,
   type LucideIcon,
@@ -58,6 +59,7 @@ const NAV: NavItem[] = [
   { href: '/console/invoices', label: 'Invoices', icon: Receipt, minRole: 'billing_ops' },
   { href: '/console/tickets', label: 'Support', icon: LifeBuoy, minRole: 'support' },
   { href: '/console/prompts', label: 'Prompts', icon: Sparkles, minRole: 'admin' },
+  { href: '/console/taxonomy', label: 'Taxonomy', icon: BookOpen, minRole: 'admin' },
 ];
 
 const ROLE_LABEL: Record<StaffRole, string> = {

@@ -1,6 +1,6 @@
 # ADR-0009 — Canadian labour-market taxonomy, US-compatible
 
-**Status:** Proposed · **Date:** 2026-09-02
+**Status:** Proposed · **Date:** 2026-09-02 · **Implemented (Stage 04, 2026-09-03):** canonical `Occupation` with `OccupationCode` per scheme/version (NOC 2021 with explicit TEER; SOC 2018), translatable `OccupationLabel` / `SkillLabel` / `RegionLabel` records, `OccupationSkill`, `SkillMapping`, `CareerPath`, a `Region` tree for CA and US, and the licence gate (`TaxonomyDataset` + `requireIngestible`). The Adzuna regex table is now `src/lib/taxonomy/fallback.ts`, recorded as `regex_fallback` on `Job.occupationSource`. No real dataset is ingested (L-2). Evidence: `../programme/STAGE04_EVIDENCE.md`.
 
 ## Context
 Canada is a first-class market. Measured: the entire current occupational

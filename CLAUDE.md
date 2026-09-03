@@ -26,7 +26,7 @@ remediation has begun.**
 npm ci                # install from the lockfile
 npm run dev           # http://localhost:3000
 npx tsc --noEmit      # typecheck  — PASSES
-npm test              # 853 tests  — PASSES with the two database URLs below set; the
+npm test              # 867 tests  — PASSES with the two database URLs below set; the
                       #   database suites skip WITH A REASON without them and THROW
                       #   when CI=true, so CI cannot pass by skipping them
 npm run build         # production — PASSES
@@ -151,6 +151,14 @@ npm run cms:types          # regenerate payload-types.ts
     edits and a database trigger refuses them independently. A correction is
     a new version with `supersedesId`.
 
+15. **The occupational spine is empty until a licence is recorded** (Stage 04,
+    ADR-0009). `Occupation` / `OccupationCode` / labels exist, the NOC loader
+    and the NOC↔SOC crosswalk are proven on a fixture, but every
+    `TaxonomyDataset` is `unrecorded` and `requireIngestible()` refuses to
+    load until an admin records the licence and attribution at
+    `/console/taxonomy` (L-2). Classification falls back to the old regex
+    table and records `regex_fallback` — a low-confidence method, not a match.
+
 ## Conventions worth preserving
 
 - **The provider pattern** (`src/lib/providers/`): interface, mock default, lazy
@@ -195,6 +203,10 @@ npm run cms:types          # regenerate payload-types.ts
    `PromptVersion.deploymentStatus = 'default'` by hand.** Promotion goes through
    `promotePromptVersion`, which refuses until an evaluation has passed
    (`docs/governance/AI_GOVERNANCE.md`).
+
+10. **Never load a taxonomy dataset except through `requireIngestible()`**, and
+    never set `TaxonomyDataset.licenceStatus` / `ingestionApproved` by hand
+    (`docs/governance/SOURCE_ACCESS_POLICY.md`, ADR-0009).
 
 ## Dependency constraint you must know
 `@payloadcms/next@3.88.0` declares:

@@ -27,7 +27,7 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
   // application are the user's own rows.
   const [loaded, quota] = await Promise.all([
     run(async (tx) => {
-      const job = await tx.job.findUnique({ where: { id } });
+      const job = await tx.job.findUnique({ where: { id }, include: { occupation: { include: { labels: true, codes: true, dataset: { select: { attribution: true } } } } } });
       if (!job) return null;
       const [match, application] = await Promise.all([
         tx.jobMatch.findFirst({
@@ -88,7 +88,16 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
             <div className="mt-4 flex flex-wrap gap-1.5">
               <span className="chip">{job.jobType.replace(/_/g, ' ')}</span>
               {job.nocCode && <span className="chip">NOC {job.nocCode}</span>}
+              {job.occupation && (
+                <span className="chip" title={job.occupationSource === 'regex_fallback' ? 'Classified by title pattern (low confidence)' : 'Classified by title'}>
+                  {job.occupation.labels.find((l) => l.locale === 'en')?.title ?? job.occupation.slug}
+                  {job.occupationSource === 'regex_fallback' ? ' (approx.)' : ''}
+                </span>
+              )}
             </div>
+            {job.occupation?.dataset?.attribution && (
+              <p className="mt-2 text-xs text-faint">Occupation data: {job.occupation.dataset.attribution}</p>
+            )}
           </Card>
 
           <Card className="p-6">

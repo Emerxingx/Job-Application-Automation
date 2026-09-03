@@ -1,0 +1,18 @@
+Level,Hierarchical structure,Code,Class title,Class definition,Example titles
+1,Broad occupational category,2,Natural and applied sciences and related occupations,"This broad category comprises occupations in the natural, applied and life sciences.",
+2,TEER category,21,Occupations in natural and applied sciences requiring a university degree,"TEER 1: occupations usually requiring a university degree.",
+3,Major group,212,Professional occupations in natural and applied sciences,"Professional occupations in natural and applied sciences.",
+4,Sub-major group,2122,Computer and information systems professionals,"Computer and information systems professionals.",
+5,Unit group,21223,Database analysts and data administrators,"Database analysts design, develop and administer data management solutions.",Data analyst; Database analyst; Data administrator
+5,Unit group,21221,Business systems specialists,"Business systems specialists analyse and document business requirements.",Business analyst; Business systems analyst
+5,Unit group,21211,Data scientists,"Data scientists develop models and algorithms to extract insight from data.",Data scientist; Machine learning engineer
+5,Unit group,21231,Software engineers and designers,"Software engineers and designers research, design and develop software.",Software engineer; Software designer
+5,Unit group,21232,Software developers and programmers,"Software developers and programmers write, modify and test software.",Software developer; Programmer; Full stack developer
+5,Unit group,21234,Web developers and programmers,"Web developers and programmers design and develop websites and web applications.",Web developer
+5,Unit group,21233,Web designers,"Web designers design the layout and interface of websites.",Web designer
+5,Unit group,21220,Cybersecurity specialists,"Cybersecurity specialists protect information systems and networks.",Cybersecurity specialist; Information security analyst
+1,Broad occupational category,1,"Business, finance and administration occupations","This broad category comprises occupations in business, finance and administration.",
+2,TEER category,11,"Business, finance and administration occupations requiring a university degree","TEER 1.",
+3,Major group,111,Auditors and accountants,"Auditors and accountants.",
+4,Sub-major group,1110,Auditors and accountants,"Auditors and accountants.",
+5,Unit group,11100,Financial auditors and accountants,"Financial auditors and accountants plan, organize and administer accounting systems.",Accountant; Financial auditor
