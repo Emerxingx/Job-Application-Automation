@@ -399,7 +399,7 @@
     "upload_scanning": "DONE (structural) — type sniffing vs extension, size caps, PDF active content, DOCX macros/external refs, decompression bombs, traversal, UTF-8; ANTIVIRUS NOT AVAILABLE (no engine in this environment; register says so)",
     "messages": "DONE — application message, recruiter intro, outreach, follow-up, thank-you through the gateway task `compose` (deterministic templates as baseline; letter-scope grounding); stored as versions; nothing is sent by the platform",
     "surfaces": "DONE — application page Files + Messages; documents library rows with signed downloads and an upload card",
-    "independent_review": "PENDING"
+    "independent_review": "DONE — 2 HIGH (bomb guard after inflation; compressed PDF active content), 3 MEDIUM (sealing swept drafted messages; link key = session secret; §6 overclaimed tests), 2 LOW (TRUNCATE; docx random ids latent); every HIGH/MEDIUM/LOW fixed with a test; STAGE09_EVIDENCE.md §12"
   },
   "stage_09_exit_gate": {
     "met": [
@@ -408,7 +408,7 @@
       "Any submitted document byte-reproducible from storage AS TESTED: hash-verified reads, renderer determinism",
       "Evidence-grounded messages through the gateway",
       "Private by default; signed expiring links",
-      "Full gate set green with the documented command only: lint 0/8, typecheck 0, 999/999 tests (0 skipped), build 0"
+      "Full gate set green with the documented command only: lint 0/8, typecheck 0, 1002/1002 tests (0 skipped), build 0"
     ],
     "not_met": [
       "Antivirus scanning of uploads (NOT AVAILABLE — no engine; structural scan only)",

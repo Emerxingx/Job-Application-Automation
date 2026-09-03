@@ -16,8 +16,9 @@ import { letterModel, renderText, resumeModel, textsOf } from '../src/lib/docume
 import { atsReport } from '../src/lib/documents/ats';
 import { extractPdfText, renderPdf } from '../src/lib/documents/render-pdf';
 import { canonicalDocx, extractDocxText, renderDocx } from '../src/lib/documents/render-docx';
+import { deflateSync } from 'node:zlib';
 import { scanUpload, UPLOAD_MAX_BYTES } from '../src/lib/documents/scan';
-import { documentLinkPath, signDocumentLink, verifyDocumentLink } from '../src/lib/documents/sign';
+import { documentLinkKey, documentLinkPath, signDocumentLink, verifyDocumentLink } from '../src/lib/documents/sign';
 import { composeMessage } from '../src/lib/documents/compose';
 import { MESSAGE_KINDS } from '../src/lib/documents/kinds';
 import { allowedContext, buildCorpus, findViolations } from '../src/lib/ai/grounding';
@@ -145,6 +146,45 @@ describe('documents — upload scanner', () => {
     assert.deepEqual((await scanUpload(Buffer.from([0x00, 0x01, 0x02, 0xff, 0xfe]), 'x.txt')).reasons, ['unrecognised_type']);
     assert.deepEqual((await scanUpload(Buffer.from([0xff, 0xfe, 0x41]), 'x.txt')).reasons, ['unrecognised_type'], 'invalid UTF-8 is not text');
   });
+  it('finds active content hidden in a FlateDecode stream (review HIGH): the raw bytes never carry the token', async () => {
+    const hidden = deflateSync(Buffer.from('<< /Type /Catalog /Pages 2 0 R /OpenAction << /S /Launch /F (calc.exe) >> >>', 'latin1'));
+    const pdf = Buffer.concat([
+      Buffer.from('%PDF-1.5\n1 0 obj\n<< /Type /ObjStm /N 1 /First 0 /Length ' + hidden.length + ' /Filter /FlateDecode >>\nstream\n', 'latin1'),
+      hidden,
+      Buffer.from('\nendstream\nendobj\ntrailer\n<< /Root 1 0 R >>\n%%EOF\n', 'latin1'),
+    ]);
+    assert.ok(!pdf.toString('latin1').includes('/OpenAction'), 'the fixture really hides it');
+    assert.deepEqual((await scanUpload(pdf, 'resume.pdf')).reasons, ['pdf_active_content']);
+    const clean = deflateSync(Buffer.from('<< /Type /Catalog /Pages 2 0 R >>', 'latin1'));
+    const ok = Buffer.concat([Buffer.from('%PDF-1.5\n1 0 obj\n<< /Length ' + clean.length + ' /Filter /FlateDecode >>\nstream\n', 'latin1'), clean, Buffer.from('\nendstream\nendobj\n%%EOF\n', 'latin1')]);
+    assert.deepEqual(await scanUpload(ok, 'resume.pdf'), { ok: true, format: 'pdf', sizeBytes: ok.length, reasons: [] });
+  });
+  it('refuses a decompression bomb, too many entries, a traversal path and an external reference from the central directory, before inflating anything (review HIGH)', async () => {
+    const shell = async (mutate: (z: JSZip) => void) => {
+      const z = new JSZip();
+      z.file('[Content_Types].xml', '<Types/>');
+      z.file('word/document.xml', '<w:document/>');
+      z.file('_rels/.rels', '<Relationships/>');
+      mutate(z);
+      return z.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
+    };
+    const bomb = await shell((z) => z.file('word/media/blob.bin', Buffer.alloc(60 * 1024 * 1024)));
+    assert.ok(bomb.length < 1024 * 1024, `the bomb is small on the wire (${bomb.length})`);
+    const started = Date.now();
+    assert.deepEqual((await scanUpload(bomb, 'resume.docx')).reasons, ['zip_bomb']);
+    assert.ok(Date.now() - started < 1500, 'refused from the directory, not after inflating 60 MB');
+    const many = await shell((z) => {
+      for (let i = 0; i < 205; i += 1) z.file(`word/media/${i}.txt`, 'x');
+    });
+    assert.deepEqual((await scanUpload(many, 'resume.docx')).reasons, ['zip_too_many_entries']);
+    const traversal = await shell((z) => z.file('../evil.txt', 'x'));
+    const t = await scanUpload(traversal, 'resume.docx');
+    assert.ok(t.reasons.includes('zip_path_traversal'), JSON.stringify(t));
+    const external = await shell((z) => z.file('word/_rels/document.xml.rels', '<Relationships><Relationship Id="rId9" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/oleObject" Target="file:///C:/x.exe" TargetMode="External"/></Relationships>'));
+    assert.deepEqual((await scanUpload(external, 'resume.docx')).reasons, ['docx_external_reference']);
+    const macroType = await shell((z) => z.file('[Content_Types].xml', '<Types><Default ContentType="application/vnd.ms-word.document.macroEnabled.main+xml"/></Types>'));
+    assert.deepEqual((await scanUpload(macroType, 'resume.docx')).reasons, ['docx_macros']);
+  });
 });
 
 describe('documents — signed links', () => {
@@ -163,6 +203,15 @@ describe('documents — signed links', () => {
     assert.equal(verifyDocumentLink({ ...link, signature: '' }, now, secret), 'invalid');
     assert.equal(verifyDocumentLink(link, now, new TextEncoder().encode('another-secret-another-secret-0123456789')), 'invalid');
     assert.equal(documentLinkPath(link), `/api/documents/doc_1/download?u=user_a&exp=${link.expiresAt}&sig=${link.signature}`);
+  });
+  it('signs with a key DERIVED from the session secret, never the secret itself (review MEDIUM)', () => {
+    const root = new TextEncoder().encode('root-session-secret-root-session-secret-0123');
+    const derived = documentLinkKey(root);
+    assert.notDeepEqual(Buffer.from(derived), Buffer.from(root));
+    assert.equal(derived.length, 32);
+    const link = signDocumentLink('doc_1', 'user_a', Date.now(), 600, derived);
+    assert.equal(verifyDocumentLink(link, Date.now(), derived), 'ok');
+    assert.equal(verifyDocumentLink(link, Date.now(), root), 'invalid', 'a link is not a session signature');
   });
 });
 

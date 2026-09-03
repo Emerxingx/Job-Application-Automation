@@ -127,11 +127,15 @@ describe('Stage 09 — document versions against the database', { skip: SKIP }, 
     assert.equal((await versions.readDocumentBytes(text)).toString('utf8'), model.renderText(model.resumeModel(RESUME)));
   });
 
-  it('a submitted version is immutable by the database: UPDATE and direct DELETE are refused; erasure still cascades', async () => {
+  it('a submitted version is immutable by the database: UPDATE, direct DELETE and TRUNCATE are refused; erasure still cascades; sealing never touches a drafted message', async () => {
     const application = await db.application.create({ data: { userId: B.id, jobId, status: 'submitted', appliedAt: new Date() } });
     const row = await versions.recordDocumentVersion(db, { userId: B.id, applicationId: application.id, jobId, kind: 'resume', format: 'txt', bytes: Buffer.from('sealed') });
+    // A thank-you note drafted under the same application is NOT part of the submission (review MEDIUM).
+    const note = await versions.recordDocumentVersion(db, { userId: B.id, applicationId: application.id, jobId, kind: 'thank_you', format: 'txt', bytes: Buffer.from('thanks') });
     assert.equal(await versions.sealApplicationDocuments(db, B.id, application.id), 1);
     assert.equal(await versions.sealApplicationDocuments(db, B.id, application.id), 0, 'idempotent');
+    assert.equal((await db.documentVersion.findUniqueOrThrow({ where: { id: note.id } })).status, 'draft', 'the drafted message stays a draft');
+    await assert.rejects(() => db.$executeRawUnsafe('TRUNCATE "DocumentVersion"'), /cannot be truncated/);
     await assert.rejects(() => db.$executeRawUnsafe('UPDATE "DocumentVersion" SET "contentHash" = $1 WHERE id = $2', 'forged', row.id), /immutable/);
     await assert.rejects(() => db.$executeRawUnsafe('UPDATE "DocumentVersion" SET "status" = $1 WHERE id = $2', 'draft', row.id), /immutable/);
     await assert.rejects(() => db.documentVersion.update({ where: { id: row.id }, data: { storageKey: 'elsewhere' } }), /immutable/);

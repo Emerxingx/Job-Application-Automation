@@ -29,6 +29,7 @@ live; versions immutable. Gap G-16.
 | --- | --- | --- |
 | `20260903170000_document_versions` | `DocumentVersion` (owner, scope — an application, `job:<id>` or `general` —, kind, format, version, status, SHA-256 content hash, size, storage key, evidence ids, AiRun id, ATS report, scan report, sealed-at; unique per owner × scope × kind × format × version); `User.documentVersions`, `Application.documents`; the **immutability trigger** `document_version_guard_immutable` (BEFORE UPDATE: any change to a submitted row raises; BEFORE DELETE: a direct delete of a submitted row raises — `pg_trigger_depth() <= 1` — while a referential cascade from the owner's `User` row passes) | applied fresh and incrementally; drift clean |
 | `20260903170100_rls_document_table` | Generated (manifest `RLS_MANIFESTS[8]`): `DocumentVersion` user-owned (`userId`) | determinism test; a tenant reads and writes their own rows only (tested); **104/104** public tables forced |
+| `20260903170200_document_versions_truncate_guard` | Review (LOW): a statement-level `BEFORE TRUNCATE` guard — the table cannot be truncated while it holds a submitted version (row triggers do not fire on TRUNCATE) | applied fresh and incrementally; tested |
 
 `docx@9.7.1` (MIT) is the one new dependency; `jszip` was already a
 transitive dependency and is imported directly for canonical re-packing and
@@ -66,7 +67,10 @@ under `<owner>/documents/<scope>/<kind>-v<n>.<format>`, takes the next
 version number in the scope (a race is settled by the unique index and one
 retry) and writes the row with the SHA-256; `readDocumentBytes` recomputes
 the hash and **refuses** a missing or altered object; `sealApplicationDocuments`
-marks an application's drafts `submitted` (idempotent). The applicator
+marks an application's résumé and cover-letter drafts `submitted`
+(idempotent) — never a drafted message under the same application, which
+the platform does not send and must not record as sent (review MEDIUM). The
+applicator
 writes the set — résumé and cover letter × TXT/PDF/DOCX, six versions with
 ATS reports — for every application and seals it at submission; an
 assisted application is sealed when the applicant confirms
@@ -77,7 +81,7 @@ assisted application is sealed when the applicant confirms
 | A version carries the hash of its bytes, the next one is numbered, the bytes come back equal and verified | PASS |
 | An altered object is refused (`DocumentIntegrityError`, "does not match"); a missing one is refused ("missing") — byte-reproducible or nothing | PASS |
 | The application set is six sealed versions, every ATS report `ok` with parse-back `ok`, and re-rendering the résumé with the same date reproduces every stored hash; the TXT version is exactly `renderResumeText` | PASS |
-| A submitted version is immutable BY THE DATABASE: raw `UPDATE` of the hash, of the status back to draft, a Prisma update of the key, a raw and a Prisma `DELETE` — all refused; the row survives | PASS |
+| A submitted version is immutable BY THE DATABASE: raw `UPDATE` of the hash, of the status back to draft, a Prisma update of the key, a raw and a Prisma `DELETE`, and `TRUNCATE` of the table (statement-level guard, migration `20260903170200`) — all refused; the row survives; a thank-you draft under the same application is not sealed | PASS |
 | Account erasure (deleting the owner's `User` row) cascades through the guard and removes the rows | PASS |
 | Confirming an assisted application seals what was prepared | PASS |
 | A tenant lists their own versions and writes on the tenant path; another tenant sees none and cannot insert a row for them (RLS) | PASS |
@@ -93,7 +97,10 @@ guarantee to hold across deploys (§10).
 ## 5. Private by default; signed, expiring links — `PASS`
 
 `src/lib/documents/sign.ts`: an HMAC-SHA256 over the document id, the
-owner's id and an expiry (10 minutes), keyed by the session signing secret.
+owner's id and an expiry (10 minutes), keyed by a key DERIVED from the
+session secret (`documentLinkKey`), never the secret itself — the posture
+of the CMS and API-key modules (review MEDIUM; tested: a link does not
+verify under the root secret).
 `GET /api/documents/:id` (session, tenant path, owner filter) mints a link
 and redirects to it (`?link=1` returns it as JSON for "copy link"); `GET
 /api/documents/:id/download?u&exp&sig` serves the bytes to a valid,
@@ -114,13 +121,23 @@ nothing from "expired").
 `src/lib/documents/scan.ts`, `POST /api/documents/upload`: the type is
 sniffed from the bytes and must agree with the extension; 5 MB cap; a PDF
 carrying JavaScript, open/launch actions, embedded files, rich media or XFA
-is refused; a DOCX carrying VBA, a macro-enabled content type, external OLE
-or template references, too many entries, a declared decompression bomb or
-a traversal path is refused; text must be valid UTF-8 without NUL. A
-refused file is never stored; the reasons are stable codes the UI explains.
+is refused — and every FlateDecode stream (object streams included) is
+inflated under a 32 MB cap and scanned too, because a dictionary inside a
+compressed object stream never appears in the raw bytes (review HIGH); a
+DOCX carrying VBA, a macro-enabled content type, external OLE or template
+references is refused; the entry count, a traversal path and the declared
+uncompressed size are checked from the central directory BEFORE any entry
+is inflated, and a declared size that turns out to be a lie is refused as
+a bomb too (review HIGH); text must be valid UTF-8 without NUL. A refused
+file is never stored; the reasons are stable codes the UI explains.
 Tested with our own PDF and DOCX under right and wrong names, a scripted
-PDF, a DOCX with `vbaProject.bin`, a plain zip, empty, oversize, binary
-noise and invalid UTF-8.
+PDF, a PDF whose `/OpenAction /Launch` lives only inside a Flate-compressed
+object stream, a 60 MB zero blob compressed to under a megabyte (refused in
+well under a second, i.e. from the directory), 205 entries, a `../` entry, an
+external OLE relationship, a macro-enabled content type, a DOCX with
+`vbaProject.bin`, a plain zip, empty, oversize, binary noise and invalid
+UTF-8. Not tested: a central directory that under-declares a size (JSZip
+raises on the mismatch and the scan reports `zip_bomb`); a zip64 archive.
 
 **No antivirus signature scanning exists in this environment** (no ClamAV,
 no managed scanner). The register records it as NOT AVAILABLE; the UI copy
@@ -159,9 +176,9 @@ with zero violations.
 | --- | --- |
 | Lint | 0 errors, 8 warnings (baseline) |
 | Typecheck | 0 |
-| Tests | **999 / 999**, 0 skipped (Stage 08: 982) — new: `document-engine` 10, `document-versions` 6 |
+| Tests | **1002 / 1002**, 0 skipped (Stage 08: 982) — new: `document-engine` 13, `document-versions` 6 |
 | Build | passes; `/api/documents/[id]`, `/api/documents/[id]/download`, `/api/documents/upload`, `/api/applications/[id]/messages` present |
-| Migrations | twenty-five applied fresh; drift clean; 104/104 forced; RLS migration equals the generator output |
+| Migrations | twenty-six applied fresh; drift clean; 104/104 forced; RLS migration equals the generator output |
 
 Run with the documented command only (the two test URLs; `DATABASE_URL` /
 `DIRECT_URL` unset).
@@ -191,6 +208,19 @@ traffic). Merge posture inherited from the stack.
    scanner) — until then the structural scan is the whole story.
 3. Staging — unchanged (R-34).
 
-## 12. Independent review
+## 12. Independent review — findings and what was done
 
-PENDING — recorded here when done.
+An adversarial review of `git diff 9852e64..4ad09af` returned **2 HIGH · 3
+MEDIUM · 2 LOW · 2 INFO**. Every HIGH, MEDIUM and LOW is closed in the
+review commit with a test; the INFO items are recorded.
+
+| # | Sev | Finding | Resolution |
+| --- | --- | --- | --- |
+| 1 | HIGH | The decompression-bomb guard collected a reason but did not stop: the content-types and `.rels` entries were inflated regardless, and a directory that under-declared a size surfaced as an uncaught JSZip error | Entry count, traversal and declared size are checked from the central directory and REFUSE before any entry is read; a size mismatch on read is caught as `zip_bomb`. Tested: a 60 MB blob under 1 MB on the wire is refused in well under a second |
+| 2 | HIGH | The PDF active-content scan ran only over the raw bytes; `/OpenAction /Launch` inside a FlateDecode object stream passed | Every Flate stream is inflated under a 32 MB total cap and scanned; exceeding the cap is a refusal (`pdf_stream_too_large`). Tested with a hand-built compressed object stream |
+| 3 | MEDIUM | `sealApplicationDocuments` sealed every draft under the application, so a thank-you note drafted before confirmation would be recorded as submitted | Sealing is limited to `SUBMITTED_KINDS` (résumé, cover letter). Tested |
+| 4 | MEDIUM | The link key was the session secret itself | `documentLinkKey` derives a separate key (HMAC over a fixed label); a link does not verify under the root secret. Tested |
+| 5 | MEDIUM | §6 claimed test coverage for reason codes no test exercised | Tests added for every reason code except the two stated as untested; §6 corrected |
+| 6 | LOW | Row triggers do not fire on TRUNCATE | Statement-level guard, migration `20260903170200`; tested |
+| 7 | LOW/INFO | `docx` uses `Math.random` ids for hyperlinks, comments and text boxes, none of which the renderer emits today | Recorded in CLAUDE.md item 20 as a determinism trap: never add a hyperlink run without extending the determinism test |
+| 8 | INFO | Cascade depth, `updateMany` and the applicator's system-client posture verified correct | Recorded |

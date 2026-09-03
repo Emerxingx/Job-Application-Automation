@@ -111,13 +111,19 @@ export async function readDocumentBytes(row: Pick<DocumentVersion, 'id' | 'stora
   return bytes;
 }
 
+/** The kinds a submission consists of. A drafted message is never "sent" by the platform and is never sealed. */
+export const SUBMITTED_KINDS: readonly DocumentKind[] = ['resume', 'cover_letter'];
+
 /**
- * Seal every draft of an application at the moment it is submitted: the
- * drafts ARE what was sent. Returns how many were sealed. Idempotent.
+ * Seal the résumé and cover-letter drafts of an application at the moment it
+ * is submitted: those drafts ARE what was sent. Any other kind under the
+ * application (a thank-you note drafted before confirmation, an outreach
+ * message) is left a draft — sealing it would record a submission that
+ * never happened. Returns how many were sealed. Idempotent.
  */
-export async function sealApplicationDocuments(client: Client, userId: string, applicationId: string, at = new Date()): Promise<number> {
+export async function sealApplicationDocuments(client: Client, userId: string, applicationId: string, at = new Date(), kinds: readonly DocumentKind[] = SUBMITTED_KINDS): Promise<number> {
   const result = await client.documentVersion.updateMany({
-    where: { userId, applicationId, status: 'draft' },
+    where: { userId, applicationId, status: 'draft', kind: { in: [...kinds] } },
     data: { status: 'submitted', sealedAt: at },
   });
   return result.count;
