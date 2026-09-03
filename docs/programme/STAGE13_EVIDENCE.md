@@ -1,6 +1,6 @@
 # Stage 13 - Candidate dashboards and analytics - evidence
 
-Recorded 2026-09-03 on branch `claude/stage-13-candidate-analytics`, stacked
+Recorded 2026-09-03 on branch `claude/stage-13-candidate-analytics` (PR #25), stacked
 on Stage 12 (PR #24) - 11 (#23) - 10 (#22) - 09 (#21) - 08 (#20) - 07 (#19) -
 06 (#18) - 05 (#17) - 04 (#16) - 03 (#15) - 02 (#14) - 01 (#13, PARTIAL).
 Every line was run or read; nothing is PASS on the strength of a mock, a
