@@ -19,6 +19,9 @@ import { Card, ScoreRing, StatusBadge, formatSalary } from '@/components/ui';
 import { ApplicationStatusControl } from '@/components/application-status';
 import { InterviewPrepButton } from '@/components/interview-prep-button';
 import { AssistedApply, type AssistedField } from '@/components/assisted-apply';
+import { ApplicationDocuments, type DocumentVersionView } from '@/components/application-documents';
+import { ApplicationMessages } from '@/components/application-messages';
+import { KIND_LABELS, MESSAGE_KINDS, type DocumentKind } from '@/lib/documents/kinds';
 import { atsDisplayName } from '@/lib/providers/apply';
 import type { AtsVendor } from '@/lib/providers/apply';
 
@@ -36,7 +39,7 @@ export default async function ApplicationDetailPage({
   const application = await run((tx) =>
     tx.application.findFirst({
       where: { id, userId: user.id },
-      include: { job: true, interviewPrep: true },
+      include: { job: true, interviewPrep: true, documents: { orderBy: [{ kind: 'asc' }, { format: 'asc' }, { version: 'desc' }] } },
     }),
   );
   if (!application) notFound();
@@ -56,6 +59,35 @@ export default async function ApplicationDetailPage({
   const sent = application.status !== 'ready_to_submit';
 
   const files = await listFolder(user.id, application.folderPath);
+
+  // Stage 09: the versioned files (TXT, PDF, DOCX) with their hashes and ATS
+  // reports, and the messages drafted for this application. Dates are
+  // formatted here so the client component renders the same string twice.
+  const messageKinds = new Set<string>(MESSAGE_KINDS);
+  const documentViews: DocumentVersionView[] = application.documents
+    .filter((d) => !messageKinds.has(d.kind))
+    .map((d) => ({
+      id: d.id,
+      kind: d.kind,
+      label: KIND_LABELS[d.kind as DocumentKind] ?? d.kind,
+      format: d.format,
+      version: d.version,
+      status: d.status,
+      sizeBytes: d.sizeBytes,
+      contentHash: d.contentHash,
+      atsOk: (() => {
+        try {
+          const report = JSON.parse(d.atsReport) as { ok?: boolean };
+          return typeof report.ok === 'boolean' ? report.ok : null;
+        } catch {
+          return null;
+        }
+      })(),
+      createdLabel: d.createdAt.toLocaleString('en-CA', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }),
+    }));
+  const messageViews = application.documents
+    .filter((d) => messageKinds.has(d.kind))
+    .map((d) => ({ id: d.id, kind: d.kind, version: d.version, createdLabel: d.createdAt.toLocaleString('en-CA', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) }));
   // Fall back to the database copies when the filesystem folder is unavailable.
   const fileList = files.length
     ? files
@@ -152,6 +184,10 @@ export default async function ApplicationDetailPage({
               </p>
             )}
           </Card>
+
+          {/* Stage 09: versioned files and drafted messages */}
+          <ApplicationDocuments documents={documentViews} sealed={sent} />
+          <ApplicationMessages applicationId={application.id} existing={messageViews} />
 
           {/* Tailoring report */}
           <Card className="p-5">

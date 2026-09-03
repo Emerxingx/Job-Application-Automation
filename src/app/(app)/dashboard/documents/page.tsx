@@ -5,6 +5,8 @@ import { formatCents } from '@/lib/billing/invoice';
 import { Card, EmptyState, PageHeader } from '@/components/ui';
 import { ExportButton } from '@/components/export-button';
 import { DocumentLibrary } from './document-library';
+import { DocumentUpload } from '@/components/document-upload';
+import { KIND_LABELS, MESSAGE_KINDS, type DocumentKind as VersionKind } from '@/lib/documents/kinds';
 import type { DocumentKind, DocumentRowView, KindOption } from './types';
 
 export const metadata = { title: 'Documents' };
@@ -13,6 +15,7 @@ export const dynamic = 'force-dynamic';
 /** Ceiling on how much history the library loads in one page. */
 const APPLICATION_LIMIT = 200;
 const INVOICE_LIMIT = 100;
+const VERSION_LIMIT = 300;
 
 /** Display order of the type filter, independent of how many of each exist. */
 const KIND_ORDER: { value: DocumentKind; label: string }[] = [
@@ -21,6 +24,8 @@ const KIND_ORDER: { value: DocumentKind; label: string }[] = [
   { value: 'folder', label: 'Application folders' },
   { value: 'job_description', label: 'Job descriptions' },
   { value: 'interview_prep', label: 'Interview prep' },
+  { value: 'message', label: 'Messages' },
+  { value: 'upload', label: 'Uploaded files' },
   { value: 'master_resume', label: 'Master resume' },
   { value: 'invoice', label: 'Invoices' },
 ];
@@ -66,7 +71,7 @@ function dateLabel(value: Date): string {
 export default async function DocumentsPage() {
   const { user, run } = await requireTenant();
 
-  const [applications, resumes, invoices] = await run((tx) =>
+  const [applications, resumes, invoices, versions] = await run((tx) =>
     Promise.all([
       tx.application.findMany({
         where: { userId: user.id },
@@ -97,6 +102,14 @@ export default async function DocumentsPage() {
           currency: true,
           totalCents: true,
         },
+      }),
+      // Stage 09: every versioned file — résumés and letters as PDF/DOCX/TXT,
+      // drafted messages, uploads — served through signed, expiring links.
+      tx.documentVersion.findMany({
+        where: { userId: user.id },
+        orderBy: { createdAt: 'desc' },
+        take: VERSION_LIMIT,
+        include: { application: { select: { job: { select: { title: true, company: true } } } } },
       }),
     ]),
   );
@@ -198,6 +211,24 @@ export default async function DocumentsPage() {
     }
   }
 
+  const messageKinds = new Set<string>(MESSAGE_KINDS);
+  for (const v of versions) {
+    const label = KIND_LABELS[v.kind as VersionKind] ?? v.kind;
+    const about = v.application ? `${v.application.job.company} · ${v.application.job.title}` : 'Not tied to an application';
+    const kind: DocumentKind = v.kind === 'resume' ? 'resume' : v.kind === 'cover_letter' ? 'cover_letter' : v.kind === 'uploaded_resume' ? 'upload' : messageKinds.has(v.kind) ? 'message' : 'upload';
+    rows.push({
+      id: `version-${v.id}`,
+      kind,
+      title: `${label} — v${v.version}`,
+      context: `${about} · ${v.status === 'submitted' ? 'sealed at submission' : 'draft'} · sha256 ${v.contentHash.slice(0, 12)}…`,
+      dateIso: v.createdAt.toISOString(),
+      dateLabel: dateLabel(v.createdAt),
+      formatLabel: v.format.toUpperCase(),
+      downloadUrl: `/api/documents/${v.id}`,
+      viewUrl: v.applicationId ? `/dashboard/applications/${v.applicationId}` : null,
+    });
+  }
+
   for (const invoice of invoices) {
     const at = invoice.issuedAt ?? invoice.createdAt;
     rows.push({
@@ -274,6 +305,8 @@ export default async function DocumentsPage() {
               ))}
             </div>
           </Card>
+
+          <DocumentUpload />
 
           <DocumentLibrary rows={rows} kindOptions={kindOptions} />
 

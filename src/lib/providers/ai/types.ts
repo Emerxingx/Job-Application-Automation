@@ -4,6 +4,7 @@ import type {
   ResumeContent,
   TailoredDocuments,
 } from '@/lib/types';
+import type { MessageKind } from '@/lib/documents/kinds';
 
 export interface JobContext {
   title: string;
@@ -64,6 +65,9 @@ export interface AIProvider {
 
   /** Build an interview preparation pack for a submitted application. */
   prepareInterview(resume: ResumeContent, job: JobContext): Promise<InterviewPrepPackage>;
+
+  /** Stage 09: a short message about a posting (application note, recruiter intro, outreach, follow-up, thank-you), built only from the résumé. */
+  compose(kind: MessageKind, resume: ResumeContent, job: JobContext, analysis: MatchAnalysis): Promise<string>;
 }
 
 /** One structured-output request, fully rendered. The provider adds nothing. */

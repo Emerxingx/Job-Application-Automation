@@ -18,6 +18,8 @@ export type DocumentKind =
   | 'job_description'
   | 'folder'
   | 'interview_prep'
+  | 'message'
+  | 'upload'
   | 'invoice';
 
 export interface DocumentRowView {

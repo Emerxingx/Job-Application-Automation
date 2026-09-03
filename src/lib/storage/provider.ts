@@ -19,5 +19,8 @@ export interface StorageProvider {
   readonly location: string;
   put(key: string, body: string): Promise<void>;
   get(key: string): Promise<string | null>;
+  /** Stage 09: binary documents (PDF, DOCX) with their content type. */
+  putBytes(key: string, body: Buffer, contentType: string): Promise<void>;
+  getBytes(key: string): Promise<Buffer | null>;
   list(prefix: string): Promise<StoredObject[]>;
 }

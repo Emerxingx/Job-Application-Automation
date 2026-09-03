@@ -32,3 +32,4 @@ baseline. None has been implemented.
 | [0020](ADR-0020-workbc-integration-boundary.md) | Progressive integration levels; no fake integration | Proposed |
 | [0021](ADR-0021-eligibility-before-fit.md) | Eligibility is evaluated before fit, as pass/fail with reasons; advisory rules marked advisory | Accepted (Stage 07) |
 | [0022](ADR-0022-compatibility-pipeline.md) | Compatibility is a decomposable, versioned pipeline around the preserved deterministic engine; weights governed; pgvector BLOCKED, no fake embeddings | Accepted (Stage 08) |
+| [0023](ADR-0023-document-versions.md) | Every document is a hashed, versioned file in TXT/PDF/DOCX; a submitted version is immutable by the database and byte-reproducible or refused; signed expiring links; structural upload scan (no antivirus engine) | Accepted (Stage 09) |

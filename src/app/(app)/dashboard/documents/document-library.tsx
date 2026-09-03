@@ -12,6 +12,8 @@ import {
   Mail,
   MessagesSquare,
   Receipt,
+  Send,
+  Upload,
   UserRound,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
@@ -27,6 +29,8 @@ const KIND_META: Record<DocumentKind, { label: string; icon: LucideIcon; classNa
   job_description: { label: 'Job description', icon: Briefcase, className: 'text-muted' },
   folder: { label: 'Application folder', icon: FolderTree, className: 'text-warn' },
   interview_prep: { label: 'Interview prep', icon: MessagesSquare, className: 'text-brand-500' },
+  message: { label: 'Message', icon: Send, className: 'text-success' },
+  upload: { label: 'Uploaded file', icon: Upload, className: 'text-muted' },
   invoice: { label: 'Invoice', icon: Receipt, className: 'text-muted' },
 };
 

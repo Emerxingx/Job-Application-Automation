@@ -207,3 +207,22 @@ never occurred.
   and version while new ones carry the new version, rollback recorded, the
   active version unretirable; tenant isolation of dimension rows and the
   system-only register.
+
+## Stage 09 — documents
+
+- `tests/document-engine.test.ts` (pure): the model renders to exactly
+  `renderResumeText`; a letter round-trips; the ATS report's checks
+  (contact, headings, order, dates, single column, parse-back); PDF and
+  DOCX determinism (same model + date → same bytes, DOCX a second apart;
+  canonicalisation idempotent; core dates pinned) with parse-back of every
+  model line; the upload scanner on right/wrong names, scripted PDF, macro
+  DOCX, plain zip, empty, oversize, binary noise, invalid UTF-8; signed
+  links (ok, boundary, expired, tampered owner/document/expiry/signature/
+  secret); every message kind deterministic, free of the posting's text and
+  passing letter-scope grounding.
+- `tests/document-versions.test.ts` (database + a temporary local store):
+  hash on write, next version, verified read; an altered or missing object
+  refused; the six-version application set with ATS reports re-rendering to
+  the same hashes; a submitted row immutable by the trigger (UPDATE, direct
+  DELETE) while the owner's erasure cascades; assisted confirmation seals;
+  RLS on the tenant path.
