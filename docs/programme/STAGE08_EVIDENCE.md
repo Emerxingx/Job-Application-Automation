@@ -1,6 +1,6 @@
 # Stage 08 — Compatibility and recommendation engine — evidence
 
-Recorded 2026-09-03 on branch `claude/stage-08-compatibility-engine`, stacked
+Recorded 2026-09-03 on branch `claude/stage-08-compatibility-engine` ([PR #20](https://github.com/Emerxingx/Job-Application-Automation/pull/20), draft), stacked
 on Stage 07 (PR #19) → 06 (#18) → 05 (#17) → 04 (#16) → 03 (#15) → 02 (#14)
 → 01 (#13, PARTIAL). Every line was run or read; nothing is PASS on the
 strength of a mock, a skipped test or a document. This stage's honest centre:
