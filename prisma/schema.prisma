@@ -24,51 +24,52 @@ datasource db {
 // ---------------------------------------------------------------------------
 
 model User {
-  id           String    @id @default(cuid())
-  email        String    @unique
-  passwordHash String
-  fullName     String
-  phone        String?
-  city         String?
-  country      String    @default("CA") // CA | US
-  headline     String?
-  linkedinUrl  String?
-  portfolioUrl String?
+  id                String    @id @default(cuid())
+  email             String    @unique
+  passwordHash      String
+  fullName          String
+  phone             String?
+  city              String?
+  country           String    @default("CA") // CA | US
+  headline          String?
+  linkedinUrl       String?
+  portfolioUrl      String?
   // Work authorization matters a great deal for CA/US postings.
-  workAuth     String?   @default("Canadian Citizen")
-  onboardedAt  DateTime?
+  workAuth          String?   @default("Canadian Citizen")
+  onboardedAt       DateTime?
   // Staff identity. Staff reach /console; customers never do. There is no
   // separate staff table on purpose — one identity keeps requireUser() and
   // the session cookie unchanged. Anything other than "member" is staff.
-  role         String    @default("member") // member | support | billing_ops | admin
+  role              String    @default("member") // member | support | billing_ops | admin
   // PIPEDA/GDPR erasure marker. PII is scrubbed in place rather than the row
   // being deleted, because invoices, payments and audit rows must be retained
   // (and they carry their own bill-to snapshot, so they still read correctly).
-  anonymizedAt DateTime?
+  anonymizedAt      DateTime?
   // Stage 01 identity fields. `emailVerifiedAt` is set by the identity provider
   // flow (Supabase Auth, AUTH_DECISION_GATE.md) or by staff; it is never set
   // at signup. `passwordChangedAt` lets a session issued before a password
   // change be rejected even if its row was somehow missed by the revoke.
   emailVerifiedAt   DateTime?
   passwordChangedAt DateTime?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
-  sessions       Session[]
-  identities     UserIdentity[]
-  consents       ConsentRecord[]
-  candidateProfile CandidateProfile?
-  evidence         CareerEvidence[]
-  questions        ApplicationQuestion[]
-  aiRuns           AiRun[]
-  subscription   Subscription?
-  agents         Agent[]
-  resumes        Resume[]
-  applications   Application[]
-  savedJobs      SavedJob[]
+  sessions           Session[]
+  identities         UserIdentity[]
+  consents           ConsentRecord[]
+  candidateProfile   CandidateProfile?
+  evidence           CareerEvidence[]
+  questions          ApplicationQuestion[]
+  aiRuns             AiRun[]
+  subscription       Subscription?
+  agents             Agent[]
+  resumes            Resume[]
+  applications       Application[]
+  savedJobs          SavedJob[]
   eligibilityResults EligibilityResult[]
-  interviewPreps InterviewPrep[]
-  events         ActivityEvent[]
+  documentVersions   DocumentVersion[]
+  interviewPreps     InterviewPrep[]
+  events             ActivityEvent[]
 
   // --- commercial layer back-relations ---
   billingProfile     BillingProfile?
@@ -249,41 +250,41 @@ model Agent {
 
 // A job posting discovered from any source. Deduplicated on externalId+source.
 model Job {
-  id             String    @id @default(cuid())
-  source         String // mock | indeed | adzuna | linkedin
-  externalId     String
-  title          String
-  company        String
-  companyLogo    String?
-  location       String
-  country        String    @default("CA")
-  workMode       String    @default("onsite")
-  jobType        String    @default("full_time")
-  salaryMin      Int?
-  salaryMax      Int?
-  salaryCurrency String    @default("CAD")
-  description    String
+  id                        String    @id @default(cuid())
+  source                    String // mock | indeed | adzuna | linkedin
+  externalId                String
+  title                     String
+  company                   String
+  companyLogo               String?
+  location                  String
+  country                   String    @default("CA")
+  workMode                  String    @default("onsite")
+  jobType                   String    @default("full_time")
+  salaryMin                 Int?
+  salaryMax                 Int?
+  salaryCurrency            String    @default("CAD")
+  description               String
   // Extracted requirement keywords (JSON string array) used for match scoring.
-  requirements   String    @default("[]")
-  skills         String    @default("[]")
+  requirements              String    @default("[]")
+  skills                    String    @default("[]")
   // Canadian NOC code as inferred at capture time (regex fallback, Stage 00).
   // Stage 04: the canonical occupation the posting was classified to, and
   // HOW — `occupationSource` names the method so confidence is recorded,
   // never implied (ADR-0009): title_exact | title_alternate | regex_fallback.
-  nocCode          String?
-  occupationId     String?
-  occupationSource String?
+  nocCode                   String?
+  occupationId              String?
+  occupationSource          String?
   // Stage 05 (ADR-0008, JOB_INTELLIGENCE_ARCHITECTURE "Canonical job"):
   // which registered source captured it, when it was first and last seen by
   // a discovery run, whether it is still open, and the hash of the last
   // normalised capture (a change writes a new immutable JobSnapshot).
-  sourceId    String?
-  firstSeenAt DateTime  @default(now())
-  lastSeenAt  DateTime  @default(now())
+  sourceId                  String?
+  firstSeenAt               DateTime  @default(now())
+  lastSeenAt                DateTime  @default(now())
   // active | closed | unknown
-  activeState String    @default("active")
-  closedAt    DateTime?
-  sourceHash  String    @default("")
+  activeState               String    @default("active")
+  closedAt                  DateTime?
+  sourceHash                String    @default("")
   // Stage 06 (JOB_INTELLIGENCE_ARCHITECTURE "Canonical job"): the canonical
   // fields derived from the capture by src/lib/jobs/canonical.ts. One Job per
   // canonicalHash; every source that carries it is a JobProvenance row and
@@ -309,18 +310,18 @@ model Job {
   // citizenship_or_pr_required | security_clearance_required | null (nothing stated).
   workAuthorization         String?
   sponsorship               String    @default("unknown")
-  applyUrl       String    @default("")
+  applyUrl                  String    @default("")
   // Whether the posting can be submitted programmatically.
-  applyMethod    String    @default("external") // external | email | ats_form
-  postedAt       DateTime
-  scrapedAt      DateTime  @default(now())
-  expiresAt      DateTime?
+  applyMethod               String    @default("external") // external | email | ats_form
+  postedAt                  DateTime
+  scrapedAt                 DateTime  @default(now())
+  expiresAt                 DateTime?
 
   matches      JobMatch[]
   applications Application[]
   savedBy      SavedJob[]
-  occupation   Occupation?   @relation(fields: [occupationId], references: [id], onDelete: SetNull)
-  jobSource    JobSource?    @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+  occupation   Occupation?         @relation(fields: [occupationId], references: [id], onDelete: SetNull)
+  jobSource    JobSource?          @relation(fields: [sourceId], references: [id], onDelete: SetNull)
   snapshots    JobSnapshot[]
   provenance   JobProvenance[]
   eligibility  EligibilityResult[]
@@ -369,19 +370,19 @@ model EligibilityResult {
 /// the Job's own `source` / `externalId` name the first capture.
 /// Classification: INTERNAL, reference (shared like Job; no personal data).
 model JobProvenance {
-  id          String   @id @default(cuid())
-  jobId       String
-  sourceId    String
-  externalId  String
-  applyUrl    String   @default("")
-  firstSeenAt DateTime @default(now())
-  lastSeenAt  DateTime @default(now())
+  id            String    @id @default(cuid())
+  jobId         String
+  sourceId      String
+  externalId    String
+  applyUrl      String    @default("")
+  firstSeenAt   DateTime  @default(now())
+  lastSeenAt    DateTime  @default(now())
   // When the freshness sweep last ASKED this source about it (null: never).
   // A sweep orders by this, so every stale row is reached in turn and a row
   // the source cannot answer for is not re-asked on every sweep.
   lastCheckedAt DateTime?
   // Hash of the last normalised capture from THIS source.
-  sourceHash  String   @default("")
+  sourceHash    String    @default("")
 
   job    Job       @relation(fields: [jobId], references: [id], onDelete: Cascade)
   source JobSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
@@ -530,10 +531,11 @@ model Application {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
-  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  job           Job            @relation(fields: [jobId], references: [id], onDelete: Cascade)
-  agent         Agent?         @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  user          User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  job           Job               @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  agent         Agent?            @relation(fields: [agentId], references: [id], onDelete: SetNull)
   interviewPrep InterviewPrep?
+  documents     DocumentVersion[]
 
   @@unique([userId, jobId])
   @@index([userId, status])
@@ -2347,25 +2349,25 @@ model Membership {
 // with no cache in front of it. The edge gate (src/proxy.ts) still checks only
 // the signature, which is why it is a gate and not the authorisation.
 model Session {
-  id           String    @id @default(cuid())
-  userId       String
+  id             String    @id @default(cuid())
+  userId         String
   // How the session was established. `password` today; `supabase` once the
   // identity provider is wired (AUTH_DECISION_GATE.md); `staff_impersonation`
   // is reserved and never issued by the sign-in routes.
-  method       String    @default("password") // password | supabase | staff_impersonation
+  method         String    @default("password") // password | supabase | staff_impersonation
   // Authentication assurance level in the identity provider's vocabulary:
   // aal1 = single factor, aal2 = MFA satisfied. Carried so a step-up policy can
   // be enforced on the platform side without re-deriving it.
-  assuranceLevel String  @default("aal1")
-  createdAt    DateTime  @default(now())
-  lastSeenAt   DateTime  @default(now())
-  expiresAt    DateTime
-  revokedAt    DateTime?
-  revokedReason String?  // logout | password_change | user_revoke | staff_revoke (staff revoke: no caller yet, Stage 20 console)
+  assuranceLevel String    @default("aal1")
+  createdAt      DateTime  @default(now())
+  lastSeenAt     DateTime  @default(now())
+  expiresAt      DateTime
+  revokedAt      DateTime?
+  revokedReason  String? // logout | password_change | user_revoke | staff_revoke (staff revoke: no caller yet, Stage 20 console)
   // Coarse device context for the account holder's own session list. Never a
   // fingerprint; an IP and a user agent string, both optional.
-  ip           String?
-  userAgent    String?
+  ip             String?
+  userAgent      String?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -2467,7 +2469,7 @@ model CandidateProfile {
 }
 
 model EmploymentHistory {
-  id             String    @id @default(cuid())
+  id             String   @id @default(cuid())
   profileId      String
   userId         String
   company        String
@@ -2477,13 +2479,13 @@ model EmploymentHistory {
   // Month precision, "YYYY-MM"; endDate null means current.
   startDate      String
   endDate        String?
-  isCurrent      Boolean   @default(false)
-  description    String    @default("")
+  isCurrent      Boolean  @default(false)
+  description    String   @default("")
   // Bullet points as a JSON string array — the unit the résumé engine tailors.
-  bullets        String    @default("[]")
-  sortOrder      Int       @default(0)
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  bullets        String   @default("[]")
+  sortOrder      Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   profile      CandidateProfile @relation(fields: [profileId, userId], references: [id, userId], onDelete: Cascade)
   achievements Achievement[]
@@ -2536,7 +2538,7 @@ model Skill {
 }
 
 model CandidateSkill {
-  id             String    @id @default(cuid())
+  id             String   @id @default(cuid())
   profileId      String
   userId         String
   // The label as the candidate wrote it, and its normalised form for matching
@@ -2548,10 +2550,10 @@ model CandidateSkill {
   yearsUsed      Int?
   lastUsedYear   Int?
   // self (typed in) | evidence (Stage 03 vault) | inferred (Stage 04 taxonomy)
-  source         String    @default("self")
-  sortOrder      Int       @default(0)
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  source         String   @default("self")
+  sortOrder      Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   profile CandidateProfile @relation(fields: [profileId, userId], references: [id, userId], onDelete: Cascade)
   skill   Skill?           @relation(fields: [skillId], references: [id], onDelete: SetNull)
@@ -2562,7 +2564,7 @@ model CandidateSkill {
 }
 
 model Certification {
-  id            String    @id @default(cuid())
+  id            String   @id @default(cuid())
   profileId     String
   userId        String
   name          String
@@ -2571,9 +2573,9 @@ model Certification {
   expiresAt     String? // "YYYY-MM"
   credentialId  String?
   credentialUrl String?
-  sortOrder     Int       @default(0)
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  sortOrder     Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   profile CandidateProfile @relation(fields: [profileId, userId], references: [id, userId], onDelete: Cascade)
 
@@ -2734,8 +2736,8 @@ model CareerEvidence {
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
-  user       User            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  supersedes CareerEvidence? @relation("EvidenceVersions", fields: [supersedesId], references: [id], onDelete: SetNull)
+  user       User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  supersedes CareerEvidence?  @relation("EvidenceVersions", fields: [supersedesId], references: [id], onDelete: SetNull)
   successors CareerEvidence[] @relation("EvidenceVersions")
 
   @@index([userId, status])
@@ -2778,7 +2780,7 @@ model ApplicationQuestion {
 // the gateway on every dispatch, including refusals and degradations, so the
 // policy actually applied and the route actually taken are auditable.
 model AiRun {
-  id             String    @id @default(cuid())
+  id             String   @id @default(cuid())
   // analyze_match | tailor | prepare_interview | classify_question | …
   task           String
   userId         String?
@@ -2792,18 +2794,18 @@ model AiRun {
   promptSlug     String?
   promptVersion  Int?
   // JSON string arrays of opaque references — never content.
-  inputRefs      String    @default("[]")
-  evidenceRefs   String    @default("[]")
+  inputRefs      String   @default("[]")
+  evidenceRefs   String   @default("[]")
   outputRef      String?
   confidence     Int?
   // Number of material claims the grounding checker rejected before render.
-  claimsRejected Int       @default(0)
-  humanOverride  Boolean   @default(false)
-  status         String    @default("ok") // ok | refused | failed
+  claimsRejected Int      @default(0)
+  humanOverride  Boolean  @default(false)
+  status         String   @default("ok") // ok | refused | failed
   error          String?
-  durationMs     Int       @default(0)
+  durationMs     Int      @default(0)
   costCents      Int?
-  createdAt      DateTime  @default(now())
+  createdAt      DateTime @default(now())
 
   user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
 
@@ -2826,7 +2828,7 @@ model PromptVersion {
   userPromptTemplate String?
   requiredVariables  String    @default("[]") // JSON string array
   modelParameters    String    @default("{}") // JSON object
-  outputSchema       String?   // JSON schema the structured output must satisfy
+  outputSchema       String? // JSON schema the structured output must satisfy
   // draft | approved | default | retired
   deploymentStatus   String    @default("draft")
   // pending | passed | failed
@@ -2904,14 +2906,14 @@ model Occupation {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  parent    Occupation?      @relation("OccupationTree", fields: [parentId], references: [id], onDelete: SetNull)
-  children  Occupation[]     @relation("OccupationTree")
-  dataset   TaxonomyDataset? @relation(fields: [datasetId], references: [id], onDelete: SetNull)
+  parent    Occupation?       @relation("OccupationTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children  Occupation[]      @relation("OccupationTree")
+  dataset   TaxonomyDataset?  @relation(fields: [datasetId], references: [id], onDelete: SetNull)
   labels    OccupationLabel[]
   codes     OccupationCode[]
   skills    OccupationSkill[]
-  pathsFrom CareerPath[]     @relation("CareerPathFrom")
-  pathsTo   CareerPath[]     @relation("CareerPathTo")
+  pathsFrom CareerPath[]      @relation("CareerPathFrom")
+  pathsTo   CareerPath[]      @relation("CareerPathTo")
   jobs      Job[]
 
   @@index([parentId])
@@ -2919,21 +2921,21 @@ model Occupation {
 }
 
 model OccupationLabel {
-  id              String   @id @default(cuid())
-  occupationId    String
-  locale          String // en | fr
-  title           String
+  id                   String   @id @default(cuid())
+  occupationId         String
+  locale               String // en | fr
+  title                String
   // `normalizeTitle(title)` computed at load time, so the classifier compares
   // normalised to normalised: "Développeurs/développeuses Web" and a posting's
   // "Développeur Web" meet on the same form.
-  normalizedTitle String   @default("")
-  description     String   @default("")
+  normalizedTitle      String   @default("")
+  description          String   @default("")
   // JSON string array of example / alternate titles in this locale, and the
   // same list normalised (one entry per alternate, same order).
-  alternateTitles      String @default("[]")
-  normalizedAlternates String @default("[]")
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  alternateTitles      String   @default("[]")
+  normalizedAlternates String   @default("[]")
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
 
   occupation Occupation @relation(fields: [occupationId], references: [id], onDelete: Cascade)
 
@@ -3114,23 +3116,23 @@ model JobSource {
 }
 
 model JobSourceRun {
-  id          String    @id @default(cuid())
-  sourceId    String
+  id         String    @id @default(cuid())
+  sourceId   String
   // discover | refresh | health
-  kind        String
-  startedAt   DateTime  @default(now())
-  finishedAt  DateTime?
+  kind       String
+  startedAt  DateTime  @default(now())
+  finishedAt DateTime?
   // running | ok | failed | refused
-  status      String    @default("running")
-  discovered  Int       @default(0)
-  created     Int       @default(0)
-  updated     Int       @default(0)
-  closed      Int       @default(0)
-  rejected    Int       @default(0)
-  errorCount  Int       @default(0)
-  error       String?
+  status     String    @default("running")
+  discovered Int       @default(0)
+  created    Int       @default(0)
+  updated    Int       @default(0)
+  closed     Int       @default(0)
+  rejected   Int       @default(0)
+  errorCount Int       @default(0)
+  error      String?
   // JSON: the query shape (never candidate identity), latency, counts.
-  meta        String    @default("{}")
+  meta       String    @default("{}")
 
   source JobSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
 
@@ -3185,4 +3187,48 @@ model AtsRuleset {
 
   @@unique([platform, version])
   @@index([platform, status])
+}
+
+// Stage 09 (MASTER_BUILD_PLAN "Resume, cover letter and document engine"):
+// every rendered document is a version. The bytes live in the object store
+// under `storageKey`; `contentHash` is their SHA-256, verified on every read,
+// so a stored document is byte-reproducible or refused. One row per
+// (owner, scope, kind, format, version). A version sealed at submission
+// (`status = submitted`) is immutable: the service refuses to change it and a
+// database trigger refuses independently (migration
+// 20260903170000_document_versions).
+//   kind:   resume | cover_letter | application_message | recruiter_intro |
+//           outreach | follow_up | thank_you | uploaded_resume
+//   format: txt | pdf | docx
+//   status: draft | submitted
+model DocumentVersion {
+  id            String    @id @default(cuid())
+  userId        String
+  applicationId String?
+  jobId         String?
+  // The application id, "job:<id>" for a message about a posting, or "general".
+  scopeKey      String
+  kind          String
+  format        String
+  version       Int       @default(1)
+  status        String    @default("draft")
+  contentHash   String
+  sizeBytes     Int
+  storageKey    String
+  // JSON: approved CareerEvidence ids the content was grounded against.
+  evidenceIds   String    @default("[]")
+  aiRunId       String?
+  // JSON: the ATS structure report (src/lib/documents/ats.ts) at render time.
+  atsReport     String    @default("{}")
+  // JSON: the upload scan result, for an uploaded document.
+  scanReport    String    @default("{}")
+  sealedAt      DateTime?
+  createdAt     DateTime  @default(now())
+
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  application Application? @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, scopeKey, kind, format, version])
+  @@index([userId, applicationId])
+  @@index([userId, createdAt])
 }

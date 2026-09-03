@@ -27,6 +27,18 @@ export class LocalStorageProvider implements StorageProvider {
       return null;
     }
   }
+  async putBytes(key: string, body: Buffer): Promise<void> {
+    const abs = this.resolve(key);
+    await fs.mkdir(path.dirname(abs), { recursive: true });
+    await fs.writeFile(abs, body);
+  }
+  async getBytes(key: string): Promise<Buffer | null> {
+    try {
+      return await fs.readFile(this.resolve(key));
+    } catch {
+      return null;
+    }
+  }
   async list(prefix: string): Promise<StoredObject[]> {
     try {
       const dir = this.resolve(prefix);

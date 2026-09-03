@@ -47,6 +47,11 @@ function secret(): Uint8Array {
   return new TextEncoder().encode(value);
 }
 
+/** The session signing secret, for other server-side signatures (Stage 09 document links). Never exposed. */
+export function signingSecret(): Uint8Array {
+  return secret();
+}
+
 export async function hashPassword(password: string): Promise<string> {
   return bcrypt.hash(password, 10);
 }

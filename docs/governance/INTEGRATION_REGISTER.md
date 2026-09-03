@@ -29,8 +29,10 @@ promoted on the strength of an observed run against the real service.
 
 | System | Status | Data | Residency | Evidence |
 | --- | --- | --- | --- | --- |
-| Local filesystem (application folders) | REAL (default) | Tailored documents per application | wherever the app runs | Default `StorageProvider`; the real, unchanged storage path; also the loud fallback when the S3 configuration is incomplete or its region fails the residency check |
-| S3-compatible object store | IMPLEMENTED-NOT-VALIDATED | Tailored documents per application | **must be `ca-central-1` or `ca-west-1`** — the provider refuses any other region (ADR-0015) | Stage 05: SigV4 signer (no SDK) with a deterministic unit test; put/get/list through an injected fetch. **No bucket contacted** |
+| Local filesystem (application folders, document versions) | REAL (default) | Tailored documents per application; Stage 09 hashed document versions (TXT/PDF/DOCX, messages, uploads) | wherever the app runs | Default `StorageProvider`; the real, unchanged storage path; also the loud fallback when the S3 configuration is incomplete or its region fails the residency check. **Ephemeral on a serverless filesystem** — sealed bytes survive a deploy only on a durable store |
+| `docx` library (DOCX rendering, Stage 09) | REAL (local) | DOCX résumés and letters, canonically re-packed for determinism | in-process | MIT; `jszip` (already transitive) imported directly for re-packing and the upload scan |
+| Antivirus scanning of uploads (Stage 09) | NOT AVAILABLE | Signature scanning of uploaded files | — | No ClamAV or managed scanner exists in this environment. What runs is the structural scan in `src/lib/documents/scan.ts` (type sniffing, size caps, PDF active content, DOCX macros/external references, decompression bombs); the UI says exactly that |
+| S3-compatible object store | IMPLEMENTED-NOT-VALIDATED | Tailored documents per application; Stage 09 document versions (binary put/get with content type) | **must be `ca-central-1` or `ca-west-1`** — the provider refuses any other region (ADR-0015) | Stage 05: SigV4 signer (no SDK) with a deterministic unit test; put/get/list through an injected fetch. **No bucket contacted** |
 
 ## Services out
 

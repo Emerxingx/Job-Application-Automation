@@ -52,7 +52,7 @@ export interface SignedRequest {
 }
 
 /** Build a SigV4-signed request. Pure given `now`, so it is testable. */
-export function signS3Request(config: S3Config, method: 'GET' | 'PUT', key: string, body: string, now = new Date(), query = ''): SignedRequest {
+export function signS3Request(config: S3Config, method: 'GET' | 'PUT', key: string, body: string | Buffer, now = new Date(), query = '', contentType = 'text/plain; charset=utf-8'): SignedRequest {
   const base = new URL(config.endpoint);
   const host = config.pathStyle === false ? `${config.bucket}.${base.host}` : base.host;
   // An endpoint may carry a path prefix (Supabase's gateway is
@@ -65,7 +65,7 @@ export function signS3Request(config: S3Config, method: 'GET' | 'PUT', key: stri
     host,
     'x-amz-content-sha256': payloadHash,
     'x-amz-date': stamp,
-    ...(method === 'PUT' ? { 'content-type': 'text/plain; charset=utf-8' } : {}),
+    ...(method === 'PUT' ? { 'content-type': contentType } : {}),
   };
   const signedHeaderNames = Object.keys(headers).sort();
   const canonicalHeaders = signedHeaderNames.map((h) => `${h}:${headers[h].trim()}\n`).join('');
@@ -106,6 +106,18 @@ export class S3StorageProvider implements StorageProvider {
     if (res.status === 404) return null;
     if (!res.ok) throw new Error(`object store responded ${res.status} on get`);
     return res.text();
+  }
+  async putBytes(key: string, body: Buffer, contentType: string): Promise<void> {
+    const req = signS3Request(this.config, 'PUT', key, body, new Date(), '', contentType);
+    const res = await this.fetchImpl(req.url, { method: 'PUT', headers: req.headers, body: new Uint8Array(body) });
+    if (!res.ok) throw new Error(`object store responded ${res.status} on put`);
+  }
+  async getBytes(key: string): Promise<Buffer | null> {
+    const req = signS3Request(this.config, 'GET', key, '');
+    const res = await this.fetchImpl(req.url, { method: 'GET', headers: req.headers });
+    if (res.status === 404) return null;
+    if (!res.ok) throw new Error(`object store responded ${res.status} on get`);
+    return Buffer.from(await res.arrayBuffer());
   }
   async list(prefix: string): Promise<StoredObject[]> {
     const query = `list-type=2&prefix=${encodeURIComponent(prefix.replace(/\/?$/, '/'))}`;

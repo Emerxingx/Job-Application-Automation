@@ -179,11 +179,11 @@ the highest-value candidate capability not yet started, and the one with the
 largest privacy surface (OAuth scopes, mailbox content, retention).
 **Remediation:** Stage 11, gated on Stage 01 consent and Stage 05 storage.
 
-### G-16 — Documents: no DOCX, no version history · PARTIAL
-`pdfkit` produces PDFs and resumes render to text. Absent: DOCX, ATS-structure
+### G-16 — Documents: no DOCX, no version history · CLOSED (Stage 09)
+`pdfkit` produced PDFs and resumes rendered to text. Absent: DOCX, ATS-structure
 validation, `document_versions`, and the guarantee that the *exact submitted
 version* is immutably retained.
-**Remediation:** Stage 09.
+**Stage 09:** one ATS-safe model with text, PDF and DOCX renderers (deterministic; parse-back checked); `DocumentVersion` rows with SHA-256 hashes, verified on every read; a submitted version immutable by a database trigger; signed expiring links; structural upload scanning (`STAGE09_EVIDENCE.md`, ADR-0023). Remaining: no antivirus engine; the S3 store is not validated, so cross-deploy durability rests on the local filesystem today.
 
 ---
 

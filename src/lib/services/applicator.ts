@@ -4,6 +4,8 @@ import { loadEvidenceForGeneration } from '@/lib/evidence/vault';
 import { getApplyProvider } from '@/lib/providers/apply';
 import type { ApplyChannel } from '@/lib/providers/apply';
 import { createApplicationFolder } from '@/lib/storage';
+import { writeApplicationDocuments } from '@/lib/documents/application-documents';
+import { sealApplicationDocuments } from '@/lib/documents/versions';
 import { consumeQuota, refundQuota } from '@/lib/subscription';
 import { parseJson } from '@/lib/types';
 import type { MatchAnalysis } from '@/lib/types';
@@ -221,6 +223,28 @@ export async function applyToJobs(userId: string, jobIds: string[]): Promise<Bul
 
       await db.application.update({ where: { id: application.id }, data: { folderPath } });
 
+      // Stage 09: the exact documents as files — TXT, PDF and DOCX of the
+      // résumé and the letter — each a hashed DocumentVersion with its ATS
+      // report, sealed immutably the moment the application is submitted (an
+      // assisted one is sealed when the applicant confirms). A renderer
+      // failure is logged and does not fail the application: the folder and
+      // the database copies above remain.
+      try {
+        await writeApplicationDocuments({
+          userId,
+          applicationId: application.id,
+          jobId,
+          author: user.fullName,
+          company: job.company,
+          resume: tailored.resumeContent,
+          coverLetter: tailored.coverLetter,
+          evidenceIds: evidence.ids,
+          seal: status === 'submitted',
+        });
+      } catch (error) {
+        console.error('[documents] could not write the application documents:', error);
+      }
+
       if (match) {
         await db.jobMatch.update({
           where: { id: match.id },
@@ -321,6 +345,8 @@ export async function confirmAssistedSubmission(
     where: { id: application.id },
     data: { status: 'submitted', appliedAt: new Date() },
   });
+  // Stage 09: what was prepared is now what was sent — seal it.
+  await sealApplicationDocuments(db, userId, application.id);
 
   return { ok: true };
 }

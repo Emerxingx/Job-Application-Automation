@@ -26,7 +26,7 @@ remediation has begun.**
 npm ci                # install from the lockfile
 npm run dev           # http://localhost:3000
 npx tsc --noEmit      # typecheck  — PASSES
-npm test              # 982 tests  — PASSES with the two database URLs below set; the
+npm test              # 1002 tests  — PASSES with the two database URLs below set; the
                       #   database suites skip WITH A REASON without them and THROW
                       #   when CI=true, so CI cannot pass by skipping them
 npm run build         # production — PASSES
@@ -54,7 +54,7 @@ npm run cms:types          # regenerate payload-types.ts
 ## Things that will surprise you
 
 1. **The database is PostgreSQL with a versioned migration history** since
-   Stage 01 (`ADR-0002`). Twenty-three migrations under `prisma/migrations/`; CI applies
+   Stage 01 (`ADR-0002`). Twenty-six migrations under `prisma/migrations/`; CI applies
    them to an empty database and fails on drift. `DATABASE_URL` is the
    transaction pooler, `DIRECT_URL` the session endpoint for migrations. The RLS
    migration is **generated** from `src/lib/tenancy/rls-tables.ts` — regenerate
@@ -225,6 +225,20 @@ npm run cms:types          # regenerate payload-types.ts
     Never change the built-in constants silently; never rewrite a stored
     score when weights change; activation needs a reason (no evaluation
     gate exists for weights — say so, do not fake one).
+
+20. **Every document is a hashed, versioned file** (Stage 09, ADR-0023).
+    `src/lib/documents/`: one ATS-safe `DocumentModel` with text, PDF and
+    DOCX renderers that are deterministic for a model and a date (do not
+    add "now", random ids or compressed streams — the stored hash depends on
+    it; the `docx` library draws random ids for hyperlinks, comments and text
+    boxes, so never add one of those to the model without extending the
+    determinism test); `DocumentVersion` rows whose bytes are read back hash-verified or
+    refused; a submitted version is immutable by a database trigger (UPDATE
+    and direct DELETE refused; only the owner's erasure cascade passes).
+    Files are served through signed ten-minute links only. Uploads pass the
+    structural scan in `scan.ts` — **there is no antivirus engine; never
+    claim one.** Messages go through the gateway's `compose` task, never a
+    template string in a route.
 
 ## Conventions worth preserving
 

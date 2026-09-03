@@ -7,6 +7,8 @@ import type {
   TailoredDocuments,
 } from '@/lib/types';
 import { renderResumeText } from '@/lib/resume-render';
+import { composeMessage } from '@/lib/documents/compose';
+import type { MessageKind } from '@/lib/documents/kinds';
 import type { AIProvider, JobContext, MatchOptions } from './types';
 import {
   combineScore,
@@ -319,6 +321,10 @@ export class MockAIProvider implements AIProvider {
       `Sincerely,`,
       `${resume.fullName}`,
     ].join('\n');
+  }
+
+  async compose(kind: MessageKind, resume: ResumeContent, job: JobContext, analysis: MatchAnalysis): Promise<string> {
+    return composeMessage(kind, resume, job, analysis);
   }
 
   async prepareInterview(resume: ResumeContent, job: JobContext): Promise<InterviewPrepPackage> {

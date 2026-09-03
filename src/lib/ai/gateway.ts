@@ -7,7 +7,8 @@ import type { JobContext } from '../providers/ai/types';
 import type { AiProcessingPolicy } from '../tenancy/roles';
 import { externalAllowed, resolveAiPolicy } from './policy';
 import { assertNoRestrictedFields, RestrictedPayloadError } from './restricted-fields';
-import { groundInterviewPack, groundMatchAnalysis, groundTailoredDocuments } from './grounding';
+import { allowedContext, buildCorpus, findViolations, groundInterviewPack, groundMatchAnalysis, groundTailoredDocuments } from './grounding';
+import type { MessageKind } from '../documents/kinds';
 import { MissingPromptVariablesError, PromptNotFoundError, renderPrompt, type RenderedPrompt } from './prompt-registry';
 
 /**
@@ -45,13 +46,14 @@ import { MissingPromptVariablesError, PromptNotFoundError, renderPrompt, type Re
  * a free-text profile dump.
  */
 
-export type AiTask = 'analyze_match' | 'tailor' | 'prepare_interview';
+export type AiTask = 'analyze_match' | 'tailor' | 'prepare_interview' | 'compose';
 export type AiRoute = 'external' | 'deterministic' | 'degraded' | 'refused';
 
 export const TASK_PROMPT_SLUG: Record<AiTask, string> = {
   analyze_match: 'analyze-match',
   tailor: 'tailor',
   prepare_interview: 'prepare-interview',
+  compose: 'compose',
 };
 
 /** Approved evidence for generation: opaque ids for the run, one-line claims for the corpus. */
@@ -522,6 +524,48 @@ export async function prepareInterview(ctx: GenerationContext, resume: ResumeCon
     ground: (candidate, baseline) => {
       const { pack, report } = groundInterviewPack(candidate, baseline, resume, job, claims);
       return { value: pack, rejected: report.violations.length };
+    },
+  });
+}
+
+// --- compose (Stage 09) ---------------------------------------------------------------
+
+const COMPOSE_SCHEMA = {
+  type: 'object',
+  properties: { text: { type: 'string' } },
+  required: ['text'],
+  additionalProperties: false,
+};
+
+/**
+ * A short message about a posting — application note, recruiter
+ * introduction, outreach, follow-up, thank-you. The deterministic engine's
+ * template is the baseline; a model's draft is checked in letter scope
+ * (the posting's name, location and skill vocabulary are allowed, its free
+ * text is not, and only this year's number) and replaced by the baseline
+ * on any unevidenced claim.
+ */
+export async function compose(ctx: GenerationContext, kind: MessageKind, resume: ResumeContent, job: JobContext, analysis: MatchAnalysis): Promise<GatewayResult<string>> {
+  const claims = ctx.evidence?.claims ?? [];
+  return execute<string, { text?: unknown }>(ctx, {
+    task: 'compose',
+    payload: { kind, resume, job, analysis, claims },
+    deterministic: () => engine().compose(kind, resume, job, analysis),
+    variables: (baseline) => ({
+      message_kind: kind,
+      job_block: jobBlock(job),
+      resume_text: renderResumeText(resume),
+      evidence_claims: claims.map((c) => `- ${c}`).join('\n') || '- none beyond the résumé',
+      baseline_message: baseline,
+    }),
+    schema: COMPOSE_SCHEMA,
+    parse: (raw) => {
+      if (!raw || typeof raw !== 'object' || typeof raw.text !== 'string' || !raw.text.trim()) throw new Error('malformed');
+      return raw.text.trim();
+    },
+    ground: (candidate, baseline) => {
+      const violations = findViolations('message', candidate, buildCorpus(resume, claims), allowedContext(job, resume, 'letter'), new Set([String(new Date().getFullYear())]), true);
+      return violations.length ? { value: baseline, rejected: violations.length } : { value: candidate, rejected: 0 };
     },
   });
 }

@@ -212,6 +212,8 @@ export const RLS_TABLES: Record<string, RlsKind> = {
   // register is administered in the console and never read by a tenant.
   MatchDimension: { kind: 'user', column: 'userId' },
   MatchWeightVersion: { kind: 'system' },
+  // Stage 09: the candidate's own document versions (bytes in the object store).
+  DocumentVersion: { kind: 'user', column: 'userId' },
   AtsRuleset: { kind: 'system' },
   PlanPrice: { kind: 'reference', where: `"active" = true` },
   Job: { kind: 'reference' },
@@ -295,6 +297,7 @@ export const STAGE_05_TABLES = ['AtsRuleset', 'JobSnapshot', 'JobSource', 'JobSo
 export const STAGE_06_TABLES = ['JobProvenance'];
 export const STAGE_07_TABLES = ['EligibilityResult'];
 export const STAGE_08_TABLES = ['MatchDimension', 'MatchWeightVersion'];
+export const STAGE_09_TABLES = ['DocumentVersion'];
 
 export const RLS_MANIFESTS: RlsManifest[] = [
   { migration: '20260903073000_row_level_security', preamble: true, tables: STAGE_01_TABLES },
@@ -305,4 +308,5 @@ export const RLS_MANIFESTS: RlsManifest[] = [
   { migration: '20260903130100_rls_provenance_table', preamble: false, tables: STAGE_06_TABLES },
   { migration: '20260903150100_rls_eligibility_table', preamble: false, tables: STAGE_07_TABLES },
   { migration: '20260903160100_rls_matching_tables', preamble: false, tables: STAGE_08_TABLES },
+  { migration: '20260903170100_rls_document_table', preamble: false, tables: STAGE_09_TABLES },
 ];

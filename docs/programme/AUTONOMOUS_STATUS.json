@@ -2,12 +2,12 @@
   "$comment": "Machine-readable controller for the autonomous build programme. Authoritative over any chat transcript: if this file and a conversation disagree, this file wins. Updated at every stage checkpoint.",
   "schema_version": 1,
   "updated_at": "2026-09-03",
-  "current_stage": "08",
+  "current_stage": "09",
   "last_completed_stage": "00",
-  "current_branch": "claude/stage-08-compatibility-engine",
-  "current_head": "c8bce5bafa9a3c06480350b2096bf99e88b1fb9e",
+  "current_branch": "claude/stage-09-document-engine",
+  "current_head": "83291c4ba5f4c43aea3259d38b00c3c994f8b16f",
   "current_head_meaning": "SHA of the last commit whose full gate set was verified locally (lint, typecheck, tests, build). Set by the status-sync commit that immediately follows it, so it names a real, verified commit rather than the one it is written in.",
-  "current_pr": "https://github.com/Emerxingx/Job-Application-Automation/pull/20",
+  "current_pr": "https://github.com/Emerxingx/Job-Application-Automation/pull/21",
   "main_head": "d6ae8b3a9180b529abe06f23417515432c0a7f0e",
   "run_complete": false,
   "stage_status": {
@@ -20,7 +20,7 @@
     "06": "PASS_ENGINEERING_EXIT_PARTIAL",
     "07": "PASS_ENGINEERING_EXIT_PARTIAL",
     "08": "PASS_ENGINEERING_EXIT_PARTIAL",
-    "09": "NOT_STARTED",
+    "09": "PASS_ENGINEERING_EXIT_PARTIAL",
     "10": "NOT_STARTED",
     "11": "NOT_STARTED",
     "12": "NOT_STARTED",
@@ -390,5 +390,32 @@
       "Staging rehearsal (NOT VERIFIED — R-34)"
     ],
     "verdict": "Stage 08 passes every engineering gate and is PARTIAL at its exit on the absence of pgvector (stated, not approximated) and the inherited absence of real traffic. Merge posture inherited from the stack."
+  },
+  "stage_09_progress": {
+    "schema_and_migrations": "DONE locally — DocumentVersion + immutability trigger (20260903170000); generated RLS (20260903170100, 104/104 forced); NOT VERIFIED on Supabase (R-34)",
+    "renderers": "DONE — one ATS-safe model; text identical to renderResumeText; PDF (pdfkit standalone, uncompressed, pinned dates) and DOCX (docx + canonical re-packing) deterministic for a model and a date; parse-back of every line checked and stored in the ATS report",
+    "versions_and_immutability": "DONE — SHA-256 on write, verified on every read (altered/missing refused); six versions per application sealed at submission (assisted: at confirmation); trigger refuses UPDATE and direct DELETE of a submitted row; the owner's erasure cascade passes (tested)",
+    "signed_links": "DONE — HMAC-signed 10-minute links bound to owner and document; the only path to bytes; nosniff, no-store, attachment",
+    "upload_scanning": "DONE (structural) — type sniffing vs extension, size caps, PDF active content, DOCX macros/external refs, decompression bombs, traversal, UTF-8; ANTIVIRUS NOT AVAILABLE (no engine in this environment; register says so)",
+    "messages": "DONE — application message, recruiter intro, outreach, follow-up, thank-you through the gateway task `compose` (deterministic templates as baseline; letter-scope grounding); stored as versions; nothing is sent by the platform",
+    "surfaces": "DONE — application page Files + Messages; documents library rows with signed downloads and an upload card",
+    "independent_review": "DONE — 2 HIGH (bomb guard after inflation; compressed PDF active content), 3 MEDIUM (sealing swept drafted messages; link key = session secret; §6 overclaimed tests), 2 LOW (TRUNCATE; docx random ids latent); every HIGH/MEDIUM/LOW fixed with a test; STAGE09_EVIDENCE.md §12"
+  },
+  "stage_09_exit_gate": {
+    "met": [
+      "DOCX + PDF live for every application, deterministic and parse-back checked",
+      "Versions immutable: no mutation API; trigger refuses UPDATE and direct DELETE of a submitted row (tested); erasure cascades",
+      "Any submitted document byte-reproducible from storage AS TESTED: hash-verified reads, renderer determinism",
+      "Evidence-grounded messages through the gateway",
+      "Private by default; signed expiring links",
+      "Full gate set green with the documented command only: lint 0/8, typecheck 0, 1002/1002 tests (0 skipped), build 0"
+    ],
+    "not_met": [
+      "Antivirus scanning of uploads (NOT AVAILABLE — no engine; structural scan only)",
+      "Durability of sealed bytes across deploys (S3 provider IMPLEMENTED-NOT-VALIDATED; local filesystem is the only REAL store)",
+      "Observed on real traffic (no credentialed source — inherits the Stage 05 blocker)",
+      "Staging rehearsal (NOT VERIFIED — R-34)"
+    ],
+    "verdict": "Stage 09 passes every engineering gate and is PARTIAL at its exit on the absence of an antivirus engine and of a validated durable object store, stated rather than approximated, and on the inherited absence of real traffic. Merge posture inherited from the stack."
   }
 }

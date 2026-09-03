@@ -32,6 +32,9 @@ against the staging project until the evidence section says so.
 | `20260903150100_rls_eligibility_table` | Generated policies (manifest `RLS_MANIFESTS[6]`): `EligibilityResult` user-owned (`userId`) | Reversible |
 | `20260903160000_compatibility_engine` | Stage 08: `MatchDimension` (one row per named dimension of a match with weight, contribution, matched / missing items and cited evidence ids), `MatchWeightVersion` (the governed weight register; nothing seeded active), `JobMatch.weightVersion` / `pipelineVersion` (defaults `builtin:1` / empty) | Additive. Reversible (drop tables and columns) |
 | `20260903160100_rls_matching_tables` | Generated policies (manifest `RLS_MANIFESTS[7]`): `MatchDimension` user-owned (`userId`); `MatchWeightVersion` system | Reversible |
+| `20260903170000_document_versions` | Stage 09: `DocumentVersion` (hashed, versioned document files per owner × scope × kind × format) and the immutability trigger `document_version_guard_immutable` (a submitted row refuses UPDATE and direct DELETE; the owner's cascade passes) | Additive. Reversible (drop the triggers, the function and the table) |
+| `20260903170100_rls_document_table` | Generated policies (manifest `RLS_MANIFESTS[8]`): `DocumentVersion` user-owned (`userId`) | Reversible |
+| `20260903170200_document_versions_truncate_guard` | Stage 09 review: statement-level `BEFORE TRUNCATE` guard on `DocumentVersion` | Reversible (drop the trigger and the function) |
 
 
 `prisma/migrations/migration_lock.toml` pins the provider to PostgreSQL. There
