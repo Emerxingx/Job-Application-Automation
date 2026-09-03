@@ -96,14 +96,18 @@ describe('Digital Twin backfill — measured', { skip: SKIP }, () => {
   });
 
   it('is idempotent: running it again inserts nothing', async () => {
-    const before = await Promise.all([
-      db.candidateProfile.count(), db.employmentHistory.count(), db.education.count(), db.candidateSkill.count(), db.certification.count(), db.project.count(),
+    // Counted for THIS user only: test files run in parallel (node --test), so
+    // a global count can move between the two reads when another suite
+    // inserts a profile row of its own, which is not what is being asserted.
+    const where = { userId: U.id };
+    const count = () => Promise.all([
+      db.candidateProfile.count({ where }), db.employmentHistory.count({ where }), db.education.count({ where }),
+      db.candidateSkill.count({ where }), db.certification.count({ where }), db.project.count({ where }),
     ]);
+    const before = await count();
+    assert.deepEqual(before, [1, 2, 2, 3, 1, 1], 'the first run left exactly the reported rows');
     await db.$executeRawUnsafe(backfill);
-    const after_ = await Promise.all([
-      db.candidateProfile.count(), db.employmentHistory.count(), db.education.count(), db.candidateSkill.count(), db.certification.count(), db.project.count(),
-    ]);
-    assert.deepEqual(after_, before);
+    assert.deepEqual(await count(), before);
   });
 
   it('an EMPTY profile (created by saving preferences) is not a résumé: the guard still refuses', async () => {
