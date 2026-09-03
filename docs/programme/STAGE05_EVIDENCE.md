@@ -1,7 +1,7 @@
 # Stage 05 — Job source connector framework — evidence
 
 Recorded 2026-09-03 on branch `claude/stage-05-job-source-connectors`,
-stacked on Stage 04 (PR #16) → 03 (#15) → 02 (#14) → 01 (#13, PARTIAL).
+stacked on Stage 04 (PR #16) → 03 (#15) → 02 (#14) → 01 (#13, PARTIAL). Draft PR #17.
 Every line was run or read; nothing is PASS on the strength of a mock, a
 skipped test or a document. This stage's honest centre: **the connector
 framework is built and proven on the synthetic source and a recorded-shape
