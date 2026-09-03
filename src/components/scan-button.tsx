@@ -49,7 +49,9 @@ export function ScanButton({
       setMessage(
         newMatches > 0
           ? `Found ${newMatches} new match${newMatches === 1 ? '' : 'es'} across ${scanned} postings${excluded ? ` (${excluded} excluded as ineligible — see the feed for why)` : ''}.`
-          : `Scanned ${scanned} postings — nothing new above your match threshold.`,
+          : excluded
+            ? `Scanned ${scanned} postings — ${excluded} excluded as ineligible (see the feed for why), nothing else new above your match threshold.`
+            : `Scanned ${scanned} postings — nothing new above your match threshold.`,
       );
       router.refresh();
     } catch {

@@ -34,27 +34,55 @@ export interface CandidateEligibilityProfile {
  * cannot be written does not happen, the same discipline the sensitive path
  * uses (ADR-0007). The row names the purpose and the batch size, never a value.
  */
-export async function loadCandidateEligibility(userId: string, purpose: { reason: string; jobs?: number }): Promise<CandidateEligibilityProfile> {
+/** The purpose of a read, as it is audited: a fixed reason code and ids, never user-typed text. */
+export interface ReadPurpose {
+  reason: 'agent_scan' | 'job_page' | 'api' | 'test';
+  jobs?: number;
+  agentId?: string;
+}
+
+/**
+ * The profile state a verdict is computed from: the latest change to work
+ * authorisation, preferences, certifications or languages, plus the row
+ * counts (a deletion changes no timestamp). Read from timestamps only —
+ * no value — so a page can check staleness without an audited read.
+ */
+export async function profileVersionOf(userId: string, client?: Prisma.TransactionClient): Promise<string> {
+  const read = async (tx: Prisma.TransactionClient | typeof db) => {
+    const [workAuth, preferences, certs, langs] = await Promise.all([
+      tx.workAuthorization.findFirst({ where: { userId }, select: { updatedAt: true } }),
+      tx.careerPreferences.findFirst({ where: { userId }, select: { updatedAt: true } }),
+      tx.certification.aggregate({ where: { userId }, _max: { updatedAt: true }, _count: { _all: true } }),
+      tx.candidateLanguage.aggregate({ where: { userId }, _max: { updatedAt: true }, _count: { _all: true } }),
+    ]);
+    const stamps = [workAuth?.updatedAt, preferences?.updatedAt, certs._max.updatedAt, langs._max.updatedAt].filter((d): d is Date => Boolean(d)).map((d) => d.getTime());
+    const latest = stamps.length ? new Date(Math.max(...stamps)).toISOString() : '';
+    return `${latest}|c${certs._count._all}|l${langs._count._all}`;
+  };
+  return client ? read(client) : withTenant({ userId }, read);
+}
+
+export async function loadCandidateEligibility(userId: string, purpose: ReadPurpose): Promise<CandidateEligibilityProfile> {
   await recordSecurityEvent(
     {
       event: 'eligibility.profile.read',
       user: { id: userId, email: '' },
       entityType: 'WorkAuthorization',
       entityId: userId,
-      summary: `Eligibility facts read for ${purpose.reason}.`,
-      detail: { reason: purpose.reason, jobs: purpose.jobs ?? 1 },
+      summary: `Eligibility facts read (${purpose.reason}).`,
+      detail: { reason: purpose.reason, jobs: purpose.jobs ?? 1, ...(purpose.agentId ? { agentId: purpose.agentId } : {}) },
     },
     db,
     { strict: true },
   );
   return withTenant({ userId }, async (tx) => {
-    const [workAuth, preferences, certifications, languages] = await Promise.all([
+    const [workAuth, preferences, certifications, languages, version] = await Promise.all([
       tx.workAuthorization.findFirst({ where: { userId } }),
       tx.careerPreferences.findFirst({ where: { userId } }),
       tx.certification.findMany({ where: { userId }, select: { name: true } }),
       tx.candidateLanguage.findMany({ where: { userId }, select: { language: true, proficiency: true } }),
+      profileVersionOf(userId, tx),
     ]);
-    const stamps = [workAuth?.updatedAt, preferences?.updatedAt].filter((d): d is Date => Boolean(d)).map((d) => d.getTime());
     return {
       facts: {
         workAuth: workAuth ? { country: workAuth.country, status: workAuth.status, permitExpiresAt: workAuth.permitExpiresAt, sponsorshipNeeded: workAuth.sponsorshipNeeded } : null,
@@ -62,22 +90,25 @@ export async function loadCandidateEligibility(userId: string, purpose: { reason
           ? {
               countries: parseJson<string[]>(preferences.countries, []),
               locations: parseJson<string[]>(preferences.locations, []),
-              workModes: parseJson<string[]>(preferences.workModes, []),
               relocation: preferences.relocation,
             }
           : null,
         certifications: certifications.map((c) => c.name),
         languages,
       },
-      version: stamps.length ? new Date(Math.max(...stamps)).toISOString() : '',
+      version,
     };
   });
 }
 
 /** The job facts the engine reads, from a canonical Job row. */
-export function jobFacts(job: Pick<Job, 'title' | 'country' | 'location' | 'postalRegion' | 'workMode' | 'workAuthorization' | 'sponsorship' | 'certificationRequirements' | 'languageRequirements'>): JobEligibilityFacts {
+export function jobFacts(job: Pick<Job, 'title' | 'normalizedTitle' | 'canonicalHash' | 'country' | 'location' | 'postalRegion' | 'workMode' | 'workAuthorization' | 'sponsorship' | 'certificationRequirements' | 'languageRequirements'>): JobEligibilityFacts {
   return {
     title: job.title,
+    normalizedTitle: job.normalizedTitle,
+    // A row the canonical pipeline has not read yet carries no statements;
+    // the engine answers unknown rather than "the posting states nothing".
+    read: job.canonicalHash !== '',
     country: job.country,
     location: job.location,
     postalRegion: job.postalRegion,
@@ -96,7 +127,7 @@ export interface StoredVerdict {
   fresh: boolean;
 }
 
-function toVerdict(r: EligibilityResult): EligibilityVerdict {
+export function toVerdict(r: EligibilityResult): EligibilityVerdict {
   return { outcome: r.outcome as EligibilityVerdict['outcome'], rules: parseJson<RuleResult[]>(r.rules, []), rulesVersion: r.rulesVersion };
 }
 
@@ -118,13 +149,27 @@ export async function ensureEligibility(client: Client, userId: string, job: Par
     create: { userId, jobId: job.id, ...data },
     update: data,
   });
+  // A match created while the candidate was eligible does not outlive an
+  // ineligible verdict: it is demoted to `ineligible` (never deleted — the
+  // score history stays), and restored to `new` when the verdict lifts.
+  // The feeds also filter on the verdict itself, so this is belt and braces.
+  if (verdict.outcome === 'ineligible') {
+    await client.jobMatch.updateMany({ where: { jobId: job.id, agent: { userId }, status: { in: ['new', 'reviewed', 'queued'] } }, data: { status: 'ineligible' } });
+  } else {
+    await client.jobMatch.updateMany({ where: { jobId: job.id, agent: { userId }, status: 'ineligible' }, data: { status: 'new' } });
+  }
   return { result, verdict, fresh: true };
 }
 
 /** Every job the candidate is currently excluded from, with the reasons (tenant path). */
-export async function listExclusions(tx: Prisma.TransactionClient, userId: string, limit = 100) {
+/** The filter every recommendation query applies: no posting with an ineligible verdict for this user. */
+export function notIneligibleFor(userId: string) {
+  return { eligibility: { none: { userId, outcome: 'ineligible' } } } as const;
+}
+
+export async function listExclusions(tx: Prisma.TransactionClient, userId: string, limit = 200) {
   const rows = await tx.eligibilityResult.findMany({
-    where: { userId, outcome: 'ineligible' },
+    where: { userId, outcome: 'ineligible', job: { activeState: { not: 'closed' } } },
     orderBy: { evaluatedAt: 'desc' },
     take: limit,
     include: { job: { select: { id: true, title: true, company: true, location: true, workMode: true, postedAt: true, activeState: true } } },

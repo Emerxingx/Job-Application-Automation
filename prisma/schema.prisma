@@ -404,7 +404,8 @@ model JobMatch {
   matchedKeywords String   @default("[]")
   missingKeywords String   @default("[]")
   rationale       String   @default("")
-  // new | reviewed | queued | applied | dismissed
+  // new | reviewed | queued | applied | dismissed | ineligible (Stage 07: demoted by
+  // an ineligible eligibility verdict; restored to new when the verdict lifts)
   status          String   @default("new")
   createdAt       DateTime @default(now())
 

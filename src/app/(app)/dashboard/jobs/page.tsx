@@ -6,6 +6,7 @@ import { parseJson } from '@/lib/types';
 import { EmptyState, PageHeader } from '@/components/ui';
 import { ScanButton } from '@/components/scan-button';
 import { JobFeed, type JobFeedItem } from '@/components/job-feed';
+import { notIneligibleFor } from '@/lib/eligibility/service';
 
 export const metadata = { title: 'Job feed' };
 export const dynamic = 'force-dynamic';
@@ -13,27 +14,30 @@ export const dynamic = 'force-dynamic';
 export default async function JobsPage() {
   const { user, run } = await requireTenant();
 
-  const [[matches, agentCount, appliedJobs, excludedCount], quota] = await Promise.all([
+  const [[matches, agentCount, appliedJobs, excludedCount, unconfirmed], quota] = await Promise.all([
     run((tx) =>
       Promise.all([
         tx.jobMatch.findMany({
           // Stage 06: a posting every source has stopped listing is closed and
           // leaves the feed; `unknown` (a source that cannot tell) stays.
-          where: { agent: { userId: user.id }, status: { in: ['new', 'reviewed', 'queued'] }, job: { activeState: { not: 'closed' } } },
+          // Stage 07: never a posting with an ineligible verdict for this candidate.
+          where: { agent: { userId: user.id }, status: { in: ['new', 'reviewed', 'queued'] }, job: { activeState: { not: 'closed' }, ...notIneligibleFor(user.id) } },
           orderBy: { matchScore: 'desc' },
           take: 100,
           include: { job: true, agent: { select: { id: true, name: true } } },
         }),
         tx.agent.count({ where: { userId: user.id } }),
         tx.application.findMany({ where: { userId: user.id }, select: { jobId: true } }),
-        // Stage 07: how many postings a hard eligibility rule kept out — shown, never silent.
-        tx.eligibilityResult.count({ where: { userId: user.id, outcome: 'ineligible' } }),
+        // Stage 07: how many open postings a hard eligibility rule kept out — shown, never silent.
+        tx.eligibilityResult.count({ where: { userId: user.id, outcome: 'ineligible', job: { activeState: { not: 'closed' } } } }),
+        tx.eligibilityResult.findMany({ where: { userId: user.id, outcome: 'unknown' }, select: { jobId: true } }),
       ]),
     ),
     getQuota(user.id),
   ]);
 
   const appliedIds = new Set(appliedJobs.map((a) => a.jobId));
+  const unconfirmedIds = new Set(unconfirmed.map((u) => u.jobId));
 
   const items: JobFeedItem[] = matches
     .filter((m) => !appliedIds.has(m.jobId))
@@ -54,6 +58,7 @@ export default async function JobsPage() {
       matchedKeywords: parseJson<string[]>(m.matchedKeywords, []),
       missingKeywords: parseJson<string[]>(m.missingKeywords, []),
       agentName: m.agent.name,
+      eligibility: unconfirmedIds.has(m.jobId) ? 'unknown' : 'eligible',
     }));
 
   return (

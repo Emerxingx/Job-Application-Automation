@@ -44,12 +44,12 @@ describe('Stage 07 — eligibility gate against the database', { skip: SKIP }, (
   });
   after(async () => {
     await db.user.deleteMany({ where: { id: { in: [A.id, B.id] } } });
-    await db.auditLog.deleteMany({ where: { OR: [{ actorId: { in: [A.id, B.id] } }, { entityType: 'WorkAuthorization', action: 'eligibility.profile.read', summary: { contains: S } }] } });
+    await db.auditLog.deleteMany({ where: { actorId: { in: [A.id, B.id] } } });
     await db.$disconnect();
   });
 
   it('reads the facts on the tenant path and audits the read without a value', async () => {
-    const profile = await service.loadCandidateEligibility(A.id, { reason: `test ${S}`, jobs: 3 });
+    const profile = await service.loadCandidateEligibility(A.id, { reason: 'test', jobs: 3 });
     assert.equal(profile.facts.workAuth?.status, 'requires_sponsorship');
     assert.ok(profile.version, 'a profile version derived from the rows read');
     const audit = await db.auditLog.findFirst({ where: { action: 'eligibility.profile.read', actorId: A.id }, orderBy: { createdAt: 'desc' } });
@@ -61,7 +61,7 @@ describe('Stage 07 — eligibility gate against the database', { skip: SKIP }, (
   it('stores one verdict per (user, job), keeps it while the profile is unchanged, and re-evaluates when the profile changes', async () => {
     const job = await db.job.create({ data: { source: 'mock', externalId: `elig_job_${S}`, title: 'Data Analyst', company: 'Co', location: 'Toronto, ON', country: 'CA', description: 'x', requirements: '[]', skills: '[]', applyUrl: 'https://example.test', postedAt: new Date(), postalRegion: 'CA-ON/toronto', workAuthorization: 'authorization_required', sponsorship: 'not_offered', canonicalHash: `h_elig_${S}` } });
     try {
-      const profile = await service.loadCandidateEligibility(A.id, { reason: `test ${S}` });
+      const profile = await service.loadCandidateEligibility(A.id, { reason: 'test' });
       const first = await service.ensureEligibility(db, A.id, job, profile);
       assert.equal(first.fresh, true);
       assert.equal(first.verdict.outcome, 'ineligible');
@@ -71,7 +71,7 @@ describe('Stage 07 — eligibility gate against the database', { skip: SKIP }, (
       // The candidate becomes a permanent resident: the verdict is stale and re-computed.
       await new Promise((r) => setTimeout(r, 5));
       await ctx.withTenant({ userId: A.id }, (tx) => prefs.saveWorkAuthorization(tx, A.id, prefs.workAuthorizationSchema.parse({ country: 'CA', status: 'permanent_resident', sponsorshipNeeded: false, notes: '' })));
-      const updated = await service.loadCandidateEligibility(A.id, { reason: `test ${S}` });
+      const updated = await service.loadCandidateEligibility(A.id, { reason: 'test' });
       assert.notEqual(updated.version, profile.version);
       const third = await service.ensureEligibility(db, A.id, job, updated);
       assert.equal(third.fresh, true);
@@ -120,6 +120,82 @@ describe('Stage 07 — eligibility gate against the database', { skip: SKIP }, (
       }
     } finally {
       await db.agent.deleteMany({ where: { id: { in: [agentA.id, agentB.id] } } });
+    }
+  });
+
+  it('review H1: adding a certification changes the profile version, so a licensure exclusion is re-evaluated', async () => {
+    const nurse = await db.job.create({ data: { source: 'mock', externalId: `elig_rn_${S}`, title: 'Registered Nurse', normalizedTitle: 'registered nurse', company: 'Hospital', location: 'Toronto, ON', country: 'CA', description: 'RN required.', requirements: '[]', skills: '[]', applyUrl: 'https://example.test', postedAt: new Date(), postalRegion: 'CA-ON/toronto', certificationRequirements: JSON.stringify(['rn']), canonicalHash: `h_rn_${S}` } });
+    try {
+      const before = await service.loadCandidateEligibility(B.id, { reason: 'test' });
+      const first = await service.ensureEligibility(db, B.id, nurse, before);
+      assert.equal(first.verdict.outcome, 'ineligible');
+      const profile = await import('../src/lib/candidate/profile');
+      await ctx.withTenant({ userId: B.id }, async (tx) => {
+        const content = { fullName: 'Eligibility Tester', headline: 'Registered Nurse', email: B.email, summary: 'Nurse.', skills: ['Triage'], experience: [], education: [], certifications: ['Registered Nurse (CNO)'], projects: [] };
+        await profile.saveResumeSections(tx, B.id, content);
+        await profile.writeResumeProjection(tx, B.id, content);
+      });
+      const after = await service.loadCandidateEligibility(B.id, { reason: 'test' });
+      assert.notEqual(after.version, before.version, 'certifications are part of the profile version');
+      const second = await service.ensureEligibility(db, B.id, nurse, after);
+      assert.equal(second.fresh, true);
+      assert.equal(second.verdict.outcome, 'eligible', 'the spelled-out designation counts');
+    } finally {
+      await db.job.delete({ where: { id: nurse.id } });
+    }
+  });
+
+  it('review H2: a match created while eligible is demoted when the candidate becomes ineligible, hidden by the feed filter, and restored when the verdict lifts', async () => {
+    const job = await db.job.create({ data: { source: 'mock', externalId: `elig_flip_${S}`, title: 'Data Analyst', normalizedTitle: 'data analyst', company: 'Co', location: 'Toronto, ON', country: 'CA', description: 'x', requirements: '[]', skills: '[]', applyUrl: 'https://example.test', postedAt: new Date(), postalRegion: 'CA-ON/toronto', workAuthorization: 'authorization_required', sponsorship: 'not_offered', canonicalHash: `h_flip_${S}` } });
+    const agent = await db.agent.create({ data: { userId: B.id, name: `Flip ${S}`, titles: '[]', keywords: '[]', excludeKeywords: '[]', locations: '[]', workMode: 'any', jobType: 'any', minMatchScore: 0, autoApplyThreshold: 101, status: 'active' } });
+    try {
+      // Eligible: a match exists.
+      const eligible = await service.loadCandidateEligibility(B.id, { reason: 'test' });
+      assert.equal((await service.ensureEligibility(db, B.id, job, eligible)).verdict.outcome, 'eligible');
+      const match = await db.jobMatch.create({ data: { agentId: agent.id, jobId: job.id, matchScore: 80, status: 'new' } });
+      const feedWhere = { agent: { userId: B.id }, status: { in: ['new', 'reviewed', 'queued'] }, job: { activeState: { not: 'closed' }, ...service.notIneligibleFor(B.id) } };
+      assert.equal(await db.jobMatch.count({ where: { ...feedWhere, jobId: job.id } }), 1, 'in the feed while eligible');
+      // The candidate now needs sponsorship: the verdict flips on the next evaluation.
+      await ctx.withTenant({ userId: B.id }, (tx) => prefs.saveWorkAuthorization(tx, B.id, prefs.workAuthorizationSchema.parse({ country: 'CA', status: 'requires_sponsorship', sponsorshipNeeded: true, notes: '' })));
+      const needs = await service.loadCandidateEligibility(B.id, { reason: 'test' });
+      assert.equal((await service.ensureEligibility(db, B.id, job, needs)).verdict.outcome, 'ineligible');
+      assert.equal((await db.jobMatch.findUniqueOrThrow({ where: { id: match.id } })).status, 'ineligible', 'demoted, not deleted');
+      assert.equal(await db.jobMatch.count({ where: { ...feedWhere, jobId: job.id } }), 0, 'and out of the feed');
+      // Back to citizen: restored.
+      await ctx.withTenant({ userId: B.id }, (tx) => prefs.saveWorkAuthorization(tx, B.id, prefs.workAuthorizationSchema.parse({ country: 'CA', status: 'citizen', sponsorshipNeeded: false, notes: '' })));
+      const citizen = await service.loadCandidateEligibility(B.id, { reason: 'test' });
+      assert.equal((await service.ensureEligibility(db, B.id, job, citizen)).verdict.outcome, 'eligible');
+      assert.equal((await db.jobMatch.findUniqueOrThrow({ where: { id: match.id } })).status, 'new');
+      assert.equal(await db.jobMatch.count({ where: { ...feedWhere, jobId: job.id } }), 1);
+    } finally {
+      await db.agent.delete({ where: { id: agent.id } });
+      await db.job.delete({ where: { id: job.id } });
+    }
+  });
+
+  it('review M5: a page view with a current verdict reads no facts and writes no audit row; a stale one does', async () => {
+    const { eligibilityForPage } = await import('../src/lib/eligibility/page');
+    const job = await db.job.create({ data: { source: 'mock', externalId: `elig_page_${S}`, title: 'Data Analyst', normalizedTitle: 'data analyst', company: 'Co', location: 'Toronto, ON', country: 'CA', description: 'x', requirements: '[]', skills: '[]', applyUrl: 'https://example.test', postedAt: new Date(), postalRegion: 'CA-ON/toronto', canonicalHash: `h_page_${S}` } });
+    const run = <T,>(fn: (tx: Parameters<Parameters<typeof ctx.withTenant>[1]>[0]) => Promise<T>) => ctx.withTenant({ userId: B.id }, fn);
+    const audits = () => db.auditLog.count({ where: { action: 'eligibility.profile.read', actorId: B.id } });
+    try {
+      const n0 = await audits();
+      const first = await eligibilityForPage(B.id, job, run);
+      assert.equal(first.fresh, true, 'no verdict yet: evaluated (one audited read)');
+      const n1 = await audits();
+      assert.equal(n1, n0 + 1);
+      const second = await eligibilityForPage(B.id, job, run);
+      const third = await eligibilityForPage(B.id, job, run);
+      assert.equal(second.fresh, false);
+      assert.equal(third.fresh, false);
+      assert.equal(await audits(), n1, 'two more views, no audit rows');
+      await new Promise((r) => setTimeout(r, 5));
+      await ctx.withTenant({ userId: B.id }, (tx) => prefs.saveWorkAuthorization(tx, B.id, prefs.workAuthorizationSchema.parse({ country: 'CA', status: 'permanent_resident', sponsorshipNeeded: false, notes: '' })));
+      const fourth = await eligibilityForPage(B.id, job, run);
+      assert.equal(fourth.fresh, true, 'a profile change re-evaluates');
+      assert.equal(await audits(), n1 + 1);
+    } finally {
+      await db.job.delete({ where: { id: job.id } });
     }
   });
 

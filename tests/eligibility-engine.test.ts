@@ -4,7 +4,9 @@
  * The coverage matrix: every rule × every candidate state it distinguishes,
  * for both modelled jurisdictions, plus the aggregation laws — a hard fail
  * makes the verdict `ineligible`, `unknown` never excludes, and every rule
- * always states a reason in words with no number in it.
+ * always states a reason in words with no score in it. The review probes
+ * that found false exclusions (spelled-out designations, substring place
+ * matching, a preferred designation in the title) are cases here.
  */
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
@@ -14,6 +16,8 @@ const TODAY = new Date('2026-09-03T12:00:00Z');
 
 const job = (over: Partial<JobEligibilityFacts> = {}): JobEligibilityFacts => ({
   title: 'Data Analyst',
+  normalizedTitle: 'data analyst',
+  read: true,
   country: 'CA',
   location: 'Toronto, ON',
   postalRegion: 'CA-ON/toronto',
@@ -27,7 +31,7 @@ const job = (over: Partial<JobEligibilityFacts> = {}): JobEligibilityFacts => ({
 
 const candidate = (over: Partial<CandidateEligibility> = {}): CandidateEligibility => ({
   workAuth: { country: 'CA', status: 'citizen', permitExpiresAt: null, sponsorshipNeeded: false },
-  preferences: { countries: ['CA'], locations: ['Toronto'], workModes: ['hybrid', 'remote'], relocation: 'no' },
+  preferences: { countries: ['CA'], locations: ['Toronto'], relocation: 'no' },
   certifications: [],
   languages: [{ language: 'en', proficiency: 'native' }],
   ...over,
@@ -46,6 +50,7 @@ describe('eligibility — work authorisation (CA and US)', () => {
     assert.equal(r.status, 'unknown');
     assert.match(r.reason, /not recorded/);
     assert.equal(rule(candidate({ workAuth: { country: 'CA', status: 'unspecified', permitExpiresAt: null, sponsorshipNeeded: false } }), job({ workAuthorization: 'authorization_required' }), 'work_authorization').status, 'unknown');
+    assert.equal(rule(candidate({ workAuth: { country: 'CA', status: 'other', permitExpiresAt: null, sponsorshipNeeded: false } }), job({ workAuthorization: 'authorization_required' }), 'work_authorization').status, 'unknown', 'an unrecognised status is a question, not a fail');
   });
   it('citizens and permanent residents pass both kinds of requirement in their country', () => {
     for (const status of ['citizen', 'permanent_resident']) {
@@ -65,17 +70,29 @@ describe('eligibility — work authorisation (CA and US)', () => {
     assert.match(expired.reason, /expired on 2026-08-31/);
     assert.equal(rule(permit('2027-01-31'), job({ workAuthorization: 'citizenship_or_pr_required' }), 'work_authorization').status, 'fail');
   });
-  it('a study permit is unknown (limited work) unless citizenship is required; needing sponsorship fails; the wrong country fails with the fix named', () => {
+  it('a study permit is unknown (limited work) unless citizenship is required; needing sponsorship fails; another recorded country is unknown, not a fail', () => {
     const study = candidate({ workAuth: { country: 'CA', status: 'study_permit', permitExpiresAt: null, sponsorshipNeeded: false } });
     assert.equal(rule(study, job({ workAuthorization: 'authorization_required' }), 'work_authorization').status, 'unknown');
     assert.equal(rule(study, job({ workAuthorization: 'citizenship_or_pr_required' }), 'work_authorization').status, 'fail');
     assert.equal(rule(candidate({ workAuth: { country: 'CA', status: 'requires_sponsorship', permitExpiresAt: null, sponsorshipNeeded: true } }), job({ workAuthorization: 'authorization_required' }), 'work_authorization').status, 'fail');
-    const wrong = rule(candidate(), job({ country: 'US', workAuthorization: 'authorization_required' }), 'work_authorization');
-    assert.equal(wrong.status, 'fail');
-    assert.match(wrong.reason, /United States.*recorded authorisation is for Canada/);
+    // The profile holds one authorisation row: a fact about Canada says nothing about the US.
+    const other = rule(candidate(), job({ country: 'US', workAuthorization: 'authorization_required' }), 'work_authorization');
+    assert.equal(other.status, 'unknown');
+    assert.match(other.reason, /United States.*recorded authorisation is for Canada/);
   });
-  it('an unmodelled jurisdiction is unknown', () => {
+  it('an unmodelled jurisdiction is unknown; a clearance statement is not rewritten as an authorisation statement', () => {
     assert.equal(rule(candidate(), job({ country: 'GB', workAuthorization: 'authorization_required' }), 'work_authorization').status, 'unknown');
+    const clearance = rule(candidate({ workAuth: { country: 'CA', status: 'requires_sponsorship', permitExpiresAt: null, sponsorshipNeeded: true } }), job({ workAuthorization: 'security_clearance_required' }), 'work_authorization');
+    assert.equal(clearance.status, 'unknown', 'the posting stated a clearance, not an authorisation: no fail is invented');
+    assert.match(clearance.reason, /clearance/);
+  });
+  it('a posting the canonical pipeline has not read yet is unknown on every posting-side rule', () => {
+    const v = evaluateEligibility(candidate(), job({ read: false, workAuthorization: null, certificationRequirements: [], languageRequirements: [] }), TODAY);
+    for (const id of ['work_authorization', 'security_clearance', 'licensure', 'language']) {
+      assert.equal(v.rules.find((r) => r.rule === id)?.status, 'unknown', id);
+    }
+    assert.equal(v.outcome, 'unknown');
+    assert.equal(rule(candidate({ workAuth: { country: 'CA', status: 'requires_sponsorship', permitExpiresAt: null, sponsorshipNeeded: true } }), job({ read: false }), 'sponsorship').status, 'unknown');
   });
 });
 
@@ -92,50 +109,69 @@ describe('eligibility — sponsorship, clearance, location', () => {
     assert.equal(r.status, 'unknown');
     assert.equal(rule(candidate(), job(), 'security_clearance').status, 'pass');
   });
-  it('location: remote passes; a listed place passes; another country fails unless open to relocating; an unparseable place is unknown; no preference passes', () => {
+  it('location: remote passes; a listed city, province name or code passes; another country fails unless open to relocating; no preference passes', () => {
     assert.equal(rule(candidate(), job({ workMode: 'remote', country: 'US', location: 'Remote' }), 'location').status, 'pass');
     assert.equal(rule(candidate(), job(), 'location').status, 'pass');
-    assert.equal(rule(candidate({ preferences: { countries: ['CA'], locations: ['Ontario'], workModes: [], relocation: 'no' } }), job(), 'location').status, 'pass', 'a province name matches the region');
+    assert.equal(rule(candidate({ preferences: { countries: ['CA'], locations: ['Ontario'], relocation: 'no' } }), job(), 'location').status, 'pass', 'a province name');
+    assert.equal(rule(candidate({ preferences: { countries: ['CA'], locations: ['ON'], relocation: 'no' } }), job({ location: 'Thunder Bay, ON', postalRegion: 'CA-ON/thunder-bay' }), 'location').status, 'pass', 'a province code');
     const abroad = rule(candidate(), job({ country: 'US', location: 'Austin, TX', postalRegion: 'US-TX/austin' }), 'location');
     assert.equal(abroad.status, 'fail');
     assert.match(abroad.reason, /not open to relocating/);
-    assert.equal(rule(candidate({ preferences: { countries: ['CA'], locations: ['Toronto'], workModes: [], relocation: 'open' } }), job({ country: 'US', location: 'Austin, TX', postalRegion: 'US-TX/austin' }), 'location').status, 'pass');
-    const elsewhere = rule(candidate(), job({ location: 'Calgary, AB', postalRegion: 'CA-AB/calgary' }), 'location');
-    assert.equal(elsewhere.status, 'fail');
-    assert.equal(rule(candidate(), job({ location: 'Somewhere', postalRegion: null }), 'location').status, 'unknown');
+    assert.equal(rule(candidate({ preferences: { countries: ['CA'], locations: ['Toronto'], relocation: 'open' } }), job({ country: 'US', location: 'Austin, TX', postalRegion: 'US-TX/austin' }), 'location').status, 'pass');
+    assert.equal(rule(candidate({ preferences: { countries: ['CA'], locations: ['Toronto'], relocation: 'yes' } }), job({ location: 'Calgary, AB', postalRegion: 'CA-AB/calgary' }), 'location').status, 'pass', 'another place, open to relocating');
+    assert.equal(rule(candidate({ preferences: { countries: ['US'], locations: ['Austin'], relocation: 'no' } }), job({ country: 'US', location: 'Austin, TX 78701', postalRegion: 'US-TX/austin' }), 'location').status, 'pass', 'a US city');
     assert.equal(rule(candidate({ preferences: null }), job({ country: 'US', location: 'Austin, TX', postalRegion: 'US-TX/austin' }), 'location').status, 'pass');
+  });
+  it('location: whole names only — no substring matches; same province is an open question, another province a fail; an unparseable place is unknown', () => {
+    // "on" is inside "Toronto", "London", "Boston": none of these may match by substring.
+    assert.equal(rule(candidate({ preferences: { countries: ['CA'], locations: ['Toronto'], relocation: 'no' } }), job({ location: 'Thunder Bay, ON', postalRegion: 'CA-ON/thunder-bay' }), 'location').status, 'unknown', 'same province, different municipality: no radius yet');
+    assert.equal(rule(candidate({ preferences: { countries: [], locations: ['Boston'], relocation: 'no' } }), job({ location: 'Ottawa, ON', postalRegion: 'CA-ON/ottawa' }), 'location').status, 'fail', 'Boston is not Ottawa');
+    assert.equal(rule(candidate({ preferences: { countries: ['CA'], locations: ['Montreal'], relocation: 'no' } }), job({ location: 'Laval, QC', postalRegion: 'CA-QC/laval' }), 'location').status, 'unknown', 'a suburb is a question, not an exclusion');
+    assert.equal(rule(candidate({ preferences: { countries: ['CA'], locations: ['Toronto'], relocation: 'no' } }), job({ location: 'Calgary, AB', postalRegion: 'CA-AB/calgary' }), 'location').status, 'fail', 'another province');
+    assert.equal(rule(candidate({ preferences: { countries: ['CA'], locations: ['Remote'], relocation: 'no' } }), job(), 'location').status, 'pass', 'a work-mode word is not a place: with no real place listed, nothing is limited');
+    assert.equal(rule(candidate(), job({ location: 'Somewhere', postalRegion: null }), 'location').status, 'unknown');
   });
 });
 
 describe('eligibility — licensure and language are advisory unless the title demands a licence', () => {
-  it('a licensed designation the title demands fails when missing and passes when held; a certification merely mentioned is unknown', () => {
-    const nurse = job({ title: 'Registered Nurse — Medical Surgical', certificationRequirements: ['rn', 'bls'] });
+  it('a licensed designation the title demands fails when missing, passes when held under any spelling, and is advisory when the title only prefers it', () => {
+    const nurse = job({ title: 'Registered Nurse — Medical Surgical', normalizedTitle: 'registered nurse medical surgical', certificationRequirements: ['rn', 'bls'] });
     const missing = rule(candidate(), nurse, 'licensure');
     assert.equal(missing.status, 'fail');
     assert.equal(missing.hard, true);
     assert.match(missing.reason, /Registered Nurse \(RN\) licence/);
-    const held = rule(candidate({ certifications: ['RN — College of Nurses of Ontario', 'BLS'] }), nurse, 'licensure');
-    assert.equal(held.status, 'pass');
-    const advisory = rule(candidate(), job({ title: 'Cloud Engineer', certificationRequirements: ['aws certified solutions architect'] }), 'licensure');
+    for (const spelling of ['RN — College of Nurses of Ontario', 'Registered Nurse (CNO)', 'rn']) {
+      assert.notEqual(rule(candidate({ certifications: [spelling, 'BLS'] }), nurse, 'licensure').status, 'fail', spelling);
+    }
+    assert.equal(rule(candidate({ certifications: ['Certified Internal Auditor'] }), nurse, 'licensure').status, 'fail', '"rn" inside "internal" is not a licence');
+    assert.equal(rule(candidate({ certifications: ['Chartered Professional Accountant'] }), job({ title: 'CPA, Financial Reporting', normalizedTitle: 'cpa financial reporting', certificationRequirements: ['cpa'] }), 'licensure').status, 'pass');
+    assert.equal(rule(candidate({ certifications: ['Professional Engineer (PEO)'] }), job({ title: 'Professional Engineer', normalizedTitle: 'professional engineer', certificationRequirements: ['p eng'] }), 'licensure').status, 'pass');
+    const preferred = rule(candidate(), job({ title: 'Senior Accountant (CPA preferred)', normalizedTitle: 'senior accountant', certificationRequirements: ['cpa'] }), 'licensure');
+    assert.equal(preferred.status, 'unknown', 'a preference in the title is not a demand');
+    assert.equal(preferred.hard, false);
+    const aide = rule(candidate(), job({ title: 'Nurse Aide', normalizedTitle: 'nurse aide', certificationRequirements: ['rn'] }), 'licensure');
+    assert.equal(aide.status, 'unknown', 'a title that is not the licensed profession does not demand its licence');
+    const advisory = rule(candidate(), job({ title: 'Cloud Engineer', normalizedTitle: 'cloud engineer', certificationRequirements: ['aws certified solutions architect'] }), 'licensure');
     assert.equal(advisory.status, 'unknown');
     assert.equal(advisory.hard, false);
     assert.match(advisory.reason, /may prefer rather than require/);
-    assert.equal(rule(candidate(), job({ title: 'Analyst', certificationRequirements: ['rn'] }), 'licensure').status, 'unknown', 'a licence the title does not demand is advisory');
+    assert.equal(rule(candidate({ certifications: [''] }), nurse, 'licensure').status, 'fail', 'an empty certification name holds nothing');
   });
-  it('language: bilingual in Canada means English and French; a listed language at a working level passes; otherwise unknown, never a fail', () => {
+  it('language: bilingual in Canada means English and French; a listed language at a working level passes under regional codes too; otherwise unknown, never a fail', () => {
     const bilingual = job({ languageRequirements: ['bilingual'] });
     const r = rule(candidate(), bilingual, 'language');
     assert.equal(r.status, 'unknown');
     assert.equal(r.hard, false);
     assert.match(r.reason, /french/);
     assert.equal(rule(candidate({ languages: [{ language: 'en', proficiency: 'native' }, { language: 'fr', proficiency: 'professional' }] }), bilingual, 'language').status, 'pass');
+    assert.equal(rule(candidate({ languages: [{ language: 'en-CA', proficiency: 'native' }, { language: 'French (Canada)', proficiency: 'conversational' }] }), bilingual, 'language').status, 'pass', 'regional codes and names canonicalise');
     assert.equal(rule(candidate({ languages: [{ language: 'en', proficiency: 'native' }, { language: 'french', proficiency: 'basic' }] }), bilingual, 'language').status, 'unknown', 'basic is not a working level');
     assert.equal(rule(candidate(), job(), 'language').status, 'pass');
   });
 });
 
 describe('eligibility — the verdict', () => {
-  it('a hard fail is ineligible with its reasons; unknown never excludes; all pass is eligible; there is never a number', () => {
+  it('a hard fail is ineligible with its reasons; unknown never excludes; all pass is eligible; there is never a score', () => {
     const needs = candidate({ workAuth: { country: 'CA', status: 'requires_sponsorship', permitExpiresAt: null, sponsorshipNeeded: true } });
     const out = evaluateEligibility(needs, job({ workAuthorization: 'authorization_required', sponsorship: 'not_offered' }), TODAY);
     assert.equal(out.outcome, 'ineligible');
@@ -150,7 +186,7 @@ describe('eligibility — the verdict', () => {
       assert.equal(v.rules.length, 6, 'every rule is evaluated every time');
       for (const r of v.rules) {
         assert.ok(r.reason.length > 10, `${r.rule} states a reason`);
-        assert.ok(!/\b\d{1,3}\s?%/.test(r.reason), `${r.rule}: no percentage`);
+        assert.ok(!/\b\d{1,3}\s?%/.test(r.reason) && !/\bscore\b/i.test(r.reason) && !/\b\d+\s*(?:\/|out of)\s*\d+\b/.test(r.reason), `${r.rule}: no percentage, score or ratio`);
       }
     }
     const advisoryOnly = evaluateEligibility(candidate(), job({ certificationRequirements: ['pmp'] }), TODAY);

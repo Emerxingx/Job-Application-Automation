@@ -95,7 +95,7 @@ export async function runAgentScan(userId: string, agentId: string): Promise<Sca
   // posting is gated by the deterministic rules BEFORE it is scored: an
   // ineligible posting never becomes a match, and the verdict with its
   // reasons is stored so the candidate can see why. `unknown` never excludes.
-  const eligibilityProfile = await loadCandidateEligibility(userId, { reason: `agent scan (${agent.name})`, jobs: discovery.jobIds.length });
+  const eligibilityProfile = discovery.jobIds.length > 0 ? await loadCandidateEligibility(userId, { reason: 'agent_scan', jobs: discovery.jobIds.length, agentId: agent.id }) : null;
 
   for (const jobId of discovery.jobIds) {
     const job = await db.job.findUnique({ where: { id: jobId } });
@@ -106,7 +106,7 @@ export async function runAgentScan(userId: string, agentId: string): Promise<Sca
     // mistaken for a real match (ADR-0009). A no-op until a dataset is loaded.
     await classifyStoredJob(job);
 
-    const { verdict } = await ensureEligibility(db, userId, job, eligibilityProfile);
+    const { verdict } = await ensureEligibility(db, userId, job, eligibilityProfile!);
     if (verdict.outcome === 'ineligible') {
       excluded += 1;
       continue;

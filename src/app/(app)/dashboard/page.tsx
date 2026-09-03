@@ -1,4 +1,5 @@
 import { requireTenant } from '@/lib/tenancy/request';
+import { notIneligibleFor } from '@/lib/eligibility/service';
 import { getQuota } from '@/lib/subscription';
 import { getDashboardLayout } from '@/lib/cms';
 import { PageHeader } from '@/components/ui';
@@ -37,7 +38,7 @@ export default async function DashboardPage() {
           tx.agent.count({ where: { userId: user.id } }),
           tx.application.count({ where: { userId: user.id } }),
           tx.jobMatch.findMany({
-            where: { agent: { userId: user.id }, status: 'new', job: { activeState: { not: 'closed' } } },
+            where: { agent: { userId: user.id }, status: 'new', job: { activeState: { not: 'closed' }, ...notIneligibleFor(user.id) } },
             orderBy: { matchScore: 'desc' },
             // The widget slices to its configured count; load enough for the max.
             take: 10,

@@ -349,7 +349,7 @@
     "gate": "DONE — scanner evaluates eligibility BEFORE analyzeMatch; an ineligible posting never becomes a JobMatch; verdict stored per (user, job) with reasons; re-evaluated on profile or rule-set change; facts read once per batch on the tenant path, audit-first (eligibility.profile.read, never a value)",
     "surfaces": "DONE — /dashboard/jobs/excluded (every exclusion with reasons), eligibility panel on the job page, exclusion count on the feed and the scan result, GET /api/eligibility/:jobId",
     "advisory_rules": "HONEST LIMIT — certification and language are advisory (pass/unknown) until Stage 08 separates required from preferred; licensure is hard only for a designation the title demands; radius NOT IMPLEMENTED; clearance unknown-only",
-    "independent_review": "PENDING"
+    "independent_review": "DONE — 3 HIGH (stale verdicts after a certification change; matches surviving an ineligible verdict; substring licensure matching), 5 MEDIUM (substring place matching, audit row per page view, clearance rewritten as authorisation, unread postings \"state nothing\", wrong-country hard fail), 4 LOW; every HIGH and MEDIUM fixed with a test; STAGE07_EVIDENCE.md §9"
   },
   "stage_07_exit_gate": {
     "met": [
@@ -357,7 +357,7 @@
       "Explanations human-readable: every rule states a reason; no number anywhere in the output",
       "No ineligible job reaches recommendations; every exclusion states a reason (listed at /dashboard/jobs/excluded)",
       "Never reads the sensitive schema; work authorisation read on the tenant path, audit-first",
-      "Full gate set green with the documented command only: lint 0/8, typecheck 0, 959/959 tests (0 skipped), build 0"
+      "Full gate set green with the documented command only: lint 0/8, typecheck 0, 964/964 tests (0 skipped), build 0"
     ],
     "not_met": [
       "Certification and language as hard gates (advisory until Stage 08 requirement extraction)",

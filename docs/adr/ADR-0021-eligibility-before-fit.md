@@ -22,7 +22,12 @@ number.
    question open and the posting reaches scoring, flagged.
 3. **Only what both sides state.** A rule fails only on a statement the posting
    made (Stage 06's canonical fields, which themselves refuse to infer from
-   silence or negation) and a fact the candidate recorded.
+   silence or negation) and a fact the candidate recorded. A recorded fact
+   about another country is not a fact about this one (the profile holds one
+   authorisation row), a clearance statement is not an authorisation
+   statement, a posting the pipeline has not read yet states nothing, and a
+   place in the same province but another municipality is a question, not an
+   exclusion (no radius exists). Each of those is `unknown`.
 4. **Advisory rules are marked advisory.** The canonical job lists the
    certifications and languages a posting mentions without separating
    "required" from "a plus"; gating on a mention would exclude candidates for

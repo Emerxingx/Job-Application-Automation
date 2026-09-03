@@ -13,6 +13,6 @@ export const GET = route(async (_request: Request, { params }: { params: Promise
   const { jobId } = await params;
   const job = await run((tx) => tx.job.findUnique({ where: { id: jobId } }));
   if (!job) return fail('Job not found.', 404);
-  const { result, verdict } = await eligibilityForPage(user.id, job, run);
+  const { result, verdict } = await eligibilityForPage(user.id, job, run, 'api');
   return ok({ jobId, outcome: verdict.outcome, rules: verdict.rules, rulesVersion: verdict.rulesVersion, evaluatedAt: result.evaluatedAt.toISOString() });
 });
