@@ -19,6 +19,7 @@ import {
   Receipt,
   Search,
   Settings,
+  ShieldCheck,
   X,
 } from 'lucide-react';
 import { Logo } from '@/components/site-header';
@@ -34,6 +35,7 @@ const NAV: { href: string; label: string; icon: LucideIcon }[] = [
   // What the search produced.
   { href: '/dashboard/interview-prep', label: 'Interview prep', icon: MessagesSquare },
   { href: '/dashboard/resume', label: 'My resume', icon: FileText },
+  { href: '/dashboard/evidence', label: 'Evidence vault', icon: ShieldCheck },
   { href: '/dashboard/documents', label: 'Documents', icon: Files },
   // The account.
   { href: '/dashboard/billing', label: 'Plan & billing', icon: CreditCard },

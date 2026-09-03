@@ -1,6 +1,6 @@
 # ADR-0015 — Data residency
 
-**Status:** Proposed · **Date:** 2026-09-02
+**Status:** Proposed · **Date:** 2026-09-02 · **Enforcement implemented (Stage 03, 2026-09-03):** the AI gateway resolves `Organization.aiProcessingPolicy` before dispatch and fails closed to `EXTERNAL_AI_PROHIBITED` when the organisation is missing or unreadable; `EXTERNAL_AI_RESTRICTED` permits no task until L-3 is resolved and a task is listed with its data category. Proven in `tests/ai-gateway.test.ts`. The residency decision itself (L-3) remains OPEN.
 
 ## Context
 The product handles Canadian personal information: candidate profiles, résumés,

@@ -1,6 +1,6 @@
 # ADR-0003 — Headless CMS: Payload vs Strapi
 
-**Status:** Proposed · **Date:** 2026-09-02 · **Decision owner:** Founder
+**Status:** Proposed · **Date:** 2026-09-02 · **Decision owner:** Founder · **Partially implemented (Stage 03, 2026-09-03):** `PromptRegistry` has moved out of the CMS (see the migration schedule below); `prompt-engine.ts` is deleted and the interpolation core (`prompt-interpolate.ts`) now serves the governed registry. Payload keeps content and, for now, `AtsRulesets` and `FieldMappings`.
 
 ## Context
 
@@ -31,8 +31,9 @@ choice on evidence.
 
 Coupling to Payload is **low and well-contained**:
 
-- Application code reaches the CMS through two modules (`cms.ts`, `cms-fast/`)
-  plus `prompt-engine.ts`. It does not import Payload internals elsewhere.
+- Application code reaches the CMS through two modules (`cms.ts`, `cms-fast/`).
+  (Until Stage 03 a third, `prompt-engine.ts`, read prompts from the CMS; it is
+  gone.) It does not import Payload internals elsewhere.
 - The CMS holds **no transactional data**. No Prisma table is read or written by
   Payload, and no CMS document is a system of record for candidates,
   applications, billing, case notes or placements.
@@ -61,7 +62,7 @@ architectural question, and the existing implementation answers it correctly.
   pipeline, scaling, monitoring, backup and upgrade path. For a non-technical
   founder this is a second operational system to keep alive.
 - **Migration cost:** re-model 14 content types, re-implement `cms.ts`,
-  `cms-fast/` and `prompt-engine.ts` against Strapi's API, migrate content,
+  `cms-fast/` against Strapi's API, migrate content,
   re-do the admin component, retest. Realistically weeks, delivering **no new
   user-facing capability**.
 - **Benefit:** removes the Payload→Next peer coupling; larger plugin ecosystem;

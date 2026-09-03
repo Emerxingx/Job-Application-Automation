@@ -75,7 +75,6 @@ export interface Config {
     'career-guides': CareerGuide;
     certifications: Certification;
     'ats-rulesets': AtsRuleset;
-    'prompt-registry': PromptRegistry;
     'field-mappings': FieldMapping;
     'seo-pages': SeoPage;
     'payload-kv': PayloadKv;
@@ -93,7 +92,6 @@ export interface Config {
     'career-guides': CareerGuidesSelect<false> | CareerGuidesSelect<true>;
     certifications: CertificationsSelect<false> | CertificationsSelect<true>;
     'ats-rulesets': AtsRulesetsSelect<false> | AtsRulesetsSelect<true>;
-    'prompt-registry': PromptRegistrySelect<false> | PromptRegistrySelect<true>;
     'field-mappings': FieldMappingsSelect<false> | FieldMappingsSelect<true>;
     'seo-pages': SeoPagesSelect<false> | SeoPagesSelect<true>;
     'payload-kv': PayloadKvSelect<false> | PayloadKvSelect<true>;
@@ -489,62 +487,6 @@ export interface AtsRuleset {
   createdAt: string;
 }
 /**
- * Versioned system/user prompts for the LLM orchestrator. Editing a prompt takes effect without a deploy. One default per slug.
- *
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "prompt-registry".
- */
-export interface PromptRegistry {
-  id: number;
-  label?: string | null;
-  /**
-   * Stable identifier the orchestrator fetches by, e.g. "resume-tailor-v2", "qa-salary-expectation".
-   */
-  promptSlug: string;
-  version: number;
-  /**
-   * The version served for this slug. Setting this retires the previous default.
-   */
-  isDefault?: boolean | null;
-  modelProvider: 'anthropic' | 'openai';
-  /**
-   * Exact model id, e.g. "claude-sonnet-5", "gpt-4o".
-   */
-  targetModel: string;
-  /**
-   * System prompt. Use {{variable}} placeholders, e.g. {{master_resume}}, {{job_description}}.
-   */
-  systemPrompt: string;
-  /**
-   * Optional user-message template, same {{variable}} syntax.
-   */
-  userPromptTemplate?: string | null;
-  /**
-   * Every interpolation variable this prompt needs. The interpolation engine refuses to run if a caller omits one.
-   */
-  requiredVariables?:
-    | {
-        name: string;
-        id?: string | null;
-      }[]
-    | null;
-  /**
-   * JSON: temperature, max_tokens, top_p, response_format. Validated on save.
-   */
-  modelParameters?:
-    | {
-        [k: string]: unknown;
-      }
-    | unknown[]
-    | string
-    | number
-    | boolean
-    | null;
-  notes?: string | null;
-  updatedAt: string;
-  createdAt: string;
-}
-/**
  * Maps the free-text questions ATS forms ask onto canonical profile keys, so the engine can answer them consistently.
  *
  * This interface was referenced by `Config`'s JSON-Schema
@@ -699,10 +641,6 @@ export interface PayloadLockedDocument {
     | ({
         relationTo: 'ats-rulesets';
         value: number | AtsRuleset;
-      } | null)
-    | ({
-        relationTo: 'prompt-registry';
-        value: number | PromptRegistry;
       } | null)
     | ({
         relationTo: 'field-mappings';
@@ -1004,30 +942,6 @@ export interface AtsRulesetsSelect<T extends boolean = true> {
   antiBotMitigationLevel?: T;
   selectorMap?: T;
   fallbackSelectors?: T;
-  notes?: T;
-  updatedAt?: T;
-  createdAt?: T;
-}
-/**
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "prompt-registry_select".
- */
-export interface PromptRegistrySelect<T extends boolean = true> {
-  label?: T;
-  promptSlug?: T;
-  version?: T;
-  isDefault?: T;
-  modelProvider?: T;
-  targetModel?: T;
-  systemPrompt?: T;
-  userPromptTemplate?: T;
-  requiredVariables?:
-    | T
-    | {
-        name?: T;
-        id?: T;
-      };
-  modelParameters?: T;
   notes?: T;
   updatedAt?: T;
   createdAt?: T;

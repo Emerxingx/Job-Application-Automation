@@ -35,6 +35,10 @@ const ALLOWED_TO_REFERENCE = new Set([
   'src/app/(app)/dashboard/settings/self-identification/page.tsx',
   'src/app/(app)/dashboard/settings/page.tsx', // the link to the page, nothing else
   'src/lib/security-audit.ts', // the event names
+  // Stage 03: the AI gateway's deny-list of RESTRICTED keys. It names the
+  // attributes in order to REFUSE any payload carrying them; it imports
+  // nothing from the sensitive path and reads no value.
+  'src/lib/ai/restricted-fields.ts',
 ]);
 const FORBIDDEN = [/lib\/sensitive/, /sensitive\.self_identification/, /self_identification/, /SelfIdentification/, /app_sensitive/];
 

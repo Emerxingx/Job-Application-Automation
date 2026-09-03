@@ -10,6 +10,7 @@ import {
   LifeBuoy,
   Menu,
   Receipt,
+  Sparkles,
   Users,
   X,
   type LucideIcon,
@@ -56,6 +57,7 @@ const NAV: NavItem[] = [
   { href: '/console/revenue', label: 'Revenue', icon: BarChart3, minRole: 'billing_ops' },
   { href: '/console/invoices', label: 'Invoices', icon: Receipt, minRole: 'billing_ops' },
   { href: '/console/tickets', label: 'Support', icon: LifeBuoy, minRole: 'support' },
+  { href: '/console/prompts', label: 'Prompts', icon: Sparkles, minRole: 'admin' },
 ];
 
 const ROLE_LABEL: Record<StaffRole, string> = {

@@ -58,6 +58,9 @@ model User {
   identities     UserIdentity[]
   consents       ConsentRecord[]
   candidateProfile CandidateProfile?
+  evidence         CareerEvidence[]
+  questions        ApplicationQuestion[]
+  aiRuns           AiRun[]
   subscription   Subscription?
   agents         Agent[]
   resumes        Resume[]
@@ -2517,4 +2520,156 @@ model WorkAuthorization {
   profile CandidateProfile @relation(fields: [profileId, userId], references: [id, userId], onDelete: Cascade)
 
   @@unique([profileId, userId])
+}
+
+// ---------------------------------------------------------------------------
+// Career Evidence Vault, application questions, AI traceability and the
+// governed prompt registry (Stage 03, ADR-0006 / AI_GOVERNANCE.md)
+// ---------------------------------------------------------------------------
+
+// An atomic, candidate-approved claim with its provenance. Generation may
+// cite ONLY approved evidence; the grounding checker (src/lib/ai/grounding.ts)
+// rejects any material claim in a generated document that is not traceable
+// to the approved corpus, before it reaches the candidate.
+//
+// Immutable once approved: a change creates a NEW row with `version + 1` and
+// `supersedesId` pointing at the old one, which is marked superseded. Nothing
+// updates an approved row's claim in place; the service enforces it and a
+// test proves it.
+model CareerEvidence {
+  id           String    @id @default(cuid())
+  userId       String
+  profileId    String?
+  // employment | responsibility | achievement | education | certification |
+  // skill | project | language
+  kind         String
+  // profile_employment | profile_education | profile_skill |
+  // profile_certification | profile_project | profile_achievement |
+  // profile_language | manual | upload
+  sourceType   String
+  sourceId     String?
+  // The claim as one sentence a reviewer can accept or reject, e.g.
+  // "Senior Data Analyst at Northbridge Commerce, 2022-03 to present".
+  claim        String
+  // Structured facts behind the claim, JSON text: company, title, dates,
+  // metric, institution, … — the tokens the grounding checker admits.
+  facts        String    @default("{}")
+  // draft | approved | superseded | revoked
+  status       String    @default("draft")
+  version      Int       @default(1)
+  supersedesId String?
+  approvedAt   DateTime?
+  revokedAt    DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  user       User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  supersedes CareerEvidence? @relation("EvidenceVersions", fields: [supersedesId], references: [id], onDelete: SetNull)
+  successors CareerEvidence[] @relation("EvidenceVersions")
+
+  @@index([userId, status])
+  @@index([userId, sourceType, sourceId])
+  @@index([supersedesId])
+}
+
+// The candidate's answer bank for application forms, with an automation
+// policy per question (Stage 12 consumes it; nothing is auto-submitted).
+// Sensitive categories are forced to NEVER_AUTOMATE by the service and can
+// never be relaxed through the API.
+model ApplicationQuestion {
+  id              String    @id @default(cuid())
+  userId          String
+  // Normalised form of the question text, unique per user.
+  key             String
+  question        String
+  // eligibility | logistics | compensation | experience | motivation |
+  // screening | sensitive | other
+  category        String    @default("other")
+  // low | medium | high
+  riskLevel       String    @default("medium")
+  // AUTO_FILL | ASK_IF_CHANGED | REQUIRE_REVIEW | NEVER_AUTOMATE
+  policy          String    @default("REQUIRE_REVIEW")
+  answer          String    @default("")
+  // Approved evidence ids the answer relies on (JSON string array).
+  evidenceIds     String    @default("[]")
+  answerUpdatedAt DateTime?
+  lastConfirmedAt DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, key])
+  @@index([userId, category])
+}
+
+// One row per material AI action (AI_GOVERNANCE.md § Traceability). Written by
+// the gateway on every dispatch, including refusals and degradations, so the
+// policy actually applied and the route actually taken are auditable.
+model AiRun {
+  id             String    @id @default(cuid())
+  // analyze_match | tailor | prepare_interview | classify_question | …
+  task           String
+  userId         String?
+  organizationId String?
+  // The tenant policy resolved BEFORE dispatch, never inferred afterwards.
+  policyState    String // EXTERNAL_AI_ALLOWED | EXTERNAL_AI_RESTRICTED | EXTERNAL_AI_PROHIBITED
+  // external | deterministic | degraded | refused
+  route          String
+  provider       String // anthropic | deterministic | none
+  model          String?
+  promptSlug     String?
+  promptVersion  Int?
+  // JSON string arrays of opaque references — never content.
+  inputRefs      String    @default("[]")
+  evidenceRefs   String    @default("[]")
+  outputRef      String?
+  confidence     Int?
+  // Number of material claims the grounding checker rejected before render.
+  claimsRejected Int       @default(0)
+  humanOverride  Boolean   @default(false)
+  status         String    @default("ok") // ok | refused | failed
+  error          String?
+  durationMs     Int       @default(0)
+  costCents      Int?
+  createdAt      DateTime  @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([task, createdAt])
+  @@index([organizationId, createdAt])
+}
+
+// The governed prompt registry (ADR-0019 Tier 1, moved out of the editorial
+// CMS per ADR-0003). One row per (slug, version). Only a version whose
+// evaluation has PASSED may be promoted to default; promotion, retirement and
+// rollback are audited staff actions with re-authentication.
+model PromptVersion {
+  id                 String    @id @default(cuid())
+  slug               String
+  version            Int
+  modelProvider      String    @default("anthropic") // anthropic | openai
+  targetModel        String
+  systemPrompt       String
+  userPromptTemplate String?
+  requiredVariables  String    @default("[]") // JSON string array
+  modelParameters    String    @default("{}") // JSON object
+  outputSchema       String?   // JSON schema the structured output must satisfy
+  // draft | approved | default | retired
+  deploymentStatus   String    @default("draft")
+  // pending | passed | failed
+  evaluationStatus   String    @default("pending")
+  evaluationNote     String    @default("")
+  createdById        String?
+  createdByEmail     String    @default("")
+  approvedById       String?
+  approvedByEmail    String?
+  approvedAt         DateTime?
+  notes              String    @default("")
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@unique([slug, version])
+  @@index([slug, deploymentStatus])
 }

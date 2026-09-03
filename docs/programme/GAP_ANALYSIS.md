@@ -245,9 +245,12 @@ revocation). `PlanPrice` and `BillingProfile` exist unused.
 Absent: embeddings (so no semantic retrieval and no pgvector use), model routing
 by task cost, and **AI run traceability** — there is no `ai_runs` record of
 model, prompt version, inputs, evidence, output, confidence or human override.
-The CMS `PromptRegistry` is a real strength and already covers version, provider,
-model, parameters and default selection; it lacks approval/evaluation status.
-**Remediation:** `ADR-0006`.
+The CMS `PromptRegistry` was a real strength and already covered version,
+provider, model, parameters and default selection; it lacked
+approval/evaluation status. **Stage 03 (2026-09-03) replaced it** with the
+governed `PromptVersion` registry in the transactional database (approval,
+evaluation-gated promotion, rollback, step-up, audit) and the AI gateway.
+**Remediation:** `ADR-0006` — implemented; see `STAGE03_EVIDENCE.md`.
 
 ### G-25 — Reporting shares the transactional store · PARTIAL
 Rollup models and 1,066 lines of revenue analytics exist — genuinely capable. But

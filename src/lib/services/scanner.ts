@@ -1,6 +1,8 @@
 import { db } from '@/lib/db';
-import { getAIProvider, getJobProvider } from '@/lib/providers';
+import { getJobProvider } from '@/lib/providers';
 import type { JobContext } from '@/lib/providers';
+import * as ai from '@/lib/ai/gateway';
+import { loadEvidenceForGeneration } from '@/lib/evidence/vault';
 import { parseJson } from '@/lib/types';
 import type { Country, JobType, WorkMode } from '@/lib/types';
 import { loadResumeContent } from '@/lib/candidate/profile';
@@ -50,13 +52,19 @@ export async function runAgentScan(userId: string, agentId: string): Promise<Sca
   // schema (ADR-0007: inclusion would be a permission error, not a leak). The
   // rest of the scan stays on the system client until the scanner is reworked
   // in Stage 05/06 (R-35).
-  const resumeContent = await withTenant({ userId }, (tx) => loadResumeContent(tx, userId));
+  //
+  // Stage 03: approved evidence travels with the résumé as ids + one-line
+  // claims; the gateway records the ids on every AiRun and grounds against
+  // the claims.
+  const { resumeContent, evidence } = await withTenant({ userId }, async (tx) => ({
+    resumeContent: await loadResumeContent(tx, userId),
+    evidence: await loadEvidenceForGeneration(tx, userId),
+  }));
   if (!resumeContent) throw new Error('Add your resume before running a scan.');
 
   const user = await db.user.findUniqueOrThrow({ where: { id: userId } });
 
   const jobs = getJobProvider();
-  const ai = getAIProvider();
 
   const postings = await jobs.search({
     titles: parseJson<string[]>(agent.titles, []),
@@ -105,7 +113,13 @@ export async function runAgentScan(userId: string, agentId: string): Promise<Sca
     });
     if (existing) continue;
 
-    const analysis = await ai.analyzeMatch(resumeContent, toJobContext(job));
+    // Stage 03: through the gateway — the tenant's AI policy is resolved
+    // before dispatch and the run is recorded (ADR-0006, ADR-0015).
+    const { value: analysis } = await ai.analyzeMatch(
+      { userId, evidence, inputRefs: [`job:${job.id}`, `agent:${agent.id}`] },
+      resumeContent,
+      toJobContext(job),
+    );
 
     // Respect the agent's floor so the feed stays signal, not noise.
     if (analysis.matchScore < agent.minMatchScore) continue;

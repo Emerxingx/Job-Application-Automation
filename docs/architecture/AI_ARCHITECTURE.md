@@ -2,9 +2,17 @@
 
 **Decision:** `../adr/ADR-0006-ai-abstraction.md` · **Governance:** `../governance/AI_GOVERNANCE.md`
 
+**Implementation status (Stage 03, 2026-09-03):** the task-shaped gateway,
+evidence grounding, traceability and the extended prompt registry below are
+implemented — `src/lib/ai/gateway.ts`, `src/lib/ai/grounding.ts`,
+`src/lib/evidence/vault.ts`, `src/lib/ai/prompt-registry.ts`. Model routing
+is policy-first and currently resolves to the deterministic engine for every
+task because no prompt version has passed evaluation. Evidence:
+`../programme/STAGE03_EVIDENCE.md`.
+
 ## What exists (preserve)
 - `AIProvider` abstraction with lazy adapter loading and a mock default.
-- `AnthropicAIProvider`: JSON-schema-constrained output, refusal handling, and a
+- `AnthropicAIProvider` (since Stage 03: `AnthropicModelProvider`, a transport only): JSON-schema-constrained output, refusal handling, and a
   **fallback to the deterministic engine** on failure.
 - A **deterministic keyword/semantic engine** that produces stable, explainable
   scores — used both as AI grounding and as the fallback. This is a genuine asset.

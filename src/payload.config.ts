@@ -16,7 +16,6 @@ import { LearningPaths } from './cms/collections/LearningPaths';
 import { CareerGuides } from './cms/collections/CareerGuides';
 import { Certifications } from './cms/collections/Certifications';
 import { AtsRulesets } from './cms/collections/AtsRulesets';
-import { PromptRegistry } from './cms/collections/PromptRegistry';
 import { FieldMappings } from './cms/collections/FieldMappings';
 import { SeoPages } from './cms/collections/SeoPages';
 import { SiteSettings } from './cms/globals/SiteSettings';
@@ -88,10 +87,13 @@ export default buildConfig({
     LearningPaths,
     CareerGuides,
     Certifications,
-    // Automation-platform collections: read by the engine and orchestrator,
-    // written by staff.
+    // Automation-platform collections: read by the engine, written by staff.
+    // PromptRegistry left the CMS in Stage 03 (ADR-0003, ADR-0019): prompts
+    // are security-relevant configuration and now live in the transactional
+    // database as `PromptVersion`, administered from /console/prompts with
+    // step-up authentication, approval, evaluation gating and an audit trail.
+    // AtsRulesets and FieldMappings follow in Stages 05 and 12.
     AtsRulesets,
-    PromptRegistry,
     FieldMappings,
     SeoPages,
   ],

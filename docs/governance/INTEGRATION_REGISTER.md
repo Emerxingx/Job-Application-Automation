@@ -27,7 +27,7 @@ promoted on the strength of an observed run against the real service.
 
 | System | Status | Data sent | Residency | Evidence |
 | --- | --- | --- | --- | --- |
-| Anthropic | IMPLEMENTED-NOT-VALIDATED | Prompt content (evidence refs, never sensitive attributes) | **Cross-border — permitted only for tenants at `EXTERNAL_AI_ALLOWED`/`RESTRICTED`** | Real SDK, JSON-schema output, refusal handling, deterministic fallback. Never run with a live key |
+| Anthropic | IMPLEMENTED-NOT-VALIDATED | The résumé projection, the posting, approved evidence claims, and a governed prompt version — never a `RESTRICTED` attribute (gateway refuses the payload) | **Cross-border — reachable only through the gateway, only for tenants at `EXTERNAL_AI_ALLOWED` (`RESTRICTED` permits no task until L-3 resolves), and only when a prompt version is `default`, which none is** | Real SDK as a transport only (`AnthropicModelProvider`: rendered prompt in, JSON or null out); routing, grounding and fallback live in the gateway and are recorded on every `AiRun`. **Never run with a live key**; the live-model truthfulness path is proven with a fake provider (Stage 03) |
 | OpenAI | PLANNED | As above | **Cross-border — same per-tenant gating** | — |
 | Canadian-resident / approved on-shore AI provider | PLANNED | As above | CA | Required to serve tenants at `EXTERNAL_AI_PROHIBITED` with AI features; absent one, those features degrade explicitly (`ADR-0015`) |
 | Stripe | IMPLEMENTED-NOT-VALIDATED | Customer email, amounts, metadata. **No card data stored** | Cross-border | Real Checkout + verified webhook. Never run live. **Not idempotent** (Stage 01) |

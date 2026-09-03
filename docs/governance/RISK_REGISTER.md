@@ -191,3 +191,39 @@ explicitly and show the version identifier. A user who signs up today has
 agreed to a document whose wording is not published — acceptable while there
 are no real users, not acceptable at launch. Owner: founder + counsel; must be
 resolved before any real signup (Stage 24 gate at the latest).
+
+## R-37 — evidence grounding is lexical (accepted with compensating controls, Stage 03)
+
+`src/lib/ai/grounding.ts` rejects any number, capitalised entity or
+employment/education entry in generated output that the résumé and the
+approved evidence do not contain, section by section, replacing the section
+with the deterministic baseline and counting the rejection on the `AiRun`.
+The posting's free text is admitted nowhere (only its title, company,
+location, listed skills and the closed technology vocabulary), which is what
+stops a posting from injecting claims into a résumé or a letter. What it
+does **not** catch: an invented lower-case verb phrase built from words
+already present ("led the migration" when the candidate only "supported"
+it); an entity written in lower case ("at google"); a number written in
+words ("forty engineers"); and, in prose sections only (letters, stories,
+answers, rationale), a single Title-case word at a sentence start ("Google
+hired me" — acronyms, mixed case and proper-noun runs are still checked;
+résumé sections exempt nothing). Compensating controls: bullets belong only
+to real roles, are checked against their own role's evidence, and a rejected
+bullet falls back to the original at the same position; the prompt forbids
+invention; every run records what was rejected. Stage 09 adds claim-level citations, which closes the residual
+structurally. Likelihood 2 · Impact 3 · Score 6. Owner: engineering.
+
+## R-38 — no prompt version has passed evaluation, so external AI is off by construction (open, Stage 03)
+
+`AI_GOVERNANCE.md` forbids a version from serving before an evaluation has
+passed, and no live-model evaluation has ever been run from this codebase (no
+key reaches the build). The three seeded prompts are `approved / pending`;
+every task is served by the deterministic engine and recorded as
+`deterministic` or `degraded / no_default_prompt`. This is the intended
+fail-closed posture, but it means the product's "AI tailoring" is today the
+deterministic engine for every tenant, and the truthfulness suite on the
+live-model path has only been exercised with a fake provider. Resolution is
+an operator action once L-3 is decided: evaluate, record with a note,
+promote at `/console/prompts` (`AUTONOMOUS_STATUS.json` →
+`external_actions[PROMPT-EVALUATION]`). Likelihood 5 · Impact 2 · Score 10.
+Owner: founder (L-3) then operator.

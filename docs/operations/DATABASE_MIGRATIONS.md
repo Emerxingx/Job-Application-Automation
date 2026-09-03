@@ -16,6 +16,9 @@ against the staging project until the evidence section says so.
 | `20260903081338_candidate_digital_twin` | Eleven Digital Twin tables with classification comments, and a hand-written PL/pgSQL **backfill** from `Resume.content` (idempotent, tolerant, reports counts as a NOTICE). Expand phase: the JSON column stays as a projection | Additive. Forward-fix: `DELETE FROM "CandidateProfile" WHERE source = 'resume_backfill'` and re-run |
 | `20260903081500_sensitive_schema` | `sensitive` schema, `app_sensitive` role, `sensitive.self_identification` (RESTRICTED), forced RLS, grants to the sensitive role only (ADR-0007). **No Prisma model** — Prisma's drift check ignores this schema by design. **Written idempotently**: a SQL-only migration outside `public` must be, because the shadow-database reset clears only the schemas Prisma manages | Reversible (drop schema) — destroys the answers; export first |
 | `20260903081400_rls_candidate_tables` | Generated policies for the Stage 02 tables (manifest `RLS_MANIFESTS[1]`); deliberately ordered BEFORE the sensitive schema so the new tables are never granted-but-unpolicied across a migration boundary | Reversible |
+| `20260903090000_career_evidence_vault` | `CareerEvidence` (versioned, provenance-keyed claims), `ApplicationQuestion`, `AiRun` (references only), `PromptVersion`; classification comments; an idempotent **seed** of the three prompts lifted from `anthropic.ts` at `approved / pending` — never `default` (`AI_GOVERNANCE.md`: no version serves before an evaluation passes) | Additive. Forward-fix for the seed: `DELETE FROM "PromptVersion" WHERE id LIKE 'prompt_%_v1'` |
+| `20260903090100_rls_evidence_tables` | Generated policies for the Stage 03 tables (manifest `RLS_MANIFESTS[2]`); `AiRun` is SELECT-only for its subject; `PromptVersion` is `system` kind — the tenant role cannot read prompts | Reversible |
+| `20260903090200_evidence_immutability` | `BEFORE UPDATE` trigger on `CareerEvidence`: an approved / superseded / revoked row's claim, facts, kind, source, version, lineage, owner and approval time cannot change; status only moves forward. Idempotent (`CREATE OR REPLACE`, `DROP TRIGGER IF EXISTS`) | Reversible (drop trigger + function) |
 | `20260903083000_profile_ownership_keys` | `(id, userId)` unique on `CandidateProfile` and composite `(profileId, userId)` foreign keys on the nine child tables, so a child row cannot carry another user's profile. Generated with `migrate diff --from-migrations` because `migrate dev` refuses unique-constraint warnings non-interactively | Reversible (constraints only) |
 
 `prisma/migrations/migration_lock.toml` pins the provider to PostgreSQL. There
@@ -128,6 +131,15 @@ performed. It cannot be performed from this build environment (see below).
 | RLS coverage after the history | Local, 2026-09-03 | 70/70 tables enabled and forced; 128 policies (70 system + 58 tenant); `app_tenant` is NOLOGIN, NOBYPASSRLS, NOSUPERUSER |
 | Same history in CI | GitHub Actions `postgres:16` service | Enforced by the three migration-validation steps in `ci.yml` on every push |
 | **Against the Supabase staging project** | — | **NOT PERFORMED.** The build environment's egress policy does not relay raw TCP, so neither pooler port (6543, 5432) is reachable; the HTTPS endpoint is policy-denied (403). Recorded in `AUTONOMOUS_STATUS.json` as a blocker with the exact requirement |
+
+**Stage 03 (2026-09-03), local PostgreSQL 16 only.** The three Stage 03
+migrations applied to a fresh database (`migrate deploy`, full history) and
+incrementally to a Stage-02 database; `migrate diff --from-url … --exit-code`
+reports "No difference detected" after both; 85/85 public tables
+`ENABLE`+`FORCE`, 157 policies; the trigger is present and
+`tests/evidence-vault.test.ts` proves it refuses an edit from the migration
+role itself. `20260903090200` was replayed twice into one shadow database
+with no error (idempotent). **Not rehearsed on Supabase** (R-34).
 
 ## Deliberately not done in the baseline
 

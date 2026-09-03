@@ -183,7 +183,7 @@ with zero credentials:
 
 ### 4.4 Prompt-injection surface
 
-`src/lib/prompt-interpolate.ts` is deliberately split from `prompt-engine.ts` so
+`src/lib/prompt-interpolate.ts` is deliberately split from the registry read path (Stage 03: `src/lib/ai/prompt-registry.ts`; the former `prompt-engine.ts` is deleted) so
 the security-critical logic is unit-testable without Payload. Two properties are
 asserted by tests: substitution is **single-pass and non-recursive** (an injected
 `{{placeholder}}` inside a value is not re-expanded, so one variable cannot leak

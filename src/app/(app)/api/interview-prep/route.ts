@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { requireTenant } from '@/lib/tenancy/request';
-import { getAIProvider } from '@/lib/providers';
+import * as ai from '@/lib/ai/gateway';
+import { loadEvidenceForGeneration } from '@/lib/evidence/vault';
 import { toJobContext } from '@/lib/services/scanner';
 import { loadResumeContent } from '@/lib/candidate/profile';
 import { describeWait, fail, ok, route, tooMany } from '@/lib/api';
@@ -33,13 +34,18 @@ export const POST = route(async (request: Request) => {
     if (!application) return null;
     // Stage 02: the structured profile, projected, on the tenant path.
     const resumeContent = await loadResumeContent(tx, user.id);
-    return { application, resumeContent };
+    // Stage 03: approved evidence ids + claims for the run record and the corpus.
+    const evidence = await loadEvidenceForGeneration(tx, user.id);
+    return { application, resumeContent, evidence };
   });
   if (!loaded) return fail('Application not found.', 404);
-  const { application, resumeContent } = loaded;
+  const { application, resumeContent, evidence } = loaded;
   if (!resumeContent) return fail('Add your resume before preparing for interviews.', 400);
 
-  const pack = await getAIProvider().prepareInterview(
+  // Stage 03: through the gateway (policy resolved before dispatch, run
+  // recorded, stories and answers grounded in code).
+  const { value: pack } = await ai.prepareInterview(
+    { userId: user.id, evidence, inputRefs: [`application:${application.id}`] },
     resumeContent,
     toJobContext(application.job),
   );
