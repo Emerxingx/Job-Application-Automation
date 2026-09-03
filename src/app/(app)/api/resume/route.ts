@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { requireTenant } from '@/lib/tenancy/request';
-import { renderResumeText } from '@/lib/resume-render';
 import { ok, route } from '@/lib/api';
+import { saveResumeSections, writeResumeProjection } from '@/lib/candidate/profile';
 
 const experienceSchema = z.object({
   company: z.string().min(1, 'Company name is required.'),
@@ -39,20 +39,14 @@ export const PUT = route(async (request: Request) => {
   const { user, run } = await requireTenant();
   const content = resumeSchema.parse(await request.json());
 
-  const data = {
-    content: JSON.stringify(content),
-    rawText: renderResumeText(content),
-  };
-
   // Tenant path: every query below runs under the user's RLS context, and the
   // userId filters stay (ADR-0005 — the backstop does not excuse the filter).
+  //
+  // Stage 02: the structured profile is the source of truth; Resume.content is
+  // rewritten as its projection in the same transaction (expand phase).
   const resume = await run(async (tx) => {
-    const existing = await tx.resume.findFirst({ where: { userId: user.id, isMaster: true } });
-    const saved = existing
-      ? await tx.resume.update({ where: { id: existing.id }, data })
-      : await tx.resume.create({
-          data: { userId: user.id, label: 'Master Resume', isMaster: true, ...data },
-        });
+    await saveResumeSections(tx, user.id, content);
+    const saved = await writeResumeProjection(tx, user.id, content);
 
     // Saving a resume for the first time completes onboarding.
     if (!user.onboardedAt) {

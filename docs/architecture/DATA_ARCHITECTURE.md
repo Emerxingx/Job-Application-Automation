@@ -10,12 +10,16 @@
 - **pgvector** on the same instance for embeddings — no separate vector store.
 - **Payload keeps its own logical database** on the same instance (`ADR-0003`).
 
-## Current state (measured)
-- Provider: **SQLite**. 68 models, 2,139 lines.
-- **No migrations directory.**
-- **34 of 68 models have no application code references.**
-- JSON is stored as text (`scoreBreakdown`, `matchedKeywords`, `modelParameters`).
-- No RLS (SQLite has none).
+## Current state (measured, 2026-09-03)
+- Provider: **PostgreSQL** (Stage 01). 81 models in `public` plus the SQL-only
+  `sensitive.self_identification` (Stage 02).
+- **Six migrations** under `prisma/migrations/`, CI-validated; RLS generated per
+  manifest (`src/lib/tenancy/rls-tables.ts`), every table forced.
+- `User` still carries the contact fields; the career profile is the eleven
+  `Candidate*`/`EmploymentHistory`/`Education`/… tables (Stage 02). `Resume.content`
+  is a derived projection kept during the expand phase.
+- JSON list columns are still text (`bullets`, `targetTitles`, …) — deliberate
+  baseline decision, see `../operations/DATABASE_MIGRATIONS.md`.
 
 ## Target schemas
 

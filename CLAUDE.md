@@ -26,7 +26,7 @@ remediation has begun.**
 npm ci                # install from the lockfile
 npm run dev           # http://localhost:3000
 npx tsc --noEmit      # typecheck  — PASSES
-npm test              # 754 tests  — PASSES with the two database URLs below set; the
+npm test              # 788 tests  — PASSES with the two database URLs below set; the
                       #   database suites skip WITH A REASON without them and THROW
                       #   when CI=true, so CI cannot pass by skipping them
 npm run build         # production — PASSES
@@ -116,11 +116,21 @@ npm run cms:types          # regenerate payload-types.ts
    the real project is tracked as a blocker in `AUTONOMOUS_STATUS.json`; do not
    mark it done on the strength of local PostgreSQL or PgBouncer runs.
 
-9. **`npm run cms:*` temporarily rewrites `package.json`.** `scripts/payload-cli.mjs`
+9. **Demographic self-identification lives in the `sensitive` PostgreSQL schema
+   with NO Prisma model** (ADR-0007, Stage 02). Only `src/lib/sensitive/` may touch
+   it, through the `app_sensitive` role; a static test fails if any matching, AI,
+   apply, document, analytics or export module references it. Do not add a
+   sensitive field to a Prisma model — add it to the SQL migration for that schema.
+
+10. **The career profile is structured** (`CandidateProfile` and ten child
+    tables). `Resume.content` is a derived projection during the expand phase:
+    write through `src/lib/candidate/profile.ts`, never to the JSON directly.
+
+11. **`npm run cms:*` temporarily rewrites `package.json`.** `scripts/payload-cli.mjs`
    flips `"type": "module"` for the duration of the call and restores it, including
    on Ctrl-C. If a crash leaves it set, `git checkout package.json`.
 
-10. **No integration has been validated against a live service.** Stripe, Adzuna,
+12. **No integration has been validated against a live service.** Stripe, Adzuna,
     Anthropic, PayPal, ATS submission, **Supabase Auth and the managed PostgreSQL
     itself** are all `IMPLEMENTED-NOT-VALIDATED`. Code existing is not evidence of
     working.

@@ -5,7 +5,8 @@ import type { ApplyChannel } from '@/lib/providers/apply';
 import { createApplicationFolder } from '@/lib/storage';
 import { consumeQuota, refundQuota } from '@/lib/subscription';
 import { parseJson } from '@/lib/types';
-import type { MatchAnalysis, ResumeContent } from '@/lib/types';
+import type { MatchAnalysis } from '@/lib/types';
+import { loadResumeContent } from '@/lib/candidate/profile';
 import { toJobContext } from './scanner';
 
 export interface ApplyOutcome {
@@ -61,19 +62,11 @@ export async function applyToJobs(userId: string, jobIds: string[]): Promise<Bul
   }
 
   const user = await db.user.findUniqueOrThrow({ where: { id: userId } });
-  const resume = await db.resume.findFirst({
-    where: { userId, isMaster: true },
-    orderBy: { updatedAt: 'desc' },
-  });
-  if (!resume) {
-    await refundQuota(userId, granted);
-    throw new Error('Add your resume before applying.');
-  }
-
-  const resumeContent = parseJson<ResumeContent | null>(resume.content, null);
+  // Stage 02: the structured profile, projected (legacy JSON only as fallback).
+  const resumeContent = await loadResumeContent(db, userId);
   if (!resumeContent) {
     await refundQuota(userId, granted);
-    throw new Error('Your resume could not be read. Please re-save it.');
+    throw new Error('Add your resume before applying.');
   }
 
   const ai = getAIProvider();

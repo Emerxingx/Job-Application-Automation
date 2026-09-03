@@ -2,8 +2,7 @@ import { z } from 'zod';
 import { requireTenant } from '@/lib/tenancy/request';
 import { getAIProvider } from '@/lib/providers';
 import { toJobContext } from '@/lib/services/scanner';
-import { parseJson } from '@/lib/types';
-import type { ResumeContent } from '@/lib/types';
+import { loadResumeContent } from '@/lib/candidate/profile';
 import { describeWait, fail, ok, route, tooMany } from '@/lib/api';
 import { LIMITS, rateLimit } from '@/lib/rate-limit';
 
@@ -32,15 +31,12 @@ export const POST = route(async (request: Request) => {
       include: { job: true },
     });
     if (!application) return null;
-    const resume = await tx.resume.findFirst({
-      where: { userId: user.id, isMaster: true },
-      orderBy: { updatedAt: 'desc' },
-    });
-    return { application, resume };
+    // Stage 02: the structured profile, projected, on the tenant path.
+    const resumeContent = await loadResumeContent(tx, user.id);
+    return { application, resumeContent };
   });
   if (!loaded) return fail('Application not found.', 404);
-  const { application, resume } = loaded;
-  const resumeContent = parseJson<ResumeContent | null>(resume?.content, null);
+  const { application, resumeContent } = loaded;
   if (!resumeContent) return fail('Add your resume before preparing for interviews.', 400);
 
   const pack = await getAIProvider().prepareInterview(

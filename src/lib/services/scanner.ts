@@ -2,7 +2,8 @@ import { db } from '@/lib/db';
 import { getAIProvider, getJobProvider } from '@/lib/providers';
 import type { JobContext } from '@/lib/providers';
 import { parseJson } from '@/lib/types';
-import type { Country, JobType, ResumeContent, WorkMode } from '@/lib/types';
+import type { Country, JobType, WorkMode } from '@/lib/types';
+import { loadResumeContent } from '@/lib/candidate/profile';
 
 export interface ScanResult {
   agentId: string;
@@ -43,14 +44,10 @@ export function toJobContext(job: {
 export async function runAgentScan(userId: string, agentId: string): Promise<ScanResult> {
   const agent = await db.agent.findFirstOrThrow({ where: { id: agentId, userId } });
 
-  const resume = await db.resume.findFirst({
-    where: { userId, isMaster: true },
-    orderBy: { updatedAt: 'desc' },
-  });
-  if (!resume) throw new Error('Add your resume before running a scan.');
-
-  const resumeContent = parseJson<ResumeContent | null>(resume.content, null);
-  if (!resumeContent) throw new Error('Your resume could not be read. Please re-save it.');
+  // Stage 02: the structured profile, projected; falls back to the legacy JSON
+  // only for a user whose profile has not been created yet.
+  const resumeContent = await loadResumeContent(db, userId);
+  if (!resumeContent) throw new Error('Add your resume before running a scan.');
 
   const user = await db.user.findUniqueOrThrow({ where: { id: userId } });
 

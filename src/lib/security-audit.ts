@@ -33,6 +33,10 @@ export type SecurityEvent =
   | 'auth.identity.linked'
   | 'consent.granted'
   | 'consent.revoked'
+  // ADR-0007: every access to the sensitive schema is audited — never its values.
+  | 'sensitive.read'
+  | 'sensitive.write'
+  | 'sensitive.erased'
   | 'organization.created'
   | 'organization.member.invited'
   | 'organization.member.accepted'

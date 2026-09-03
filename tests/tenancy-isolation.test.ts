@@ -294,8 +294,8 @@ describe('ADR-0005 — tenancy isolation through Prisma and the migrated schema'
     // On a stock server the connection role is typically superuser; on the
     // managed deployment it is the owner with a named system_full_access
     // policy. Either way the policy row must exist so the bypass is explicit.
-    const [{ n }] = await system.$queryRaw<{ n: number }[]>`SELECT count(*)::int AS n FROM pg_policies WHERE policyname = 'system_full_access'`;
-    assert.equal(n, Object.keys(tables.RLS_TABLES).length, 'one named system policy per table');
+    const [{ n }] = await system.$queryRaw<{ n: number }[]>`SELECT count(*)::int AS n FROM pg_policies WHERE policyname = 'system_full_access' AND schemaname = 'public'`;
+    assert.equal(n, Object.keys(tables.RLS_TABLES).length, 'one named system policy per classified public table (the sensitive schema has its own)');
     // The system policy is bound to the role that ran the migration. The role
     // the APPLICATION connects as must be that same role, or — with FORCE on
     // every table — the system client sees nothing. This asserts it against

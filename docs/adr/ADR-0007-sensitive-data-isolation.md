@@ -1,6 +1,6 @@
 # ADR-0007 — Candidate sensitive-data isolation
 
-**Status:** Proposed · **Date:** 2026-09-02
+**Status:** Proposed · **Date:** 2026-09-02 · **Implemented (Stage 02, 2026-09-03):** `sensitive` schema and `app_sensitive` role created by SQL with no Prisma model (`prisma/migrations/20260903081500_sensitive_schema`); only `src/lib/sensitive/self-identification.ts` reaches it, own row only, every access audited without values; the tenant role and every decision path are proven unable to reach it (`tests/sensitive-segregation.test.ts`). Aggregate EEO reporting with small-cohort suppression is not built yet.
 
 ## Context
 The brief requires voluntary demographic and self-identification data — gender,
