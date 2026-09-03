@@ -5,7 +5,7 @@
   "current_stage": "04",
   "last_completed_stage": "00",
   "current_branch": "claude/stage-04-occupation-skills-spine",
-  "current_head": "8a5ca7a3f85ac19e613d8c80d24a5e44ed6708c5",
+  "current_head": "462d98997fabd2c43c50bec937ad363e6542d233",
   "current_head_meaning": "SHA of the last commit whose full gate set was verified locally (lint, typecheck, tests, build). Set by the status-sync commit that immediately follows it, so it names a real, verified commit rather than the one it is written in.",
   "current_pr": 16,
   "main_head": "d6ae8b3a9180b529abe06f23417515432c0a7f0e",
