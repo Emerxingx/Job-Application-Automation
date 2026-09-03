@@ -2,12 +2,12 @@
   "$comment": "Machine-readable controller for the autonomous build programme. Authoritative over any chat transcript: if this file and a conversation disagree, this file wins. Updated at every stage checkpoint.",
   "schema_version": 1,
   "updated_at": "2026-09-03",
-  "current_stage": "13",
+  "current_stage": "14",
   "last_completed_stage": "00",
-  "current_branch": "claude/stage-13-candidate-analytics",
-  "current_head": "131ac795c12b9be6e99c51a4f6c0bef92bc37679",
+  "current_branch": "claude/stage-14-candidate-api-contract",
+  "current_head": "3b1561d6cd46f74025c2b433a765f3686981422f",
   "current_head_meaning": "SHA of the last commit whose full gate set was verified locally (lint, typecheck, tests, build). Set by the status-sync commit that immediately follows it, so it names a real, verified commit rather than the one it is written in.",
-  "current_pr": "https://github.com/Emerxingx/Job-Application-Automation/pull/25",
+  "current_pr": null,
   "main_head": "d6ae8b3a9180b529abe06f23417515432c0a7f0e",
   "run_complete": false,
   "stage_status": {
@@ -25,7 +25,7 @@
     "11": "PASS_ENGINEERING_EXIT_BLOCKED_CREDENTIALS",
     "12": "PASS_ENGINEERING_EXIT_BLOCKED_CREDENTIALS",
     "13": "PASS_ENGINEERING_EXIT_PARTIAL",
-    "14": "NOT_STARTED",
+    "14": "PASS_CONTRACT_OBJECTIVE_PARTIAL",
     "15": "NOT_STARTED",
     "16": "NOT_STARTED",
     "17": "NOT_STARTED",
@@ -539,5 +539,28 @@
       "Staging rehearsal (NOT VERIFIED — R-34)"
     ],
     "verdict": "Stage 13 passes every engineering gate that can be run here and is PARTIAL at its exit on the inherited absence of an event stream and a scheduler, and on the absence of an industry classification, all stated. Merge posture inherited from the stack."
+  },
+  "stage_14_progress": {
+    "contract": "DONE — docs/api/openapi.candidate.v1.json (OpenAPI 3.1, 1.0.0, frozen 2026-09-03): thirteen operations for the candidate surface, every response a component schema, every error the one envelope, x-scope on every operation",
+    "routes": "DONE — nine new v1 routes (me, recommendations, jobs/{id}, matches/{id}, applications/{id}, confirm, submit, interviews, notifications) on v1Route: key auth, scopes, rate limits, the envelope; ownership through the key's user; no staff, billing or document bytes; the two writes are the applicant's confirm and instructed submit (Stage 12 rules)",
+    "freeze": "DONE — openapi.candidate.v1.lock (version + SHA-256 of the canonical document); npm run api:freeze; the test fails on drift; ADR-0028 change rule (breaking = v2 at a new path)",
+    "contract_tests": "DONE — pure structure + route-file parity both ways + envelope; database: every GET validated against its schema with real keys, ownership 404s, scope refusal, 401, the two writes through the status machine, never-automated values absent, contact addresses absent",
+    "mobile_app": "NOT IMPLEMENTED — no React Native / Expo toolchain in this environment; the plan sequences the app after the frozen contract; push notifications wait on ADR-0011; no generated client",
+    "independent_review": "PENDING"
+  },
+  "stage_14_exit_gate": {
+    "met": [
+      "Contract published for the candidate surface (thirteen operations)",
+      "Contract frozen and versioned before app work begins (hash lock, test-enforced, change rule)",
+      "Contract tests run in CI against the web backend",
+      "Same auth as web, no privileged endpoints, no personal data in a notification payload",
+      "Full gate set green with the documented command only: lint 0/8, typecheck 0, 1078/1078 tests (0 skipped), build 0"
+    ],
+    "not_met": [
+      "Mobile consumes only the published contract — NOT TESTABLE: the app is NOT IMPLEMENTED",
+      "Device matrix, offline behaviour, push notifications — app not built; push waits on ADR-0011",
+      "Staging rehearsal (NOT VERIFIED — R-34)"
+    ],
+    "verdict": "Stage 14 meets its exit gate as the plan words it — the contract is frozen and versioned before app work begins — and is PARTIAL on the stage's objective, the app, which is not built here and stated. Merge posture inherited from the stack."
   }
 }

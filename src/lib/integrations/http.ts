@@ -181,6 +181,13 @@ export interface V1Context {
   url: URL;
   /** Attach to every response so the client can pace itself. */
   headers: Record<string, string>;
+  /** Stage 14: the dynamic segments of the route (`{applicationId}` in the contract), decoded. Empty for a static path. */
+  params: Record<string, string>;
+}
+
+/** What Next hands a dynamic route as its second argument. */
+export interface V1RouteArgs {
+  params: Promise<Record<string, string | string[] | undefined>>;
 }
 
 /** A successful v1 response, carrying the rate-limit headers. */
@@ -197,9 +204,12 @@ export function v1Ok<T>(context: V1Context, data: T, status = 200): NextResponse
 export function v1Route(
   requiredScope: ApiScope,
   handler: (context: V1Context) => Promise<Response>,
-): (request: Request) => Promise<Response> {
-  return async (request: Request) => {
+): (request: Request, args?: V1RouteArgs) => Promise<Response> {
+  return async (request: Request, args?: V1RouteArgs) => {
     try {
+      const rawParams = args ? await args.params : {};
+      const params: Record<string, string> = {};
+      for (const [k, v] of Object.entries(rawParams)) if (typeof v === 'string') params[k] = decodeURIComponent(v);
       const authentication = await authenticateApiKey(prismaApiKeyStore(), extractApiKey(request), {
         requiredScope,
       });
@@ -254,7 +264,7 @@ export function v1Route(
       // what the customer actually did with the key.
       void recordApiKeyUse(key.id, clientAddress(request));
 
-      const context: V1Context = { key, request, url: new URL(request.url), headers };
+      const context: V1Context = { key, request, url: new URL(request.url), headers, params };
       return await handler(context);
     } catch (error) {
       if (error instanceof ApiRequestError) {

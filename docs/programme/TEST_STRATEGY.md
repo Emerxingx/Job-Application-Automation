@@ -309,3 +309,22 @@ never occurred.
   changes nothing; a single-user refresh does not shrink the benchmark;
   another tenant reads nothing and cannot reach the benchmark table; the
   benchmark suppresses a one-person cohort.
+
+## Stage 14 — the candidate API contract
+
+- `tests/candidate-api-contract.test.ts` (pure): the OpenAPI document is
+  3.1 and semver, every operation carries a scope and a 2xx schema, every
+  error references the one `Error` envelope, every path parameter is
+  declared, every `$ref` resolves; the lock's hash equals the canonical
+  document's (a change without `npm run api:freeze` fails); the contract's
+  paths and the route files under `src/app/(app)/api/v1` are the same set
+  both ways; the `Error` schema accepts exactly what `http.ts` emits.
+- (database): with real API keys, every GET's body validates against its
+  declared schema; a never-automated question carries no value through the
+  API; a contact's address is absent from the folder; another key gets the
+  404 envelope for the same ids and empty lists; a `read` key is refused
+  `apply:write` with the `insufficient_scope` envelope; an unknown key gets
+  401; `submit` on a non-permitting mode and on an unauthorised board is
+  refused with the envelope and nothing moves; `confirm` with `apply:write`
+  moves the record through the machine, seals the documents, returns a
+  valid folder, and a second confirm is refused.

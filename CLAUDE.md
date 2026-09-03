@@ -299,6 +299,19 @@ npm run cms:types          # regenerate payload-types.ts
     candidate's refresh, or the first-visit rebuild. No industry dimension
     exists; do not fake one.
 
+25. **`/api/v1` is a frozen contract** (Stage 14, ADR-0028).
+    `docs/api/openapi.candidate.v1.json` names every operation, scope and
+    schema; `openapi.candidate.v1.lock` holds its hash, and
+    `tests/candidate-api-contract.test.ts` fails when the document, the lock
+    or the route files under `src/app/(app)/api/v1` disagree, and validates
+    every response against the schema (ajv). To change the API: edit the
+    document and the code together, run `npm run api:freeze`, and bump the
+    minor version for an additive change — a breaking change is version 2 at
+    a new path, never an edit. Every v1 route goes through `v1Route`
+    (key auth, scope, rate limit, the one error envelope); the two writes are
+    the applicant's own confirm and instructed submit. The Expo app is NOT
+    built; nothing in the repository is a mobile client.
+
 ## Conventions worth preserving
 
 - **The provider pattern** (`src/lib/providers/`): interface, mock default, lazy

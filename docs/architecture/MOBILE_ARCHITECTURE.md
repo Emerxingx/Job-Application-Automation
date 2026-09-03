@@ -12,9 +12,9 @@ endpoints into a public contract by accident, discovered only when the web app
 needs to change.
 
 ## Sequence (non-negotiable)
-1. **Publish an OpenAPI contract** for the candidate surface.
-2. **Freeze it** with contract tests running in CI against the web backend.
-3. **Then** build the Expo client against that contract only.
+1. **Publish an OpenAPI contract** for the candidate surface. — **DONE (Stage 14):** `docs/api/openapi.candidate.v1.json`, version 1.0.0.
+2. **Freeze it** with contract tests running in CI against the web backend. — **DONE:** `openapi.candidate.v1.lock` + `tests/candidate-api-contract.test.ts` (ADR-0028).
+3. **Then** build the Expo client against that contract only. — NOT STARTED.
 
 ## Stack
 React Native + Expo + TypeScript. Shared types generated from the OpenAPI

@@ -1,6 +1,6 @@
 # ADR-0013 — Mobile architecture: React Native + Expo, contract-first
 
-**Status:** Proposed · **Date:** 2026-09-02
+**Status:** Proposed · **Date:** 2026-09-02 · **Steps 1 and 2 delivered (Stage 14, 2026-09-03, ADR-0028):** `docs/api/openapi.candidate.v1.json` is published (thirteen operations), hash-locked in `openapi.candidate.v1.lock`, and proven against the backend by `tests/candidate-api-contract.test.ts` in CI. Step 3, the Expo client, is not built here.
 
 ## Context
 No mobile application exists. The target is React Native + Expo + TypeScript,
