@@ -17,7 +17,7 @@
  */
 import { db } from '@/lib/db';
 import { parseJson } from '@/lib/types';
-import { dayKey, eachDayKey, snapToUtcDays } from '../time';
+import { eachDayKey, snapToUtcDays } from '../time';
 import type { DateRange } from '../types';
 import { buildBenchmarkMart, buildMatchMart, buildOutcomeMart, type ApplicationFact, type MatchFact } from './marts';
 
@@ -115,27 +115,40 @@ export async function rollupCandidateOutcomes(range: DateRange, options: { userI
     const matchRows = buildMatchMart(matchFacts);
     const scope = { day: { in: days }, ...(options.userId ? { userId: options.userId } : {}) };
 
-    await db.$transaction(async (tx) => {
-      await tx.candidateOutcomeMart.deleteMany({ where: scope });
-      for (const chunk of chunks(outcomeRows, INSERT_CHUNK)) await tx.candidateOutcomeMart.createMany({ data: chunk });
-    });
-    await db.$transaction(async (tx) => {
-      await tx.candidateMatchMart.deleteMany({ where: scope });
-      for (const chunk of chunks(matchRows, INSERT_CHUNK)) {
-        await tx.candidateMatchMart.createMany({ data: chunk.map((r) => ({ ...r, matchedKeywords: JSON.stringify(r.matchedKeywords), missingKeywords: JSON.stringify(r.missingKeywords) })) });
-      }
-    });
-
-    // The benchmark spans every user, so it is rebuilt from the WHOLE outcome
-    // mart for these days - a single-user refresh must not shrink it.
-    const allRows = options.userId ? await db.candidateOutcomeMart.findMany({ where: { day: { in: days } } }) : outcomeRows;
-    const benchmarkRows = buildBenchmarkMart(allRows.map((r) => ({ ...r, dimension: r.dimension as ApplicationFactDimension })));
-    await db.$transaction(async (tx) => {
-      await tx.candidateBenchmarkMart.deleteMany({ where: { day: { in: days } } });
-      for (const chunk of chunks(benchmarkRows, INSERT_CHUNK)) await tx.candidateBenchmarkMart.createMany({ data: chunk });
-    });
+    // One transaction, under an advisory lock on the scope, for all three
+    // marts: two refreshes for the same candidate (a double click, the sweep
+    // running beside a refresh) serialise instead of racing each other into a
+    // unique-constraint failure, and a reader never sees a half-replaced day.
+    const benchmarkRows = await db.$transaction(
+      async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`analytics:candidate:${options.userId ?? 'all'}`}::text))`;
+        // The days this scope touched before the rewrite: a day the candidate
+        // used to have rows on must be rebuilt too, or the benchmark keeps them.
+        const before = await tx.candidateOutcomeMart.findMany({ where: scope, select: { day: true }, distinct: ['day'] });
+        await tx.candidateOutcomeMart.deleteMany({ where: scope });
+        for (const chunk of chunks(outcomeRows, INSERT_CHUNK)) await tx.candidateOutcomeMart.createMany({ data: chunk });
+        await tx.candidateMatchMart.deleteMany({ where: scope });
+        for (const chunk of chunks(matchRows, INSERT_CHUNK)) {
+          await tx.candidateMatchMart.createMany({ data: chunk.map((r) => ({ ...r, matchedKeywords: JSON.stringify(r.matchedKeywords), missingKeywords: JSON.stringify(r.missingKeywords) })) });
+        }
+        // The benchmark spans every user, so it is rebuilt from the WHOLE
+        // outcome mart - but only for the days THIS scope touched, so a
+        // single candidate's refresh is bounded by their own activity, never
+        // by their tenure, and never shrinks anyone else's days.
+        const touched = options.userId ? [...new Set([...before.map((r) => r.day), ...outcomeRows.map((r) => r.day)])] : days;
+        if (touched.length === 0) return [];
+        const allRows = await tx.candidateOutcomeMart.findMany({ where: { day: { in: touched } } });
+        const rows = buildBenchmarkMart(allRows.map((r) => ({ ...r, dimension: r.dimension as ApplicationFactDimension })));
+        await tx.candidateBenchmarkMart.deleteMany({ where: { day: { in: touched } } });
+        for (const chunk of chunks(rows, INSERT_CHUNK)) await tx.candidateBenchmarkMart.createMany({ data: chunk });
+        if (options.userId) await tx.user.update({ where: { id: options.userId }, data: { analyticsBuiltAt: new Date() } });
+        return rows;
+      },
+      { timeout: 60_000 },
+    );
 
     await db.rollupRun.update({ where: { id: run.id }, data: { status: 'succeeded', rowsRead: facts.length + matchFacts.length, rowsWritten: outcomeRows.length + matchRows.length + benchmarkRows.length, finishedAt: new Date() } });
+    if (!options.userId) await stampRebuiltCandidates([...new Set(facts.map((f) => f.userId))]);
     return {
       job: CANDIDATE_ROLLUP_JOB,
       windowStart: window.start.toISOString(),
@@ -156,6 +169,13 @@ export async function rollupCandidateOutcomes(range: DateRange, options: { userI
 
 type ApplicationFactDimension = ReturnType<typeof buildOutcomeMart>[number]['dimension'];
 
+/** After a full sweep, every candidate whose rows were rebuilt is stamped, so their page never rebuilds inline. */
+export async function stampRebuiltCandidates(userIds: string[], at = new Date()): Promise<number> {
+  if (userIds.length === 0) return 0;
+  const r = await db.user.updateMany({ where: { id: { in: userIds } }, data: { analyticsBuiltAt: at } });
+  return r.count;
+}
+
 /** One candidate's whole history, from their first day on the platform to today. Bounded by their own rows. */
 export async function refreshCandidateMarts(userId: string, now = new Date()): Promise<CandidateRollupResult> {
   const user = await db.user.findUniqueOrThrow({ where: { id: userId }, select: { createdAt: true } });
@@ -174,4 +194,3 @@ export async function candidateMartFreshness(now = new Date()): Promise<{ lastSu
   return { lastSucceededAt, lastStatus: last?.status ?? null, stale };
 }
 
-export { dayKey };

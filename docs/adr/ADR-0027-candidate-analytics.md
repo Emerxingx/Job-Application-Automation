@@ -39,12 +39,16 @@ small-cohort suppression and published freshness.
    LISTS (top matches, recent activity) are operational reads of the
    candidate's own rows, not metrics, and are outside this rule - stated.
 5. **Small-cohort suppression.** A benchmark cut with fewer than five
-   distinct people yields no number and says why; over a range the cohort is
-   the largest single-day cohort (it can only understate).
+   distinct people yields no number and says why. Over a range the rule is
+   applied per day before summing, so a single person's day is never folded
+   into a shown total; the cohort reported is the smallest included day's.
 6. **Freshness is published.** Every dashboard shows the last successful
    rebuild and flags one older than a day. Rebuilds: the operator's sweep,
    the candidate's rate-limited refresh of their own rows, and once on a
-   first visit with empty marts. There is no scheduler.
+   first visit (`User.analyticsBuiltAt` null). All three marts are rewritten
+   in one transaction under an advisory lock on the scope; a candidate's
+   refresh rebuilds the benchmark only for the days their rows touched.
+   There is no scheduler.
 7. **Not available, stated.** There is no industry dimension (no industry
    classification exists). The marts are not fed incrementally from an event
    stream (ADR-0012 stage 2 waits on ADR-0011). The export endpoint still

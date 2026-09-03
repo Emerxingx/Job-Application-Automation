@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { BarChart3, KeyRound, Radar, Sparkles, Timer } from 'lucide-react';
 import { requireTenant } from '@/lib/tenancy/request';
-import { readCandidateMatches, readCandidateOutcomes, readCandidateTotals, type CandidateOutcomes } from '@/lib/analytics/candidate/read';
+import { readBenchmark, readCandidateMatches, readCandidateOutcomes, readCandidateTotals, type CandidateOutcomes } from '@/lib/analytics/candidate/read';
 import { candidateMartFreshness, refreshCandidateMarts } from '@/lib/analytics/candidate/rollup';
 import { DIMENSION_LABELS, type Dimension } from '@/lib/analytics/candidate/dictionary';
 import { formatDurationHours, formatRate, partsToPercent, type Rate } from '@/lib/analytics/types';
@@ -66,12 +66,14 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Pr
   const params = await searchParams;
   const period = resolvePeriod(parsePeriod(params.period), { since: user.createdAt });
 
-  let lifetime = await run((tx) => readCandidateTotals(tx, user.id));
-  if (lifetime.applications === 0) {
-    // Bounded to this candidate's rows; converges on the same rows every time.
+  // Once, on the first visit (never built for this candidate): a rebuild of
+  // THEIR rows, then the flag is set - so a candidate with no applications does
+  // not pay for a rebuild on every visit. A flag read, not a metric.
+  const built = await run((tx) => tx.user.findUnique({ where: { id: user.id }, select: { analyticsBuiltAt: true } }));
+  if (!built?.analyticsBuiltAt) {
     await refreshCandidateMarts(user.id).catch((error) => console.error('[analytics] first-visit refresh failed:', error instanceof Error ? error.message : error));
-    lifetime = await run((tx) => readCandidateTotals(tx, user.id));
   }
+  const lifetime = await run((tx) => readCandidateTotals(tx, user.id));
 
   const [outcomes, matches, previous, agentCount, freshness] = await Promise.all([
     run((tx) => readCandidateOutcomes(tx, user.id, period.range, period.granularity, 10)),
@@ -84,6 +86,10 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Pr
   const totals = outcomes.totals;
   const rates = outcomes.rates;
   const hasDataInPeriod = totals.applications > 0 || matches.totalMatches > 0;
+  // The platform comparison for the candidate's most-applied title, under the
+  // small-cohort rule: a group under five people yields no number and says why.
+  const topTitle = outcomes.cuts.title[0]?.key ?? null;
+  const benchmark = topTitle ? await readBenchmark('title', topTitle, period.range) : null;
   const freshnessView = <AnalyticsFreshness lastSucceededAt={freshness.lastSucceededAt?.toISOString() ?? null} lastStatus={freshness.lastStatus} stale={freshness.stale} />;
 
   const controls = (
@@ -174,6 +180,19 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Pr
           <FunnelPanel stages={funnelStages} />
         </SectionCard>
       </div>
+
+      {topTitle && benchmark && (
+        <Card className="mb-6 p-4">
+          <h2 className="font-semibold text-ink">Everyone applying to &ldquo;{topTitle}&rdquo;</h2>
+          {benchmark.suppressed ? (
+            <p className="mt-1 text-sm text-muted">{benchmark.reason}</p>
+          ) : (
+            <p className="mt-1 text-sm text-muted">
+              Across {benchmark.value.users}+ people and {benchmark.value.sent} sent applications in {period.label}: response rate {formatRate(benchmark.value.responseRate)}, interview rate {formatRate(benchmark.value.interviewRate)}, offer rate {formatRate(benchmark.value.offerRate)}. Yours: {formatRate(outcomes.cuts.title[0].responseRate)} response rate on {outcomes.cuts.title[0].sent} sent.
+            </p>
+          )}
+        </Card>
+      )}
 
       {/* Cuts - the same five numbers by every dimension the dictionary names */}
       <section className="mb-6 grid gap-4 lg:grid-cols-2">

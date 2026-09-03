@@ -43,6 +43,7 @@ against the staging project until the evidence section says so.
 | `20260903200100_rls_field_mapping_table` | Generated policies (manifest `RLS_MANIFESTS[11]`): `FieldMappingVersion` system-only | Reversible |
 | `20260903210000_candidate_marts` | Stage 13: `CandidateOutcomeMart`, `CandidateMatchMart` (user-owned), `CandidateBenchmarkMart` (system) — read-side tables rebuilt by replacement | Additive. Reversible (drop tables; nothing transactional depends on them) |
 | `20260903210100_rls_candidate_marts` | Generated policies (manifest `RLS_MANIFESTS[12]`): the two candidate marts user-owned; the benchmark system-only | Reversible |
+| `20260903210200_analytics_built_at` | Stage 13 review: `User.analyticsBuiltAt` (nullable) — the first-visit mart rebuild runs once per candidate | Additive. Reversible |
 
 
 `prisma/migrations/migration_lock.toml` pins the provider to PostgreSQL. There

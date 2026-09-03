@@ -132,6 +132,38 @@ describe('Stage 13 - candidate marts against the database', { skip: SKIP }, () =
     assert.ok(bench && bench.applications >= 2, 'the benchmark still carries A');
   });
 
+  it('two refreshes at once serialise under the lock, and the first-visit flag is stamped', async () => {
+    const before = await db.candidateOutcomeMart.count({ where: { userId: A.id } });
+    const results = await Promise.all([rollup.refreshCandidateMarts(A.id, new Date('2026-08-31T00:00:00Z')), rollup.refreshCandidateMarts(A.id, new Date('2026-08-31T00:00:00Z'))]);
+    assert.equal(results.length, 2);
+    assert.equal(await db.candidateOutcomeMart.count({ where: { userId: A.id } }), before, 'the same rows, once');
+    assert.equal(await db.rollupRun.count({ where: { job: rollup.CANDIDATE_ROLLUP_JOB, status: 'failed', windowStart: { gte: new Date('2026-07-01T00:00:00Z') } } }), 0, 'neither run failed');
+    const user = await db.user.findUniqueOrThrow({ where: { id: A.id }, select: { analyticsBuiltAt: true } });
+    assert.ok(user.analyticsBuiltAt, 'the candidate is marked built');
+  });
+
+  it('the benchmark suppresses per day: a day under the threshold contributes nothing, so one person cannot be isolated by differencing ranges', async () => {
+    // Seed the benchmark directly for a title: five people on 2026-08-05, one person (with an offer) on 2026-08-06.
+    const key = `bench-title-${S}`;
+    await db.candidateBenchmarkMart.createMany({ data: [
+      { day: '2026-08-05', dimension: 'title', key, users: 5, applications: 5, sent: 5, responded: 2, interviews: 1, offers: 0, hires: 0 },
+      { day: '2026-08-06', dimension: 'title', key, users: 1, applications: 1, sent: 1, responded: 1, interviews: 1, offers: 1, hires: 1 },
+    ] });
+    try {
+      const wide = await read.readBenchmark('title', key, { start: new Date('2026-08-05T00:00:00Z'), end: new Date('2026-08-07T00:00:00Z') });
+      assert.equal(wide.suppressed, false);
+      if (!wide.suppressed) {
+        assert.equal(wide.value.users, 5);
+        assert.equal(wide.value.sent, 5, 'the single-person day is not summed in');
+        assert.equal(wide.value.offerRate.numerator, 0, 'that person\'s offer is invisible');
+      }
+      const narrow = await read.readBenchmark('title', key, { start: new Date('2026-08-06T00:00:00Z'), end: new Date('2026-08-07T00:00:00Z') });
+      assert.equal(narrow.suppressed, true);
+    } finally {
+      await db.candidateBenchmarkMart.deleteMany({ where: { key } });
+    }
+  });
+
   it('another tenant reads nothing; the benchmark suppresses a cohort under five people', async () => {
     const other = await ctx.withTenant({ userId: B.id }, (tx) => read.readCandidateOutcomes(tx, B.id, RANGE));
     assert.equal(other.totals.applications, 0);

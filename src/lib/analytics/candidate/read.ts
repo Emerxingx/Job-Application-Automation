@@ -197,12 +197,14 @@ export async function readBenchmark(dimension: Dimension, key: string, range: Da
   const days = eachDayKey(window);
   if (days.length === 0) return suppressSmallCohort<Benchmark>(null);
   const rows = await db.candidateBenchmarkMart.findMany({ where: { dimension, key, day: { in: days } } });
-  if (rows.length === 0) return suppressSmallCohort<Benchmark>(null);
-  // Distinct people over a range cannot be summed from per-day rows without
-  // double counting, so the cohort is the LARGEST single-day cohort - the
-  // conservative reading: it can only understate the cohort, never overstate it.
-  const users = Math.max(...rows.map((r) => r.users));
+  // Suppression is applied PER DAY before anything is summed: a day whose
+  // cohort is under the threshold contributes nothing, so a single person's
+  // day can never be isolated by differencing two overlapping ranges. The
+  // cohort reported is the SMALLEST included day's - a lower bound.
+  const included = rows.filter((r) => suppressSmallCohort(r).suppressed === false);
+  if (included.length === 0) return suppressSmallCohort<Benchmark>(null);
+  const users = Math.min(...included.map((r) => r.users));
   const counts = emptyCounts();
-  for (const r of rows) addCounts(counts, { ...emptyCounts(), applications: r.applications, sent: r.sent, responded: r.responded, interviews: r.interviews, offers: r.offers, hires: r.hires });
+  for (const r of included) addCounts(counts, { ...emptyCounts(), applications: r.applications, sent: r.sent, responded: r.responded, interviews: r.interviews, offers: r.offers, hires: r.hires });
   return suppressSmallCohort<Benchmark>({ dimension, key, users, sent: counts.sent, responseRate: rateOf('response_rate', counts), interviewRate: rateOf('interview_rate', counts), offerRate: rateOf('offer_rate', counts) });
 }

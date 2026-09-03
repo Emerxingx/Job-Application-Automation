@@ -243,8 +243,10 @@ function Pipeline({ heading, data }: { heading: string; data: DashboardData }) {
       <h3 className="mb-3 text-sm font-semibold text-ink">{heading}</h3>
       <ul className="space-y-2 text-sm">
         {[
-          { label: 'Submitted', value: data.submittedCount, status: 'submitted' },
-          { label: 'In interviews', value: data.interviewCount, status: 'interviewing' },
+          // Stage 13: cumulative reach from the outcome mart (METRIC_DICTIONARY.md
+          // `sent` and `interviews`), not a snapshot of today's status.
+          { label: 'Sent', value: data.submittedCount, status: 'submitted' },
+          { label: 'Reached interview', value: data.interviewCount, status: 'interviewing' },
         ].map((row) => (
           <li key={row.label} className="flex items-center justify-between">
             <StatusBadge status={row.status} />

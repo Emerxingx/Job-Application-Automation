@@ -40,6 +40,11 @@ model User {
   // `approved_auto_apply` is modelled and REFUSED by parseApplicationMode —
   // it cannot be stored here by any route.
   applicationMode   String    @default("review_submit")
+  // Stage 13: when this candidate's analytics marts were last rebuilt for them
+  // (their refresh, the sweep, or the one bounded first-visit rebuild). Null
+  // means never — the analytics page rebuilds once and sets it, so a candidate
+  // with no applications does not trigger a rebuild on every visit.
+  analyticsBuiltAt  DateTime?
   onboardedAt       DateTime?
   // Staff identity. Staff reach /console; customers never do. There is no
   // separate staff table on purpose — one identity keeps requireUser() and

@@ -28,6 +28,7 @@ source. Exit gate: dashboards read marts, not transactional tables.
 | --- | --- | --- |
 | `20260903210000_candidate_marts` | `CandidateOutcomeMart` (user, day, dimension, key; cumulative-reach counts), `CandidateMatchMart` (user, day; bands and top keywords), `CandidateBenchmarkMart` (day, dimension, key; distinct users) | applied fresh and incrementally; drift clean |
 | `20260903210100_rls_candidate_marts` | Generated (manifest `RLS_MANIFESTS[12]`): the two candidate marts user-owned; the benchmark system-only (no tenant policy - tested: a tenant transaction is refused) | determinism test; 120 public tables forced |
+| `20260903210200_analytics_built_at` | Review fix: `User.analyticsBuiltAt` (nullable) - the first-visit rebuild runs once per candidate | additive |
 
 ## 3. One dictionary - `PASS`
 
@@ -62,9 +63,15 @@ single-user refresh never shrinks it - tested). A `RollupRun` row records
 every run. Two runs over the same rows produce the same rows (tested).
 
 Refresh paths (no scheduler exists): `npm run analytics:rollup` (the
-operator's sweep, last 400 days by default); `POST /api/analytics/refresh`
-(the candidate's own rows, rate-limited to three per ten minutes); once on a
-first visit when the candidate's marts hold nothing.
+operator's sweep, last 400 days by default, which stamps every candidate it
+rebuilt); `POST /api/analytics/refresh` (the candidate's own rows,
+rate-limited to three per ten minutes); once on a first visit, gated on
+`User.analyticsBuiltAt` (null = never built), so a candidate with no
+applications never pays for a rebuild twice. All three marts are rewritten
+in ONE transaction under an advisory lock on the scope, so two refreshes for
+the same candidate serialise rather than race (tested with two concurrent
+refreshes). A single candidate's refresh rebuilds the benchmark only for
+the days their rows touched - bounded by their activity, never their tenure.
 
 ## 6. Dashboards read marts - `PASS`
 
@@ -73,9 +80,12 @@ on the tenant path and shows: the KPI row, the keyword panels (from the match
 mart's daily tallies), the trend, the funnel, seven cut tables (one per
 dimension), the score-band distribution and the reply time - every number a
 dictionary metric. The overview's three numbers (applications, sent,
-interviews) read `readCandidateTotals`. The static scan in
-`tests/candidate-marts.test.ts` refuses a transactional query for a metric in
-the read module, the analytics page or the overview. **Scoped and stated:**
+interviews) read `readCandidateTotals`, and so do the applications page's three numbers
+(Sent, Reached interview, Needs attention) and the overview's Pipeline
+widget, relabelled to the dictionary's words. The static scan in
+`tests/candidate-marts.test.ts` refuses a transactional query for a metric,
+and an in-memory count by status, in the read module, the analytics page,
+the overview and the applications page. **Scoped and stated:**
 the overview's two lists (top matches, recent activity) are operational reads
 of the candidate's own rows, not metrics, and stay; the analytics EXPORT
 endpoint is a data export, not a dashboard, and still reads the transactional
@@ -111,10 +121,15 @@ score band 85-100 = 2.
 
 `suppressSmallCohort`: a benchmark cut with fewer than five distinct people
 yields no number and says why. The benchmark counts DISTINCT people (one
-person with twelve applications is one person - tested); over a range the
-cohort is the largest single-day cohort, which can only understate. The
-benchmark table has no user id, is system-only, and a tenant transaction
-cannot read it (tested).
+person with twelve applications is one person - tested). Over a range the
+rule is applied PER DAY before anything is summed: a day under the
+threshold contributes nothing, so one person's outcome can never be
+isolated by differencing two overlapping ranges (tested: a five-person day
+beside a one-person day with an offer - the offer is invisible and the
+narrow range is suppressed); the cohort reported is the smallest included
+day's, a lower bound. The benchmark is shown on the analytics page for the
+candidate's most-applied title. The table has no user id, is system-only,
+and a tenant transaction cannot read it (tested).
 
 ## 9. Gate status
 
@@ -122,9 +137,9 @@ cannot read it (tested).
 | --- | --- |
 | Lint | 0 errors, 8 warnings (baseline) |
 | Typecheck | 0 |
-| Tests | **1068 / 1068**, 0 skipped (Stage 12: 1054) - new: `candidate-marts` 9, `candidate-analytics` 3 |
+| Tests | **1070 / 1070**, 0 skipped (Stage 12: 1054) - new: `candidate-marts` 9, `candidate-analytics` 5 |
 | Build | passes; `/api/analytics/refresh` present; `/dashboard/analytics` and `/dashboard` compile against the marts |
-| Migrations | thirty-four applied fresh; drift clean; 120 public tables forced; RLS migration equals the generator output |
+| Migrations | thirty-five applied fresh; drift clean; 120 public tables forced; RLS migration equals the generator output |
 
 ## 10. Exit gate - verdict
 
@@ -154,4 +169,24 @@ dimension. Merge posture inherited from the stack.
 
 ## 12. Independent review
 
-PENDING - recorded here when done.
+An independent adversarial pass over the whole diff (tenant leakage,
+suppression, metric correctness, rollup safety, the dashboards-read-marts
+claim, migration, false PASS, dead code). Two HIGH, three MEDIUM, one LOW -
+every one fixed:
+
+| Severity | Finding | Disposition |
+| --- | --- | --- |
+| HIGH | The "first-visit" rebuild was gated on `applications === 0`, so a candidate with no applications re-ran a full rebuild on EVERY visit, unrate-limited, against the document's "once" | **Fixed** - gated on `User.analyticsBuiltAt` (new nullable column); the rebuild and the sweep stamp it; tested |
+| HIGH | `/dashboard/applications` still counted "Submitted" and "In interviews" in memory from the transactional list - a metric variant with a different definition from the overview, unstated and outside the static test | **Fixed** - the three numbers read the mart; relabelled Sent / Reached interview; the page is in the static scan, which now also refuses an in-memory count by status |
+| MEDIUM | A candidate's refresh rebuilt the platform benchmark for every day of their tenure, a cross-user scan from an unprivileged action | **Fixed** - bounded to the days the candidate's rows touched (before and after) |
+| MEDIUM | `readBenchmark` was unwired, and its range aggregation summed a single-person day into a shown total - isolable by differencing ranges | **Fixed** - suppression per day before summing (cohort = the smallest included day); wired into the analytics page for the top title; tested with a five-person day beside a one-person day |
+| MEDIUM | The overview's Pipeline widget kept "Submitted" / "In interviews" labels over cumulative-reach numbers | **Fixed** - labelled Sent / Reached interview, with the dictionary named in the code |
+| MEDIUM | The three mart rewrites ran as three transactions with an unlocked read between them; two refreshes could race into a unique-constraint failure | **Fixed** - one transaction under an advisory lock on the scope; tested with two concurrent refreshes |
+| LOW | A dead `dayKey` re-export | **Fixed** - removed |
+
+Found sound, with the line read: every read filters by the caller's user id
+on the tenant path and RLS proves it; a candidate's refresh never touches
+another user's outcome or match rows; the RLS classification matches the
+generated migration; the migrations are additive with cascade on user
+deletion; reach inference holds at every status-machine edge; totals sum
+only the `all` dimension; the delete scope is exactly the recomputed days.

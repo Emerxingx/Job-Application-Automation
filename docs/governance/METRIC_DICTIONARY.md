@@ -87,9 +87,11 @@ NOT AVAILABLE and is stated rather than approximated.
 across every candidate, with `users` = the number of DISTINCT people in the
 cut. The read path (`readBenchmark`) applies one rule before anything leaves
 it: a cut with fewer than **5** people (`MIN_COHORT`) yields no number and
-says why. Over a range, the cohort is the LARGEST single-day cohort - the
-conservative reading, which can only understate it. The benchmark table has
-no user id and is never read on the tenant path.
+says why. Over a range the rule is applied PER DAY before anything is
+summed: a day under the threshold contributes nothing, so one person's
+outcome can never be isolated by differencing two overlapping ranges; the
+cohort reported is the smallest included day's, a lower bound. The
+benchmark table has no user id and is never read on the tenant path.
 
 ## Freshness
 

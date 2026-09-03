@@ -174,12 +174,15 @@ describe('match mart and benchmark', () => {
 describe('dashboards read marts', () => {
   it('nothing under the candidate read path or the analytics page queries a transactional table', () => {
     const root = path.join(__dirname, '..', 'src');
-    const files = [path.join(root, 'lib', 'analytics', 'candidate', 'read.ts'), path.join(root, 'app', '(app)', 'dashboard', 'analytics', 'page.tsx'), path.join(root, 'app', '(app)', 'dashboard', 'page.tsx')];
+    const files = [path.join(root, 'lib', 'analytics', 'candidate', 'read.ts'), path.join(root, 'app', '(app)', 'dashboard', 'analytics', 'page.tsx'), path.join(root, 'app', '(app)', 'dashboard', 'page.tsx'), path.join(root, 'app', '(app)', 'dashboard', 'applications', 'page.tsx')];
     // A COUNT or an aggregate is a metric; a findMany of matches or events is a list (what to do next), which ADR-0027 leaves operational.
-    const transactional = /\b(tx|db)\.(application|applicationStatusHistory|applicationInterview|documentVersion|emailThread|job)\.(count|findMany|findFirst|aggregate|groupBy)\b|\b(tx|db)\.(jobMatch|activityEvent)\.(count|aggregate|groupBy)\b/;
+    const transactional = /\b(tx|db)\.(applicationStatusHistory|applicationInterview|documentVersion|emailThread|job)\.(count|findMany|findFirst|aggregate|groupBy)\b|\b(tx|db)\.(application|jobMatch|activityEvent)\.(count|aggregate|groupBy)\b/;
+    // Counting a list in memory by status is a metric variant too.
+    const inMemoryVariant = /\.filter\([^)]*\.status[^)]*\)\s*\.length/;
     for (const f of files) {
       const src = readFileSync(f, 'utf8');
       assert.ok(!transactional.test(src), `${path.relative(root, f)} reads a transactional table for a metric`);
+      assert.ok(!inMemoryVariant.test(src), `${path.relative(root, f)} counts a status in memory - a metric variant`);
     }
     // The rollup is the one place that may.
     const rollup = readFileSync(path.join(root, 'lib', 'analytics', 'candidate', 'rollup.ts'), 'utf8');
