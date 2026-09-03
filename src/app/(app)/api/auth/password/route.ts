@@ -1,7 +1,8 @@
 import { z } from 'zod';
 import { db } from '@/lib/db';
 import { getSessionId, hashPassword, requireUser, revokeAllSessions, verifyPassword } from '@/lib/auth';
-import { fail, ok, route } from '@/lib/api';
+import { describeWait, fail, ok, route, tooMany } from '@/lib/api';
+import { LIMITS, rateLimit } from '@/lib/rate-limit';
 import { recordSecurityEvent, requestMeta } from '@/lib/security-audit';
 
 const schema = z.object({
@@ -16,10 +17,23 @@ const schema = z.object({
  */
 export const POST = route(async (request: Request) => {
   const user = await requireUser();
+  // Keyed by USER, not address: the threat is a stolen session guessing the
+  // current password online, and the attacker's address is not the owner's.
+  const limit = rateLimit('auth', `password:${user.id}`, LIMITS.auth);
+  if (!limit.ok) {
+    return tooMany(`Too many attempts. Try again in ${describeWait(limit.retryAfterSeconds)}.`, limit.retryAfterSeconds);
+  }
   const body = schema.parse(await request.json());
   const meta = requestMeta(request);
 
   if (!(await verifyPassword(body.currentPassword, user.passwordHash))) {
+    await recordSecurityEvent({
+      event: 'auth.login.failed',
+      user,
+      summary: 'Password change refused: current password incorrect',
+      detail: { reason: 'password_change_reauth' },
+      meta,
+    });
     return fail('Your current password is not correct.', 403);
   }
   if (body.currentPassword === body.newPassword) {

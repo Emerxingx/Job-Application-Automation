@@ -55,6 +55,10 @@ export interface SupabaseIdentity {
   /** auth.users.id — the stable subject. */
   subject: string;
   email: string | null;
+  /**
+   * TRUE only when the provider itself reported `email_confirmed_at` for this
+   * user (see `fetchSupabaseUser`). The token cannot establish this.
+   */
   emailVerified: boolean;
   /** aal1 or aal2, per the MFA assurance claim. */
   assuranceLevel: 'aal1' | 'aal2';
@@ -79,13 +83,16 @@ export function identityFromClaims(payload: JWTPayload): SupabaseIdentity {
     throw new SupabaseIdentityError('Token subject is not a Supabase user id');
   }
   const email = typeof payload.email === 'string' ? payload.email.toLowerCase().trim() : null;
-  const meta = (payload.user_metadata ?? {}) as Record<string, unknown>;
-  const emailVerified = payload.email_verified === true || meta.email_verified === true;
   const aal = payload.aal === 'aal2' ? 'aal2' : 'aal1';
   return {
     subject,
     email,
-    emailVerified,
+    // NEVER derived from the token. `user_metadata.email_verified` is writable
+    // by the end user through updateUser(), and Supabase issues no trusted
+    // top-level claim for it, so a token can only ever say "unverified" here.
+    // The exchange route asks the provider (fetchSupabaseUser) and overrides
+    // this from `email_confirmed_at`, which the user cannot set.
+    emailVerified: false,
     assuranceLevel: aal,
     providerSessionId: typeof payload.session_id === 'string' ? payload.session_id : null,
     issuedAt: typeof payload.iat === 'number' ? new Date(payload.iat * 1000) : null,
@@ -126,4 +133,68 @@ export async function verifySupabaseAccessToken(
     throw new SupabaseIdentityError('Token could not be verified');
   }
   throw new SupabaseIdentityError('Supabase identity is not configured');
+}
+
+/**
+ * Ask the provider who the token belongs to, and whether that user's email is
+ * confirmed. `GET /auth/v1/user` returns the `auth.users` row for the bearer;
+ * `email_confirmed_at` is set by the provider's own confirmation flow and is
+ * not user-writable, unlike anything in `user_metadata`.
+ *
+ * Returns `null` when the provider cannot be consulted (no URL configured, no
+ * anon key, network failure, non-2xx) — the caller must treat null as
+ * UNVERIFIED. It never throws on a network error, so a provider outage
+ * degrades to "cannot link by email" rather than a 500, and never returns a
+ * partial answer.
+ */
+export interface SupabaseProviderUser {
+  id: string;
+  email: string | null;
+  emailConfirmedAt: Date | null;
+}
+
+export async function fetchSupabaseUser(
+  accessToken: string,
+  config: SupabaseIdentityConfig,
+  options: { anonKey?: string | null; fetchImpl?: typeof fetch } = {},
+): Promise<SupabaseProviderUser | null> {
+  const anonKey = options.anonKey ?? process.env.SUPABASE_ANON_KEY ?? null;
+  if (!config.url || !anonKey) return null;
+  const fetchImpl = options.fetchImpl ?? fetch;
+  try {
+    const response = await fetchImpl(`${config.url}/auth/v1/user`, {
+      method: 'GET',
+      headers: { apikey: anonKey, Authorization: `Bearer ${accessToken}` },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!response.ok) return null;
+    const body = (await response.json()) as { id?: unknown; email?: unknown; email_confirmed_at?: unknown };
+    if (typeof body.id !== 'string' || !UUID.test(body.id)) return null;
+    const confirmed = typeof body.email_confirmed_at === 'string' ? new Date(body.email_confirmed_at) : null;
+    return {
+      id: body.id,
+      email: typeof body.email === 'string' ? body.email.toLowerCase().trim() : null,
+      emailConfirmedAt: confirmed && !Number.isNaN(confirmed.getTime()) ? confirmed : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Combine the verified token with the provider's answer. The subject must
+ * match (a token for user A must not be upgraded with user B's record) and
+ * the confirmed email must equal the token's email; otherwise the identity is
+ * returned unverified, never rejected — rule 1 in link.ts still applies to an
+ * already-linked identity.
+ */
+export function withProviderVerification(
+  identity: SupabaseIdentity,
+  providerUser: SupabaseProviderUser | null,
+): SupabaseIdentity {
+  if (!providerUser) return identity;
+  if (providerUser.id !== identity.subject) return identity;
+  if (!providerUser.emailConfirmedAt) return identity;
+  if (identity.email !== null && providerUser.email !== identity.email) return identity;
+  return { ...identity, email: identity.email ?? providerUser.email, emailVerified: true };
 }

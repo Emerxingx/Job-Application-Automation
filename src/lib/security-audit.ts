@@ -56,7 +56,7 @@ export function requestMeta(request: Request | undefined): RequestMeta {
   return {
     ip: forwarded ? forwarded.split(',')[0].trim() : (request.headers.get('x-real-ip') ?? null),
     userAgent: request.headers.get('user-agent')?.slice(0, 256) ?? null,
-    requestId: request.headers.get('x-request-id') ?? null,
+    requestId: request.headers.get('x-request-id')?.slice(0, 128) ?? null,
   };
 }
 
@@ -76,9 +76,17 @@ export interface SecurityEventInput {
 }
 
 /**
- * Write one security event. Never throws: an audit write failing must not
- * turn a successful sign-in into a 500, but it must not be silent either, so
- * the failure is logged with the event name and nothing else.
+ * Write one security event.
+ *
+ * On the module-level client this never throws: an audit write failing must
+ * not turn a successful sign-in into a 500, but it must not be silent either,
+ * so the failure is logged with the event name and nothing else.
+ *
+ * Inside a caller's TRANSACTION the opposite holds, and swallowing would be a
+ * lie: PostgreSQL aborts the transaction on the failed INSERT, every later
+ * statement fails with 25P02, and the caller's commit fails anyway. So a
+ * transactional audit write rethrows — the event and the action it records
+ * commit together or not at all.
  */
 export async function recordSecurityEvent(
   input: SecurityEventInput,
@@ -107,5 +115,6 @@ export async function recordSecurityEvent(
     });
   } catch (error) {
     console.error(`[security-audit] failed to record ${input.event}:`, error instanceof Error ? error.message : error);
+    if (client !== db) throw error;
   }
 }

@@ -2,13 +2,13 @@
 
 ## Current state (measured)
 
-Re-measured 2026-09-02, mid-Stage 01. The baseline this document was written
+Re-measured 2026-09-03, end of Stage 01. The baseline this document was written
 against — 670 tests, no CI, lint never run — is superseded.
 
 | | At the audit | Now |
 | --- | --- | --- |
-| Tests | 670 | **699** with PostgreSQL available, 689 without |
-| Suites | 158 | 164 |
+| Tests | 670 | **800+** with a migrated PostgreSQL available (the database suites skip with a reason without one, and throw in CI) |
+| Suites | 158 | 180+ |
 | Files / lines | 16 / 7,668 | 19 / 8,533 |
 | CI | none | 3 jobs, all required (`.github/workflows/ci.yml`) |
 | Lint | never run | 0 errors, 8 warnings, blocking at `--max-warnings=8` |
@@ -57,9 +57,17 @@ user A cannot read user B's row — **with application filters removed in the
 harness**, so the test exercises RLS specifically. Without this, tenant isolation
 is an assertion rather than a property.
 
-*Progress:* the **mechanism** half is done — `tests/rls-isolation.test.ts`, 10
-assertions against a real PostgreSQL in CI. The **per-table** half is not, and
-cannot be until the tables exist in PostgreSQL. See below.
+*Progress:* **both halves are done.** The mechanism: `tests/rls-isolation.test.ts`,
+10 assertions against a real PostgreSQL in CI. The per-table half:
+`tests/tenancy-isolation.test.ts` runs through the real Prisma client on the
+migrated schema with application filters removed — every table classified and
+forced, cross-tenant read and write, missing/malformed context, connection
+reuse asserted by backend PID, 40 parallel requests, organisation scope, and
+the tenant role's write surface (own-row column privileges; no writes to the
+roster or the organisation record). Membership authorisation negatives are in
+`tests/organizations.test.ts`, identity linkage in `tests/identity-link.test.ts`,
+sessions in `tests/sessions.test.ts`. What is NOT done: the same suite through
+the staging project's pooler (R-34).
 
 **2. AI truthfulness (Stage 03).** Given a fixed profile and evidence vault,
 assert that no generated document contains an employer, technology, date,
@@ -78,24 +86,28 @@ removing `eslint: { ignoreDuringBuilds: true }` from `next.config.mjs` — is
 done: it stopped meaning anything once lint became its own gate, and Next 16
 warned on the key. The plan is complete.
 
-## The RLS isolation proof (`tests/rls-isolation.test.ts`)
+## The database suites
 
-The only test in the suite that requires a real database. SQLite has no
-row-level security, so the guarantee simply cannot be exercised against the file
-the rest of the suite uses.
+Since Stage 01 the transactional store is PostgreSQL, and five files need a
+real one: `rls-isolation` (mechanism; creates its own schema and role),
+`tenancy-isolation`, `organizations`, `sessions` and `identity-link` (all run
+through the migrated schema — apply the history with `npm run db:migrate:deploy`
+first).
 
-**Running it.** Set `RLS_TEST_DATABASE_URL` to any PostgreSQL 14+ the test may
-create and drop a schema and a role in:
+**Running them.** Set `RLS_TEST_DATABASE_URL` (any PostgreSQL 14+ the test may
+create and drop a schema and a role in) and `TENANCY_TEST_DATABASE_URL` (a
+database the migrations have been applied to; the same one is fine):
 
 ```bash
-RLS_TEST_DATABASE_URL=postgresql://postgres@127.0.0.1:5432/postgres npm test
+RLS_TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/jobpilot_test \
+TENANCY_TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/jobpilot_test npm test
 ```
 
-Without it, the suite skips this file with an explicit reason and the other 689
-tests run normally — a developer without PostgreSQL is not blocked.
+Without them, those files skip with an explicit reason and the rest of the
+suite runs normally — a developer without PostgreSQL is not blocked.
 
-**It cannot be skipped where it matters.** The file throws when
-`RLS_TEST_DATABASE_URL` is absent and `CI=true` (or `RLS_TEST_REQUIRED=1`). CI
+**They cannot be skipped where it matters.** Each file throws when its URL is
+absent and `CI=true` (or `RLS_TEST_REQUIRED=1`). CI
 supplies a `postgres:16` service container, so deleting that service fails the
 job rather than quietly turning the proof off. This is rule 1 below applied to a
 test that is *conditional* by nature: conditional must not become optional.

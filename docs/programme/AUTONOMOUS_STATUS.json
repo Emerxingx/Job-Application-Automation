@@ -48,16 +48,17 @@
     "supabase_environment_verification": "PARTIAL — DATABASE_URL (transaction pooler, 6543, pgbouncer=true) and DIRECT_URL (session, 5432) present and correctly shaped, host in ca-central-1; verified WITHOUT printing. SUPABASE_REGION / SUPABASE_PROJECT_NAME NOT present. Connectivity BLOCKED by egress policy (raw TCP not relayed; HTTPS to the project 403). See blockers[SUPABASE-NETWORK] and STAGE01_EVIDENCE.md §1",
     "postgresql_migration": "DONE locally and in CI — provider switched, 3-migration history (baseline unchanged in semantics; tenancy_identity + backfill; generated row_level_security), drift-checked both directions, CI validates on every push, docs/operations/DATABASE_MIGRATIONS.md. NOT VERIFIED against the Supabase project (network)",
     "sqlite_assumptions_removed": "DONE — case-insensitive search sites, NULLS LAST on nullable-date DESC sorts, Payload adapter by URI scheme, password percent-encoding (src/lib/db-url.ts), stale comments",
-    "rls_policies_on_real_tables": "DONE — 70/70 tables ENABLE+FORCE, 128 policies generated from src/lib/tenancy/rls-tables.ts; determinism test; coverage test fails on an unclassified table",
+    "rls_policies_on_real_tables": "DONE — 70/70 tables ENABLE+FORCE, policies generated from src/lib/tenancy/rls-tables.ts; tenant write surface minimal (User: own row, profile columns only; Organization/Membership: read-only; Coupon: system); _prisma_migrations revoked; determinism test; coverage test fails on an unclassified table",
     "transaction_scoped_tenant_context": "DONE — src/lib/tenancy/context.ts (SET LOCAL ROLE app_tenant + set_config(…, TRUE) in one interactive transaction; ids validated before use); requireTenant() in src/lib/tenancy/request.ts",
     "tenant_path_adoption": "PARTIAL — see STAGE01_EVIDENCE.md §7 for the exact list; remaining handlers rely on application filters as before (R-35)",
-    "organization_membership_wiring": "DONE — personal workspace per user (signup + backfill), membership service with fail-closed authorisation, routes, 12 negative tests; Organization.type + aiProcessingPolicy (default EXTERNAL_AI_PROHIBITED)",
+    "organization_membership_wiring": "DONE — personal workspace per user (signup + backfill), membership service with fail-closed authorisation (an invitation can never touch an active membership; pending invitations withdrawable), routes, 14 negative tests; Organization.type + aiProcessingPolicy (default EXTERNAL_AI_PROHIBITED)",
     "pooled_runtime_proof": "PARTIAL — tests/tenancy-isolation.test.ts (real Prisma client, filters removed, PID-asserted reuse, 40 parallel requests) passes on direct PostgreSQL 16 and through PgBouncer 1.22 in transaction mode (28/28, 22/22). NOT VERIFIED through Supavisor on the staging project (network)",
-    "session_revocation": "DONE — Session rows; logout/password-change/user/staff revoke immediate; session list; pre-Stage-01 tokens refused; 11 tests",
-    "supabase_auth_identity": "IMPLEMENTED-NOT-VALIDATED — token verification (HS256 secret or JWKS), issuer/audience/expiry/subject checks, identity linkage rules (verified email only), exchange route (503 when unconfigured); 11 tests with locally minted tokens. No real token verified",
+    "session_revocation": "DONE — Session rows; logout, password change and the account holder's own revoke are immediate; session list; pre-Stage-01 tokens refused; 11 tests. Staff-initiated revoke: reason code only, no caller (Stage 20 console)",
+    "supabase_auth_identity": "IMPLEMENTED-NOT-VALIDATED — token verification (HS256 secret or JWKS; issuer/audience/expiry/subject), provider-side email verification via GET /auth/v1/user (never from a token claim — the review found the first version trusted user-writable user_metadata), identity linkage rules, exchange route (503 when unconfigured). 14 verification tests with locally minted tokens + 6 linkage negatives against the database. No real token verified",
     "mfa_email_verification_recovery_oauth": "BLOCKED (CREDENTIAL + EXTERNAL_SERVICE) — Supabase Auth flows; needs SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY or SUPABASE_JWT_SECRET, and HTTPS egress to the project host",
     "consent_and_audit": "DONE (capture + audit) — ConsentRecord at signup (required checkbox, server-side refusal), /terms and /privacy pages stating the text is pending counsel (R-36); security events in AuditLog without secrets (email digest on failed sign-in)",
-    "security_negative_testing": "DONE for everything reachable: cross-tenant read/write, missing/malformed/unknown context, revoked/expired session, invalid/expired/wrong-issuer/wrong-audience identity token, missing membership, pending invitation, privilege escalation, owner bypass, pooled reuse (PID asserted), parallel requests, background execution, webhook replay/ordering (existing 12)"
+    "security_negative_testing": "DONE for everything reachable: cross-tenant read/write, missing/malformed/unknown context, revoked/expired session, invalid/expired/wrong-issuer/wrong-audience identity token, missing membership, pending invitation, privilege escalation, owner bypass, pooled reuse (PID asserted), parallel requests, background execution, webhook replay/ordering (existing 12)",
+    "independent_review": "DONE — 13 findings (2 HIGH: identity linkage trusted a user-writable claim; invite upsert could demote/lock out an owner), all HIGH/MEDIUM fixed with negative tests in the same PR, LOW/NIT fixed or recorded; see STAGE01_EVIDENCE.md §11"
   },
   "stage_01_exit_gate": {
     "met": [
@@ -165,6 +166,7 @@
     "Never print, log or commit DATABASE_URL / DIRECT_URL; diagnostics use describeDatabaseUrl() only.",
     "Every new table is classified in src/lib/tenancy/rls-tables.ts and the RLS migration regenerated; the coverage test enforces it.",
     "User-facing queries run inside requireTenant().run(tx => …); a db. call inside a run callback escapes the transaction and is a defect.",
-    "prisma migrate deploy is the only production migration path; db push is local prototyping only."
+    "prisma migrate deploy is the only production migration path; db push is local prototyping only.",
+    "DATABASE_URL and DIRECT_URL authenticate as the SAME role: the system RLS policy is bound to the migration role; a different application role sees nothing."
   ]
 }

@@ -5,7 +5,13 @@ import { LIMITS, clientAddress, rateLimit } from '@/lib/rate-limit';
 import { CONSENT_PURPOSES } from '@/lib/consent';
 import { activatePlan } from '@/lib/subscription';
 import { IdentityLinkError, linkSupabaseIdentity } from '@/lib/identity/link';
-import { SupabaseIdentityError, supabaseIdentityConfig, verifySupabaseAccessToken } from '@/lib/identity/supabase';
+import {
+  fetchSupabaseUser,
+  SupabaseIdentityError,
+  supabaseIdentityConfig,
+  verifySupabaseAccessToken,
+  withProviderVerification,
+} from '@/lib/identity/supabase';
 import { recordSecurityEvent, requestMeta } from '@/lib/security-audit';
 
 const schema = z.object({
@@ -39,6 +45,11 @@ export const POST = route(async (request: Request) => {
   let identity;
   try {
     identity = await verifySupabaseAccessToken(body.accessToken, config);
+    // Email verification comes from the provider's own record, never from a
+    // claim the user can write. Unreachable provider ⇒ unverified ⇒ no
+    // linking by email and no account creation; an already-linked identity
+    // still signs in.
+    identity = withProviderVerification(identity, await fetchSupabaseUser(body.accessToken, config));
   } catch (error) {
     if (error instanceof SupabaseIdentityError) {
       await recordSecurityEvent({

@@ -67,6 +67,22 @@ describe('membership service — fails closed', { skip: SKIP }, () => {
     await orgs.acceptInvitation(invitee.id, orgId);
     assert.ok(await orgs.findActiveMembership(db, orgId, invitee.id));
   });
+  it('an invitation can never touch an ACTIVE membership (the review finding: admin demotes/locks out the owner)', async () => {
+    await rejects(orgs.inviteMember(admin.id, orgId, { userId: owner.id, role: 'member' }), 409);
+    await rejects(orgs.inviteMember(owner.id, orgId, { userId: admin.id, role: 'member' }), 409);
+    const still = await orgs.findActiveMembership(db, orgId, owner.id);
+    assert.equal(still?.role, 'owner');
+    assert.ok(still?.acceptedAt, 'the owner is still accepted');
+    await rejects(orgs.inviteMember(owner.id, orgId, { userId: `ghost_${S}`, role: 'member' }), 404);
+  });
+  it('a pending invitation can be withdrawn by an admin, and then confers nothing and cannot be accepted', async () => {
+    await orgs.inviteMember(owner.id, orgId, { userId: outsider.id, role: 'member' });
+    await rejects(orgs.withdrawInvitation(member.id, orgId, outsider.id), 403);
+    await orgs.withdrawInvitation(admin.id, orgId, outsider.id);
+    await rejects(orgs.acceptInvitation(outsider.id, orgId), 404);
+    await rejects(orgs.requireMembership(db, orgId, outsider.id), 404);
+    await rejects(orgs.withdrawInvitation(admin.id, orgId, outsider.id), 404, /No pending/);
+  });
   it('a member cannot invite; an admin cannot grant above their own role (no self-escalation path)', async () => {
     await rejects(orgs.inviteMember(member.id, orgId, { userId: outsider.id, role: 'member' }), 403);
     await rejects(orgs.inviteMember(admin.id, orgId, { userId: outsider.id, role: 'owner' }), 403, /above your own/);

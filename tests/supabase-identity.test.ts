@@ -2,10 +2,12 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { SignJWT } from 'jose';
 import {
+  fetchSupabaseUser,
   identityFromClaims,
   supabaseIdentityConfig,
   SupabaseIdentityError,
   verifySupabaseAccessToken,
+  withProviderVerification,
 } from '../src/lib/identity/supabase';
 
 /**
@@ -51,11 +53,13 @@ describe('supabaseIdentityConfig', () => {
 });
 
 describe('verifySupabaseAccessToken', () => {
-  it('accepts a well-formed token and normalises the identity', async () => {
+  it('accepts a well-formed token and normalises the identity — as UNVERIFIED', async () => {
     const id = await verifySupabaseAccessToken(await mint(), config);
     assert.equal(id.subject, SUB);
     assert.equal(id.email, 'person@example.test');
-    assert.equal(id.emailVerified, true);
+    // user_metadata.email_verified is in the token and is IGNORED: it is
+    // user-writable. Only the provider's record can verify (below).
+    assert.equal(id.emailVerified, false);
     assert.equal(id.assuranceLevel, 'aal1');
     assert.equal(id.providerSessionId, 'sess-1');
   });
@@ -63,9 +67,11 @@ describe('verifySupabaseAccessToken', () => {
     assert.equal((await verifySupabaseAccessToken(await mint({ aal: 'aal2' }), config)).assuranceLevel, 'aal2');
     assert.equal((await verifySupabaseAccessToken(await mint({ aal: 'aal9' }), config)).assuranceLevel, 'aal1');
   });
-  it('does not treat an unverified email as verified', async () => {
-    const id = await verifySupabaseAccessToken(await mint({ user_metadata: {} }), config);
-    assert.equal(id.emailVerified, false);
+  it('never treats a claim as verification, whatever the token says', async () => {
+    for (const claims of [{ user_metadata: {} }, { user_metadata: { email_verified: true } }, { email_verified: true }]) {
+      const id = await verifySupabaseAccessToken(await mint(claims), config);
+      assert.equal(id.emailVerified, false, JSON.stringify(claims));
+    }
   });
   for (const [name, make] of [
     ['a wrong signature', () => mint({}, { secret: 'another-secret-that-is-also-32-chars-long!' })],
@@ -96,5 +102,41 @@ describe('verifySupabaseAccessToken', () => {
   });
   it('identityFromClaims lowercases and trims the email', () => {
     assert.equal(identityFromClaims({ sub: SUB, email: '  A@B.C ' }).email, 'a@b.c');
+  });
+});
+
+describe('provider-side email verification (the only source that counts)', () => {
+  const base = { subject: SUB, email: 'person@example.test', emailVerified: false, assuranceLevel: 'aal1' as const, providerSessionId: null, issuedAt: null };
+  const fakeFetch = (status: number, body: unknown): typeof fetch =>
+    (async () => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })) as unknown as typeof fetch;
+
+  it('returns null (unverified) without a URL or anon key, on non-2xx, on a malformed body, and on a network error', async () => {
+    assert.equal(await fetchSupabaseUser('t', { ...config, url: null }, { anonKey: 'k' }), null);
+    assert.equal(await fetchSupabaseUser('t', config, { anonKey: null }), null);
+    assert.equal(await fetchSupabaseUser('t', config, { anonKey: 'k', fetchImpl: fakeFetch(401, {}) }), null);
+    assert.equal(await fetchSupabaseUser('t', config, { anonKey: 'k', fetchImpl: fakeFetch(200, { id: 'nope' }) }), null);
+    const boom = (async () => { throw new Error('ECONNRESET'); }) as unknown as typeof fetch;
+    assert.equal(await fetchSupabaseUser('t', config, { anonKey: 'k', fetchImpl: boom }), null);
+  });
+  it('reads email_confirmed_at from the provider record and sends the bearer token with the apikey', async () => {
+    let seen: { url: string; headers: Record<string, string> } | null = null;
+    const spy = (async (url: string, init: RequestInit) => {
+      seen = { url, headers: init.headers as Record<string, string> };
+      return new Response(JSON.stringify({ id: SUB, email: 'Person@Example.test', email_confirmed_at: '2026-09-01T00:00:00Z' }), { status: 200 });
+    }) as unknown as typeof fetch;
+    const user = await fetchSupabaseUser('tok', config, { anonKey: 'anon', fetchImpl: spy });
+    assert.equal(seen!.url, `${URL_}/auth/v1/user`);
+    assert.equal(seen!.headers.Authorization, 'Bearer tok');
+    assert.equal(seen!.headers.apikey, 'anon');
+    assert.equal(user?.email, 'person@example.test');
+    assert.ok(user?.emailConfirmedAt);
+  });
+  it('withProviderVerification upgrades only when subject and email match and the email is confirmed', () => {
+    const confirmed = new Date('2026-09-01T00:00:00Z');
+    assert.equal(withProviderVerification(base, null).emailVerified, false);
+    assert.equal(withProviderVerification(base, { id: 'other', email: base.email, emailConfirmedAt: confirmed }).emailVerified, false, 'subject mismatch');
+    assert.equal(withProviderVerification(base, { id: SUB, email: base.email, emailConfirmedAt: null }).emailVerified, false, 'not confirmed');
+    assert.equal(withProviderVerification(base, { id: SUB, email: 'else@example.test', emailConfirmedAt: confirmed }).emailVerified, false, 'email mismatch');
+    assert.equal(withProviderVerification(base, { id: SUB, email: base.email, emailConfirmedAt: confirmed }).emailVerified, true);
   });
 });

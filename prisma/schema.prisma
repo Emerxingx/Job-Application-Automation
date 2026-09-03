@@ -2189,7 +2189,7 @@ model Session {
   lastSeenAt   DateTime  @default(now())
   expiresAt    DateTime
   revokedAt    DateTime?
-  revokedReason String?  // logout | password_change | user_revoke | staff_revoke | expired
+  revokedReason String?  // logout | password_change | user_revoke | staff_revoke (staff revoke: no caller yet, Stage 20 console)
   // Coarse device context for the account holder's own session list. Never a
   // fingerprint; an IP and a user agent string, both optional.
   ip           String?

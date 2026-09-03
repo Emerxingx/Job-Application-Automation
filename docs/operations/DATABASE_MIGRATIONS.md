@@ -29,10 +29,23 @@ npm run db:reset             # prisma migrate reset --force — LOCAL ONLY: drop
 npm run db:push              # LOCAL ONLY prototyping; never against staging or production
 ```
 
-Production and staging use **only** `prisma migrate deploy`, run against
+Production and staging use **only** `npm run db:migrate:deploy`, run against
 `DIRECT_URL` (the session-mode endpoint — migrations need a connection that
 survives across statements; the transaction pooler does not guarantee that).
 The application itself uses `DATABASE_URL` (transaction pooler, port 6543).
+
+The `db:*` scripts wrap the Prisma CLI in `scripts/db/with-encoded-env.mjs`,
+which percent-encodes the password in both variables for the child process
+(the CLI reads `DIRECT_URL` raw and rejects a reserved character with "invalid
+port number"). `npx prisma …` called directly is not wrapped.
+
+**Role constraint.** The RLS migration creates each table's
+`system_full_access` policy `TO current_user` — the role that runs the
+migration. `DATABASE_URL` must therefore log in as that same role; a different
+application role would have no policy on any forced table and every system
+query would return nothing. `tests/tenancy-isolation.test.ts` asserts this
+against whichever database it runs on. On Supabase both URLs use
+`postgres.<ref>`.
 
 CI (`.github/workflows/ci.yml`) applies the whole history to an empty
 PostgreSQL, then fails if the result differs from `prisma/schema.prisma`
@@ -69,7 +82,7 @@ reversible. Recovery therefore means one of:
 
 | Situation | Action |
 | --- | --- |
-| Migration failed part-way (`migrate status` shows a failed migration) | Read the error. If the failing statement is safe to re-run, fix the SQL and `prisma migrate resolve --rolled-back <name>` then deploy again. Prisma wraps each migration in a transaction on PostgreSQL, so a failed migration leaves the schema as it was — verify with `migrate diff` before assuming |
+| Migration failed part-way (`db:migrate:status` shows a failed migration) | Read the error. If the failing statement is safe to re-run, fix the SQL and `prisma migrate resolve --rolled-back <name>` then deploy again. Prisma wraps each migration in a transaction on PostgreSQL, so a failed migration leaves the schema as it was — verify with `migrate diff` before assuming |
 | Migration applied but wrong (bad backfill, wrong default) | **Forward-fix**: a new migration that corrects the data or schema. Never edit an applied migration file; Prisma checksums them and a changed file is a failed history |
 | Migration applied and destroyed data | Restore from the pre-migration restore point (Supabase: point-in-time recovery to the timestamp taken immediately before `migrate deploy`), then forward-fix the migration before re-running |
 | Need to reproduce a past schema state | `prisma migrate deploy` up to that migration on an empty database — the history is deterministic; the RLS migration is additionally reproducible from its generator |
@@ -78,8 +91,8 @@ reversible. Recovery therefore means one of:
 1. Take a restore point and record its timestamp in the deploy note (Supabase
    PITR; on self-managed PostgreSQL, `pg_dump` the database).
 2. `prisma migrate status` — nothing failed.
-3. `prisma migrate deploy` against `DIRECT_URL`.
-4. `prisma migrate diff --from-url "$DIRECT_URL" --to-schema-datamodel prisma/schema.prisma --exit-code` — no drift.
+3. `npm run db:migrate:deploy` against `DIRECT_URL`.
+4. `npm run db:migrate:check` — no drift.
 5. Run `tests/tenancy-isolation.test.ts` against the deployed database
    (`TENANCY_TEST_DATABASE_URL`) — RLS coverage and isolation on the real
    schema.

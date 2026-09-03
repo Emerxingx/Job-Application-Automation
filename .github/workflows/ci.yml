@@ -120,14 +120,17 @@ jobs:
       # the three failing means someone edited the schema without a migration,
       # or a migration without the schema, and that is a red build here rather
       # than a surprise on the deploy.
+      # Through the same npm scripts operators use, so the connection-string
+      # normalisation wrapper (scripts/db/with-encoded-env.mjs) is exercised
+      # on every push rather than only on the deploy that needs it.
       - name: Apply the migration history to an empty database
-        run: npx prisma migrate deploy
+        run: npm run db:migrate:deploy
 
       - name: Fail if the migrated database differs from the schema
-        run: npx prisma migrate diff --from-url "$DATABASE_URL" --to-schema-datamodel prisma/schema.prisma --exit-code
+        run: npm run db:migrate:check
 
       - name: Fail if any migration is pending or failed
-        run: npx prisma migrate status
+        run: npm run db:migrate:status
 
       - name: Lint
         run: npm run lint:ci

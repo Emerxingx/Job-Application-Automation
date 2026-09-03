@@ -1,6 +1,7 @@
+import { db } from '../db';
 import { requireUser, type CurrentUser } from '../auth';
 import { withTenant, type TenantTx, type WithTenantOptions } from './context';
-import { personalOrganizationId } from './organizations';
+import { personalOrganizationId, requireMembership } from './organizations';
 
 /**
  * The request-level entry point to the tenant path.
@@ -14,8 +15,12 @@ import { personalOrganizationId } from './organizations';
  * catches the forgotten clause, it does not excuse one.
  *
  * The organisation context defaults to the user's personal workspace. Routes
- * that act within another organisation pass its id explicitly, and it is
- * still only the membership-derived policies that decide what that grants.
+ * that act within another organisation pass its id explicitly; the caller's
+ * ACTIVE membership of it is checked here (fail closed, 404 for a stranger)
+ * before any context is established, and the policies then decide what that
+ * membership grants. Passing an organisation id never widens access on its
+ * own: no policy reads `app.current_organization_id` yet — it is carried so
+ * organisation-scoped policies can be added without changing every caller.
  */
 export interface TenantRequest {
   user: CurrentUser;
@@ -26,6 +31,7 @@ export interface TenantRequest {
 export async function requireTenant(organizationId?: string): Promise<TenantRequest> {
   const user = await requireUser();
   const orgId = organizationId ?? personalOrganizationId(user.id);
+  if (organizationId !== undefined) await requireMembership(db, orgId, user.id, 'member');
   return {
     user,
     organizationId: orgId,

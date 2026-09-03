@@ -45,6 +45,10 @@ function usingFor(table: string, rule: RlsKind): { using: string; check: string 
       const expr = `${q(rule.column)} = ANY (app_member_organization_ids())`;
       return { using: expr, check: expr };
     }
+    case 'orgReadOnly':
+      return { using: `${q(rule.column)} = ANY (app_member_organization_ids())`, check: '' };
+    case 'userOwnRow':
+      return { using: `${q(rule.column)} = app_current_user_id()`, check: `${q(rule.column)} = app_current_user_id()` };
     case 'viaParent': {
       const parentKey = rule.parentKey ?? 'id';
       const exists = `EXISTS (SELECT 1 FROM ${q(rule.parent)} p WHERE p.${q(parentKey)} = ${q(table)}.${q(rule.fk)})`;
@@ -91,6 +95,9 @@ function render(): string {
   emit(`GRANT USAGE ON SCHEMA public TO ${TENANT_ROLE};`);
   emit(`GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO ${TENANT_ROLE};`);
   emit(`GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO ${TENANT_ROLE};`);
+  emit(`-- Prisma's migration ledger is not application data and is not classified;`);
+  emit(`-- the blanket grant above must not reach it.`);
+  emit(`REVOKE ALL ON "_prisma_migrations" FROM ${TENANT_ROLE};`);
   emit(`-- Tables created by later migrations get the same grants; their policies are`);
   emit(`-- still their own migration's job, and the coverage test fails until they exist.`);
   emit(`ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ${TENANT_ROLE};`);
@@ -139,6 +146,14 @@ function render(): string {
   emit(`-- 3. Every table: ENABLE and FORCE, then the system role's named policy and`);
   emit(`--    the tenant role's policies. Order matters for nothing; the coverage test`);
   emit(`--    checks the end state, not this script.`);
+  emit(`--`);
+  emit(`--    The system policy is bound to the role that RUNS THIS MIGRATION`);
+  emit(`--    (current_user). DATABASE_URL must therefore authenticate as the same`);
+  emit(`--    role as DIRECT_URL: with FORCE on every table, a different application`);
+  emit(`--    login role would have no policy and every system-client query would`);
+  emit(`--    return nothing. The tenancy suite asserts this on whatever database it`);
+  emit(`--    runs against. (Supabase's service_role keeps BYPASSRLS by design; its`);
+  emit(`--    key is a secret this application never holds.)`);
   emit(`-- ---------------------------------------------------------------------------`);
   for (const table of tables) {
     const rule = RLS_TABLES[table];
@@ -151,10 +166,18 @@ function render(): string {
     emit(`DROP POLICY IF EXISTS tenant_read ON ${t};`);
     emit(`DO $$ BEGIN EXECUTE format('CREATE POLICY system_full_access ON ${t.replace(/'/g, "''")} TO %I USING (true) WITH CHECK (true)', current_user); END $$;`);
     const p = usingFor(table, rule);
+    emit(`DROP POLICY IF EXISTS tenant_update ON ${t};`);
     if (p === null) {
       emit(`-- (no tenant policy: a forced table with no policy for ${TENANT_ROLE} denies every command)`);
-    } else if (rule.kind === 'reference') {
+    } else if (rule.kind === 'reference' || rule.kind === 'orgReadOnly') {
       emit(`CREATE POLICY tenant_read ON ${t} FOR SELECT TO ${TENANT_ROLE} USING (${p.using});`);
+    } else if (rule.kind === 'userOwnRow') {
+      emit(`CREATE POLICY tenant_read ON ${t} FOR SELECT TO ${TENANT_ROLE} USING (${p.using});`);
+      emit(`CREATE POLICY tenant_update ON ${t} FOR UPDATE TO ${TENANT_ROLE} USING (${p.using}) WITH CHECK (${p.check});`);
+      // Column privileges bound the UPDATE policy: the row is the user's, but
+      // only these columns are theirs to change on the tenant path.
+      emit(`REVOKE INSERT, UPDATE, DELETE ON ${t} FROM ${TENANT_ROLE};`);
+      emit(`GRANT UPDATE (${rule.updatableColumns.map(q).join(', ')}) ON ${t} TO ${TENANT_ROLE};`);
     } else {
       emit(`CREATE POLICY tenant_access ON ${t} TO ${TENANT_ROLE} USING (${p.using}) WITH CHECK (${p.check});`);
     }

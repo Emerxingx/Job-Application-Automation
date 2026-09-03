@@ -25,6 +25,14 @@
  *   userOrOrg   — the row belongs to a user OR to an organisation the user is
  *                 an accepted member of (invoices, API keys).
  *   org         — the row belongs to an organisation the user is a member of.
+ *   orgReadOnly — as `org`, but SELECT only: the roster and the organisation
+ *                 record are administered by the membership service on the
+ *                 system client, so the tenant role has no reason to write
+ *                 them — and a write policy there would let any member set
+ *                 their own role or the organisation's AI policy.
+ *   userOwnRow  — the user's own row, readable, with UPDATE confined to the
+ *                 columns the tenant path actually edits (column privileges);
+ *                 never `role`, `email`, `passwordHash`.
  *   viaParent   — ownership runs through a parent row; the parent's own policy
  *                 is applied inside the EXISTS, so the two can never disagree.
  *   custom      — a hand-written predicate, for the handful of tables whose
@@ -39,6 +47,10 @@
 
 export type RlsKind =
   | { kind: 'user'; column: string }
+  /** Own row(s) readable; UPDATE allowed only on the listed columns; no INSERT/DELETE. */
+  | { kind: 'userOwnRow'; column: string; updatableColumns: string[] }
+  /** Organisation-scoped rows readable by members; never writable on the tenant path. */
+  | { kind: 'orgReadOnly'; column: string }
   | { kind: 'userOrOrg'; userColumn: string; orgColumn: string }
   | { kind: 'org'; column: string }
   | { kind: 'viaParent'; parent: string; fk: string; parentKey?: string; extra?: string }
@@ -50,7 +62,15 @@ export const RLS_TABLES: Record<string, RlsKind> = {
   // --- Identity ------------------------------------------------------------
   // A tenant reads and updates its own row only. Sign-in by email happens on
   // the system path before any tenant exists.
-  User: { kind: 'user', column: 'id' },
+  User: {
+    kind: 'userOwnRow',
+    column: 'id',
+    // Exactly what api/profile and api/resume write on the tenant path, plus
+    // updatedAt because Prisma sets it on every update. `role` (the staff
+    // console's second lock), `email`, `passwordHash` and the identity fields
+    // are deliberately absent: they change only on the system client.
+    updatableColumns: ['fullName', 'phone', 'city', 'country', 'headline', 'linkedinUrl', 'portfolioUrl', 'workAuth', 'onboardedAt', 'updatedAt'],
+  },
   Session: { kind: 'user', column: 'userId' },
   UserIdentity: { kind: 'user', column: 'userId' },
   ConsentRecord: { kind: 'user', column: 'userId' },
@@ -58,13 +78,12 @@ export const RLS_TABLES: Record<string, RlsKind> = {
   DeletionRequest: { kind: 'user', column: 'userId' },
 
   // --- Organisations ---------------------------------------------------------
-  Organization: { kind: 'org', column: 'id' },
-  // Members see the roster of the organisations they belong to; changes to
-  // the roster are made by the membership service, which checks the actor's
-  // role (owner/admin) in code because a policy cannot compare old and new
-  // rows. The WITH CHECK below still refuses a write that names an
-  // organisation the actor is not an accepted member of.
-  Membership: { kind: 'org', column: 'organizationId' },
+  Organization: { kind: 'orgReadOnly', column: 'id' },
+  // Members see the roster of the organisations they belong to. Changes to
+  // the roster are made ONLY by the membership service on the system client,
+  // which checks the actor's role in code; the tenant role gets no write
+  // policy at all, so even a future tenant-path query cannot promote itself.
+  Membership: { kind: 'orgReadOnly', column: 'organizationId' },
 
   // --- Candidate product data ------------------------------------------------
   Subscription: { kind: 'user', column: 'userId' },
@@ -134,12 +153,13 @@ export const RLS_TABLES: Record<string, RlsKind> = {
   Job: { kind: 'reference' },
   TaxRate: { kind: 'reference', where: `"active" = true` },
   TaxRegistration: { kind: 'reference', where: `"active" = true` },
-  // Coupon codes are discoverable only by knowing them; a tenant may resolve
-  // an active code but never enumerate inactive or draft ones.
-  Coupon: { kind: 'reference', where: `"active" = true` },
   FeatureFlag: { kind: 'reference' },
 
   // --- System only -------------------------------------------------------------
+  // Coupon codes are secrets that must be resolvable only by presenting one;
+  // RLS cannot express "resolve but do not enumerate", so redemption stays on
+  // the system client (src/lib/billing) and the tenant path sees no coupons.
+  Coupon: { kind: 'system' },
   AuditLog: { kind: 'system' },
   WebhookEvent: { kind: 'system' },
   EmailSuppression: { kind: 'system' },

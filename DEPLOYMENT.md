@@ -19,14 +19,23 @@ does not have. Two connection strings are required:
 | `DATABASE_URL` | the application at runtime | the **transaction-mode pooler**, port 6543, with `?pgbouncer=true` |
 | `DIRECT_URL` | `prisma migrate` | the session-mode pooler or direct host, port 5432 |
 
-A password containing URL-reserved characters is handled: both values are
-percent-encoded by `src/lib/db-url.ts` before any parser sees them.
+**Both URLs must authenticate as the same database role.** The row-level
+security migration binds the system client's access to the role that ran the
+migration (`system_full_access … TO <that role>`); with RLS forced on every
+table, an application role that differs from the migration role has no policy
+and sees nothing. On Supabase both are `postgres.<ref>`; keep it that way
+until a dedicated application role is introduced together with its own policy.
+
+A password containing URL-reserved characters is percent-encoded for you by
+the application (`src/lib/db-url.ts`) and by every `npm run db:*` script
+(`scripts/db/with-encoded-env.mjs`). Calling `npx prisma …` directly bypasses
+the wrapper — encode `DIRECT_URL` yourself if you do.
 
 Schema changes are **versioned migrations**, never `db push`:
 
 ```bash
-DIRECT_URL="postgresql://…:5432/…" npx prisma migrate deploy   # apply the history
-npx prisma migrate diff --from-url "$DIRECT_URL" --to-schema-datamodel prisma/schema.prisma --exit-code
+DIRECT_URL="postgresql://…:5432/…" npm run db:migrate:deploy   # apply the history
+DIRECT_URL="postgresql://…:5432/…" npm run db:migrate:check    # fail on drift
 DATABASE_URL="postgresql://…" npm run db:seed                  # seeds the three plans + demo account
 ```
 

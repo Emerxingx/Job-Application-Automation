@@ -23,8 +23,11 @@ variable, only structure reported):
   live `SELECT` from the project was not possible (below). **PARTIAL.**
 - Both passwords contain one URL-reserved character, so the values as issued
   are unparseable by Node's `URL`, `pg` and Prisma. `src/lib/db-url.ts`
-  percent-encodes them idempotently; `tests/db-url.test.ts` covers it. Not a
-  credential defect; recorded so the next person does not lose an hour to it.
+  percent-encodes `DATABASE_URL` idempotently for the application (tested in
+  `tests/db-url.test.ts`); the Prisma CLI reads `DIRECT_URL` raw, so every
+  `npm run db:*` script goes through `scripts/db/with-encoded-env.mjs`, which
+  encodes both in the child environment. Not a credential defect; recorded so
+  the next person does not lose an hour to it.
 
 **Connectivity — `BLOCKED` (network egress policy):**
 
@@ -73,7 +76,7 @@ Checked on the applied schema (local, and asserted by `tests/tenancy-isolation.t
 | Constraints / FKs / indexes / defaults / nullability | identical to the Prisma model (drift check both directions); FK actions as declared |
 | Enums | none — the schema uses string columns with documented vocabularies (unchanged from the baseline) |
 | Timestamps | `TIMESTAMP(3)` UTC-naive (Prisma default); recorded, not changed |
-| RLS | 70/70 `relrowsecurity` and `relforcerowsecurity`; 128 policies (70 `system_full_access` + 58 tenant) |
+| RLS | 70/70 `relrowsecurity` and `relforcerowsecurity`; 128 policies (70 `system_full_access` + 58 tenant); `User` UPDATE confined by column privilege to the profile columns; `Organization`/`Membership` read-only for the tenant role; `_prisma_migrations` revoked |
 | Roles | `app_tenant`: `NOLOGIN NOINHERIT NOBYPASSRLS NOSUPERUSER`; granted to the migration role so `SET LOCAL ROLE` works |
 | Data compatibility | the backfill ran over pre-existing rows; the seed runs unchanged apart from adding the workspace and consent |
 
@@ -89,14 +92,18 @@ Checked on the applied schema (local, and asserted by `tests/tenancy-isolation.t
   accept, change role, remove, `requireMembership()` failing closed. Routes:
   `GET/POST /api/organizations`, `GET/POST/PATCH/DELETE /api/organizations/:id/members`,
   `POST /api/organizations/:id/invitation`.
-- Negative tests (`tests/organizations.test.ts`, 12): non-member → 404 (no
+- Negative tests (`tests/organizations.test.ts`, 14): non-member → 404 (no
   existence disclosure); pending invitation confers nothing; only the invitee
-  accepts; member cannot invite; admin cannot grant above own role (no
+  accepts; **an invitation can never touch an active membership** (the review
+  finding: an admin could otherwise "invite" the owner as a member and lock
+  them out); a pending invitation can be withdrawn by an admin and then confers
+  nothing; member cannot invite; admin cannot grant above own role (no
   self-escalation); only owner changes roles, never own; unknown role refused;
   admin cannot remove admin/owner; last owner cannot be removed; removed member
   loses access at once; personal workspace cannot gain members or lose its
   owner; `personal`/`platform` cannot be created via the API; a stored role
-  this code does not recognise satisfies nothing.
+  this code does not recognise satisfies nothing. The roster shows no name or
+  email for an invitee who has not accepted.
 
 ## 5. Row-level security — `PASS` on PostgreSQL 16 and through PgBouncer; `NOT VERIFIED` through Supavisor
 
@@ -122,7 +129,8 @@ capped at one so reuse is deterministic and asserted by `pg_backend_pid()`:
 | 9 | **organisation scope**: accepted membership grants, a pending invitation does not, owner of X reads nothing of B's personal data, B cannot write X's roster | pass |
 | 10 | reference tables readable, not writable; `AuditLog` / `WebhookEvent` invisible and unwritable | pass |
 | 11 | a tenant cannot read or revoke another's `User` row or `Session` | pass |
-| 12 | background/system execution is the connection role, with a **named** `system_full_access` policy per table | pass |
+| 12 | background/system execution is the connection role, with a **named** `system_full_access` policy per table, bound to the role `DATABASE_URL` authenticates as | pass |
+| 13 | **write surface**: a tenant cannot update its own `role`, `email` or `passwordHash` (column privilege refused) but can update profile columns; cannot delete its row; cannot promote itself or relax the organisation's AI policy (no write policy on `Membership`/`Organization`); cannot enumerate coupons; cannot read `_prisma_migrations` | pass |
 
 Runs:
 
@@ -149,7 +157,7 @@ never sets session-level state.
 | Server-side revocable sessions | **PASS** | `Session` rows; cookie JWT carries `sid`; `requireUser()` refuses revoked / expired / password-epoch-stale / missing rows; pre-Stage-01 tokens refused. `tests/session-liveness.test.ts` (7), `tests/sessions.test.ts` (4) |
 | Session list and revoke, "sign out everywhere else" | **PASS** | `GET/DELETE /api/auth/sessions`, `DELETE /api/auth/sessions/:id` |
 | Password change revokes other sessions | **PASS** | `POST /api/auth/password` re-authenticates, sets `passwordChangedAt`, revokes others |
-| User identity linkage to Supabase Auth | **IMPLEMENTED-NOT-VALIDATED** | `UserIdentity`, `src/lib/identity/{supabase,link}.ts`, `POST /api/auth/exchange`; `tests/supabase-identity.test.ts` (11) with locally minted tokens. Refuses unverified-email linkage; 503 when unconfigured |
+| User identity linkage to Supabase Auth | **IMPLEMENTED-NOT-VALIDATED** | `UserIdentity`, `src/lib/identity/{supabase,link}.ts`, `POST /api/auth/exchange`. Email verification is taken **only** from the provider's own record (`GET /auth/v1/user` → `email_confirmed_at`), never from a token claim — the first version trusted `user_metadata.email_verified`, which the end user can write; the review caught it. `tests/supabase-identity.test.ts` (14, locally minted tokens and a stubbed provider) and `tests/identity-link.test.ts` (6 linkage negatives against the database: unverified identity links nothing, creates nothing; bound subject wins; a different subject with the same email is a stranger). 503 when unconfigured |
 | Email verification, account recovery, MFA, OAuth | **BLOCKED (CREDENTIAL + EXTERNAL_SERVICE)** | Delivered by Supabase Auth per the ratified decision. Needs `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` / `SUPABASE_JWT_SECRET`, and HTTPS egress to the project host. The platform carries `assuranceLevel` per session and `emailVerifiedAt` per user so enforcement can be added without a schema change |
 | RLS identity context | **PASS (platform)** | Policies key on the platform user id set per transaction; a Supabase subject resolves to that user through `UserIdentity` |
 | Consent | **PASS (capture)**, wording **pending counsel** (R-36) | Required checkbox with accessible label; refused server-side without it; `ConsentRecord` per purpose and version; revocable |
@@ -194,13 +202,16 @@ From a network that can open TCP to the pooler (values from the environment;
 never paste them):
 
 ```bash
-npx prisma migrate status                      # DIRECT_URL — expect three pending on a fresh project
-npx prisma migrate deploy                      # DIRECT_URL — take a restore point first
-npx prisma migrate diff --from-url "$DIRECT_URL" --to-schema-datamodel prisma/schema.prisma --exit-code
-TENANCY_TEST_DATABASE_URL="$DATABASE_URL" RLS_TEST_DATABASE_URL="$DIRECT_URL" \
-  node --import tsx --test tests/tenancy-isolation.test.ts tests/organizations.test.ts tests/sessions.test.ts tests/rls-isolation.test.ts
-psql "$DIRECT_URL" -Atc "select current_setting('server_version'), inet_server_addr()"   # region / version, redacted in the record
+npm run db:migrate:status                      # DIRECT_URL — expect three pending on a fresh project
+npm run db:migrate:deploy                      # DIRECT_URL — take a restore point first
+npm run db:migrate:check                       # no drift
+node scripts/db/with-encoded-env.mjs sh -c 'TENANCY_TEST_DATABASE_URL="$DATABASE_URL" RLS_TEST_DATABASE_URL="$DIRECT_URL" \
+  node --import tsx --test tests/tenancy-isolation.test.ts tests/organizations.test.ts tests/sessions.test.ts tests/rls-isolation.test.ts'
+node scripts/db/with-encoded-env.mjs sh -c 'psql "$DIRECT_URL" -Atc "select current_setting(\x27server_version\x27)"'   # version; never paste the URL
 ```
+(The `npm run db:*` scripts and the wrapper percent-encode the passwords; a
+bare `npx prisma` call against the staging credential fails on the reserved
+character.)
 
 ## 9. Regression at the recorded head
 
@@ -232,3 +243,26 @@ staging project is built and proven. The four items marked `NOT VERIFIED` /
 `BLOCKED` all reduce to one cause (§1) and are not closable from this
 environment. No item is marked PASS on the strength of a mock, a skipped test
 or a document.
+
+## 11. Independent review — findings and dispositions
+
+A separate reviewer (no shared context with the author) read the whole diff,
+the ADRs and the evidence, and inspected the migrated catalog read-only.
+Thirteen findings; every HIGH and MEDIUM is fixed in this PR with a negative
+test where one applies.
+
+| # | Severity | Finding | Disposition |
+| --- | --- | --- | --- |
+| 1 | HIGH | Identity linkage trusted `user_metadata.email_verified`, a claim the end user can write → account takeover once Supabase Auth is configured | **Fixed.** Verification comes only from `GET /auth/v1/user` (`email_confirmed_at`); the token can only ever say "unverified". `tests/identity-link.test.ts` + provider-stub tests |
+| 2 | HIGH | `inviteMember` upsert matched an active membership: an admin could "invite" the owner as `member`, resetting `acceptedAt` → demotion and lock-out, bypassing every guard | **Fixed.** An active membership is refused (409); invitee existence checked; `withdrawInvitation` added for pending rows. Negative tests added |
+| 3 | MEDIUM | Password change unthrottled: a stolen session could brute-force the current password | **Fixed.** Per-user rate limit; failed re-auth audited |
+| 4 | MEDIUM | Tenant write policies on `Membership`, `Organization`, `User` broader than any tenant-path writer needs (self-promotion, AI-policy relaxation, `User.role` edit possible from a future tenant query) | **Fixed.** `orgReadOnly` (SELECT only) for both; `User` UPDATE confined by column privilege to profile columns; test 13 |
+| 5 | MEDIUM | System policy bound to the migration role; a different application login role would see nothing, undocumented and untested | **Documented** (`.env.example`, `DEPLOYMENT.md`, `DATABASE_MIGRATIONS.md`, generator comment) and **asserted** (test 12 checks the `DATABASE_URL` role is named by the policy). A separate non-owner application role is deliberately not introduced yet |
+| 6 | MEDIUM | Docs claimed `DIRECT_URL` was normalised; the Prisma CLI reads it raw | **Fixed.** `scripts/db/with-encoded-env.mjs` wraps every `npm run db:*` script and CI; docs corrected |
+| 7 | MEDIUM | Overclaims: "staff revoke" (no caller), linkage tests (none existed), stale `TEST_STRATEGY.md`, `src/middleware.ts` references, gate-test count | **Corrected** in every named document |
+| 8 | LOW | `Coupon` active codes enumerable on the tenant path despite the comment | **Fixed.** `Coupon` is `system`; test 13 |
+| 9 | LOW | `_prisma_migrations` writable by `app_tenant` | **Fixed.** Revoked in the generator; test 13 |
+| 10 | LOW | Unhandled errors returned raw messages (constraint and table names) | **Fixed.** `route()` maps known errors to statuses and answers everything else generically |
+| 11 | LOW | Roster disclosed invitees' emails before acceptance; no way to withdraw an invitation; no org-creation ceiling | Emails hidden until acceptance; withdrawal added. Creation ceiling and invitation discovery → Stage 02 roster UI |
+| 12 | LOW | Audit writer swallowed errors inside a transaction, which aborts anyway | **Fixed.** Rethrows when given a transaction client |
+| 13 | NIT | `requireTenant(orgId)` did no membership check; dead `next=` param; asset-path matcher; `createdAt` overwrite on password change; unbounded request id; `expired` reason never written | Membership check added; request id capped; schema comment corrected; the rest recorded as nits for Stage 02 |

@@ -3,10 +3,11 @@
  *
  * This lives apart from src/lib/auth.ts on purpose. `auth.ts` imports
  * `next/headers`, `bcryptjs` and the Prisma client — none of which can run in
- * the edge runtime, where `src/middleware.ts` executes. Importing `auth.ts`
- * from middleware would drag PrismaClient into the edge bundle.
+ * the edge runtime, where `src/proxy.ts` (Next 16's name for middleware)
+ * executes. Importing `auth.ts` from it would drag PrismaClient into the edge
+ * bundle.
  *
- * So the two values middleware genuinely needs live here, importable from both
+ * So the two values the edge gate genuinely needs live here, importable from both
  * runtimes, and `auth.ts` re-exports them so existing callers are unchanged.
  * There is exactly one definition of each; this is not a duplicate.
  */

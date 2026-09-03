@@ -296,6 +296,53 @@ describe('ADR-0005 — tenancy isolation through Prisma and the migrated schema'
     // policy. Either way the policy row must exist so the bypass is explicit.
     const [{ n }] = await system.$queryRaw<{ n: number }[]>`SELECT count(*)::int AS n FROM pg_policies WHERE policyname = 'system_full_access'`;
     assert.equal(n, Object.keys(tables.RLS_TABLES).length, 'one named system policy per table');
+    // The system policy is bound to the role that ran the migration. The role
+    // the APPLICATION connects as must be that same role, or — with FORCE on
+    // every table — the system client sees nothing. This asserts it against
+    // whatever database the suite runs on, so a misconfigured DATABASE_URL on
+    // staging fails here rather than in production.
+    const roles = await system.$queryRaw<{ roles: string[] }[]>`SELECT roles FROM pg_policies WHERE policyname = 'system_full_access' AND tablename = 'User'`;
+    assert.ok(roles[0].roles.includes(who), `DATABASE_URL role ${who} must be the migration role ${JSON.stringify(roles[0].roles)}`);
     void bypass;
+  });
+
+  it('13 — write surface is minimal: a tenant cannot change its own role, email or password, nor touch the roster, nor see coupons', async () => {
+    // User: the UPDATE policy exists but column privileges confine it.
+    await assert.rejects(
+      withTenant({ userId: A.id }, (tx) => tx.user.update({ where: { id: A.id }, data: { role: 'admin' } }), { client: single }),
+      /permission denied/i,
+      'role is the staff console’s second lock and is not tenant-writable',
+    );
+    await assert.rejects(
+      withTenant({ userId: A.id }, (tx) => tx.user.update({ where: { id: A.id }, data: { email: 'stolen@example.test' } }), { client: single }),
+      /permission denied/i,
+    );
+    await assert.rejects(
+      withTenant({ userId: A.id }, (tx) => tx.user.update({ where: { id: A.id }, data: { passwordHash: 'x' } }), { client: single }),
+      /permission denied/i,
+    );
+    // …while the profile columns the tenant path edits still work.
+    const updated = await withTenant({ userId: A.id }, (tx) => tx.user.update({ where: { id: A.id }, data: { headline: 'Analyst' } }), { client: single });
+    assert.equal(updated.headline, 'Analyst');
+    await assert.rejects(
+      withTenant({ userId: A.id }, (tx) => tx.user.delete({ where: { id: A.id } }), { client: single }),
+      /permission denied|not found/i,
+    );
+    // Membership and Organization: readable, never writable on the tenant path.
+    const promote = await withTenant({ userId: A.id }, (tx) => tx.membership.updateMany({ where: { organizationId: orgX, userId: A.id }, data: { role: 'owner' } }), { client: single });
+    assert.equal(promote.count, 0, 'no UPDATE policy on Membership for the tenant role');
+    const relax = await withTenant({ userId: A.id }, (tx) => tx.organization.updateMany({ where: { id: orgX }, data: { aiProcessingPolicy: 'EXTERNAL_AI_ALLOWED' } }), { client: single });
+    assert.equal(relax.count, 0, 'the AI policy cannot be relaxed from the tenant path');
+    await assert.rejects(
+      withTenant({ userId: A.id }, (tx) => tx.membership.create({ data: { organizationId: orgX, userId: B.id, role: 'owner', acceptedAt: new Date() } }), { client: single }),
+      /row-level security/i,
+    );
+    const coupons = await withTenant({ userId: A.id }, (tx) => tx.coupon.findMany(), { client: single });
+    assert.deepEqual(coupons, [], 'coupon codes are not enumerable on the tenant path');
+    // The migration ledger is out of reach entirely.
+    await assert.rejects(
+      withTenant({ userId: A.id }, (tx) => tx.$queryRaw`SELECT count(*) FROM "public"."_prisma_migrations"`, { client: single }),
+      /permission denied/i,
+    );
   });
 });

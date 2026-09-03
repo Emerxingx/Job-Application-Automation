@@ -188,12 +188,40 @@ export async function inviteMember(
     if (organization.type === 'personal') {
       throw new OrganizationAccessError('A personal workspace has exactly one member.', 422);
     }
+    // An ACTIVE membership is never touched by an invitation. Without this
+    // check the upsert below would let an admin "invite" the owner as a
+    // member and, by resetting acceptedAt, lock them out — bypassing every
+    // guard in changeRole and removeMember. (Found in the Stage 01 review.)
+    const existing = await tx.membership.findUnique({
+      where: { organizationId_userId: { organizationId, userId: input.userId } },
+    });
+    if (existing && existing.acceptedAt !== null && existing.removedAt === null) {
+      throw new OrganizationAccessError('That user is already a member; change their role instead.', 409);
+    }
+    const target = await tx.user.findUnique({ where: { id: input.userId }, select: { id: true } });
+    if (!target) throw new OrganizationAccessError('No such user.', 404);
     return tx.membership.upsert({
       where: { organizationId_userId: { organizationId, userId: input.userId } },
       // A removed member can be re-invited; a pending invitation is refreshed.
       create: { organizationId, userId: input.userId, role: input.role, invitedAt: new Date() },
       update: { role: input.role, invitedAt: new Date(), acceptedAt: null, removedAt: null },
     });
+  });
+}
+
+/**
+ * Withdraw a pending invitation. Admin or above; only a membership that has
+ * NOT been accepted qualifies — an active member is removed with removeMember,
+ * which carries the role and last-owner guards.
+ */
+export async function withdrawInvitation(actorUserId: string, organizationId: string, targetUserId: string) {
+  return db.$transaction(async (tx) => {
+    await requireMembership(tx, organizationId, actorUserId, 'admin');
+    const pending = await tx.membership.findFirst({
+      where: { organizationId, userId: targetUserId, acceptedAt: null, removedAt: null },
+    });
+    if (!pending) throw new OrganizationAccessError('No pending invitation for that user.', 404);
+    return tx.membership.update({ where: { id: pending.id }, data: { removedAt: new Date() } });
   });
 }
 

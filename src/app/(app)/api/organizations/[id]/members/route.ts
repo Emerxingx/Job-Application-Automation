@@ -8,6 +8,7 @@ import {
   OrganizationAccessError,
   removeMember,
   requireMembership,
+  withdrawInvitation,
 } from '@/lib/tenancy/organizations';
 import { ORGANIZATION_ROLES } from '@/lib/tenancy/roles';
 import { recordSecurityEvent, requestMeta } from '@/lib/security-audit';
@@ -33,8 +34,10 @@ export const GET = route(async (_request: Request, { params }: Params) => {
     return ok({
       members: members.map((m) => ({
         userId: m.userId,
-        fullName: m.user.fullName,
-        email: m.user.email,
+        // An invitee has not agreed to be visible to this organisation yet;
+        // until they accept, the roster shows only that an invitation exists.
+        fullName: m.acceptedAt ? m.user.fullName : null,
+        email: m.acceptedAt ? m.user.email : null,
         role: m.role,
         pending: m.acceptedAt === null,
         joinedAt: m.acceptedAt,
@@ -91,14 +94,16 @@ export const PATCH = route(async (request: Request, { params }: Params) => {
   }
 });
 
-const removeSchema = z.object({ userId: z.string().min(1) });
+const removeSchema = z.object({ userId: z.string().min(1), pending: z.boolean().optional() });
 
 export const DELETE = route(async (request: Request, { params }: Params) => {
   const user = await requireUser();
   const { id } = await params;
   const body = removeSchema.parse(await request.json());
   try {
-    const membership = await removeMember(user.id, id, body.userId);
+    const membership = body.pending
+      ? await withdrawInvitation(user.id, id, body.userId)
+      : await removeMember(user.id, id, body.userId);
     await recordSecurityEvent({
       event: 'organization.member.removed',
       user,

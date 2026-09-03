@@ -129,7 +129,7 @@ file is authoritative over any chat transcript.
 | Item | State |
 | --- | --- |
 | Webhook replay **and ordering** | **DONE** — `src/lib/billing/webhook-events.ts`, wired into the Stripe route, 12 tests. Closes S-03/R-06 |
-| Deny-by-default route gate | **DONE** — `src/proxy.ts`, 7 negative tests. Closes S-02/R-08 |
+| Deny-by-default route gate | **DONE** — `src/proxy.ts`, 9 negative tests. Closes S-02/R-08 |
 | Next 16 upgrade (`ADR-0017`) | **DONE** — `next@16.3.4`, inside Payload's peer range. Every **deployed** high-severity advisory cleared (14→11 total, high 6→3, remaining three dev-only). Closes R-03 |
 | Authentication decision gate | **DONE** — [`AUTH_DECISION_GATE.md`](AUTH_DECISION_GATE.md). Decision: **Supabase Auth**, **RATIFIED 2026-09-02** on founder attestation that the project is in `ca-central-1`. Provenance recorded: attestation, not an agent measurement |
 | RLS mechanism proof | **DONE** — `tests/rls-isolation.test.ts`, 10 assertions against a real PostgreSQL in CI (`postgres:16` service). Corrected `ADR-0005` and produced R-33. See below |
