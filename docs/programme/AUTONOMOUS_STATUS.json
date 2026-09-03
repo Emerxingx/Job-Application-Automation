@@ -5,9 +5,9 @@
   "current_stage": "02",
   "last_completed_stage": "00",
   "current_branch": "claude/stage-02-candidate-digital-twin",
-  "current_head": "3a533715012d75ff823c0c425031fe2dbebd9f95",
+  "current_head": "d2b26932ad0ec2fe2442a4f49d1c7b9b55e273dd",
   "current_head_meaning": "SHA of the last commit whose full gate set was verified locally (lint, typecheck, tests, build). Set by the status-sync commit that immediately follows it, so it names a real, verified commit rather than the one it is written in.",
-  "current_pr": null,
+  "current_pr": 14,
   "main_head": "d6ae8b3a9180b529abe06f23417515432c0a7f0e",
   "run_complete": false,
   "stage_status": {
