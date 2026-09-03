@@ -1,6 +1,6 @@
 # Stage 12 — Application preparation (assisted, human-in-the-loop) — evidence
 
-Recorded 2026-09-03 on branch `claude/stage-12-assisted-application`,
+Recorded 2026-09-03 on branch `claude/stage-12-assisted-application` (PR #24),
 stacked on Stage 11 (PR #23) → 10 (#22) → 09 (#21) → 08 (#20) → 07 (#19) →
 06 (#18) → 05 (#17) → 04 (#16) → 03 (#15) → 02 (#14) → 01 (#13, PARTIAL).
 Every line was run or read; nothing is PASS on the strength of a mock, a
