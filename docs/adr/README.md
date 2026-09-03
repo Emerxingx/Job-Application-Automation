@@ -31,3 +31,4 @@ baseline. None has been implemented.
 | [0019](ADR-0019-admin-configuration-boundary.md) | Business config is editable; security implementation is not | Proposed |
 | [0020](ADR-0020-workbc-integration-boundary.md) | Progressive integration levels; no fake integration | Proposed |
 | [0021](ADR-0021-eligibility-before-fit.md) | Eligibility is evaluated before fit, as pass/fail with reasons; advisory rules marked advisory | Accepted (Stage 07) |
+| [0022](ADR-0022-compatibility-pipeline.md) | Compatibility is a decomposable, versioned pipeline around the preserved deterministic engine; weights governed; pgvector BLOCKED, no fake embeddings | Accepted (Stage 08) |

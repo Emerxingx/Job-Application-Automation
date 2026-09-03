@@ -2,6 +2,7 @@ import type { InterviewPrepPackage, MatchAnalysis, ResumeContent, TailoredDocume
 import { renderResumeText } from '../resume-render';
 import { db } from '../db';
 import { getDeterministicEngine, getExternalModelProvider } from '../providers';
+import type { MatchOptions } from '@/lib/providers/ai/types';
 import type { JobContext } from '../providers/ai/types';
 import type { AiProcessingPolicy } from '../tenancy/roles';
 import { externalAllowed, resolveAiPolicy } from './policy';
@@ -57,6 +58,8 @@ export const TASK_PROMPT_SLUG: Record<AiTask, string> = {
 export interface EvidenceBundle {
   ids: string[];
   claims: string[];
+  /** Stage 08: the same rows with their kind, so a dimension can cite the claims that support it. */
+  entries?: { id: string; kind: string; claim: string }[];
 }
 
 export interface GenerationContext {
@@ -312,12 +315,12 @@ const MATCH_SCHEMA = {
   additionalProperties: false,
 };
 
-export async function analyzeMatch(ctx: GenerationContext, resume: ResumeContent, job: JobContext): Promise<GatewayResult<MatchAnalysis>> {
+export async function analyzeMatch(ctx: GenerationContext, resume: ResumeContent, job: JobContext, options?: MatchOptions): Promise<GatewayResult<MatchAnalysis>> {
   const claims = ctx.evidence?.claims ?? [];
   return execute<MatchAnalysis, MatchAnalysis>(ctx, {
     task: 'analyze_match',
     payload: { resume, job, claims },
-    deterministic: () => engine().analyzeMatch(resume, job),
+    deterministic: () => engine().analyzeMatch(resume, job, options),
     variables: (baseline) => ({
       job_block: jobBlock(job),
       grounding: [

@@ -26,7 +26,7 @@ remediation has begun.**
 npm ci                # install from the lockfile
 npm run dev           # http://localhost:3000
 npx tsc --noEmit      # typecheck  — PASSES
-npm test              # 964 tests  — PASSES with the two database URLs below set; the
+npm test              # 982 tests  — PASSES with the two database URLs below set; the
                       #   database suites skip WITH A REASON without them and THROW
                       #   when CI=true, so CI cannot pass by skipping them
 npm run build         # production — PASSES
@@ -54,7 +54,7 @@ npm run cms:types          # regenerate payload-types.ts
 ## Things that will surprise you
 
 1. **The database is PostgreSQL with a versioned migration history** since
-   Stage 01 (`ADR-0002`). Twenty-one migrations under `prisma/migrations/`; CI applies
+   Stage 01 (`ADR-0002`). Twenty-three migrations under `prisma/migrations/`; CI applies
    them to an empty database and fails on drift. `DATABASE_URL` is the
    transaction pooler, `DIRECT_URL` the session endpoint for migrations. The RLS
    migration is **generated** from `src/lib/tenancy/rls-tables.ts` — regenerate
@@ -203,10 +203,28 @@ npm run cms:types          # regenerate payload-types.ts
     `profileVersionOf()` (timestamps only) before the audited read.
     The candidate's facts are read once per batch on the tenant path,
     audit-first (`eligibility.profile.read`, never a value). Certification
-    and language are ADVISORY until Stage 08 separates required from
-    preferred; do not make them hard gates on a mention. Nothing under
+    and language are ADVISORY in eligibility (Stage 08 separates required
+    from preferred for SCORING only, not for exclusion); do not make them
+    hard gates on a mention. Nothing under
     `src/lib/eligibility/` may touch the sensitive schema (ADR-0007; the
     static allowlist test enforces it).
+
+19. **Compatibility is a decomposable, versioned pipeline** (Stage 08,
+    ADR-0022). `src/lib/matching/pipeline.ts` wraps the PRESERVED deterministic
+    engine: requirement extraction from the canonical job, evidence retrieval,
+    the deterministic stage through the gateway, a deterministic semantic
+    stage (`semantic.ts`, an equivalence map — **pgvector is BLOCKED**, no
+    embedding exists anywhere; never fake one), governed weights
+    (`weights.ts`, `MatchWeightVersion`: draft → second-admin approval →
+    active; nothing seeded active, the built-in constants apply as
+    `builtin:1`). Every `JobMatch` records `weightVersion` and
+    `pipelineVersion` and carries one `MatchDimension` row per dimension with
+    cited evidence ids; `matched` items carry `how` (`exact` | `semantic`)
+    and `missing` items a `level` (`required` | `preferred` | `wording`).
+    The recorded score is `combineScore(breakdown, weights)` on every route.
+    Never change the built-in constants silently; never rewrite a stored
+    score when weights change; activation needs a reason (no evaluation
+    gate exists for weights — say so, do not fake one).
 
 ## Conventions worth preserving
 

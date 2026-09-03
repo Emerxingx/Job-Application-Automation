@@ -100,6 +100,72 @@ function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+/** Whole-word presence of a normalised term in normalised text ("go" never matches "google"). */
+export function hasWord(haystack: string, term: string): boolean {
+  if (!term) return false;
+  return new RegExp(`(^|[^a-z0-9])${escapeRegex(term)}([^a-z0-9]|$)`).test(haystack);
+}
+
+/**
+ * The résumé text the engine compares against a posting. ONE definition,
+ * shared by the engine and the Stage 08 pipeline, so the pipeline's semantic
+ * labels and keyword decomposition describe exactly what was scored (Stage
+ * 08 review, findings 2 and 3).
+ */
+export function resumeCorpusText(resume: {
+  headline: string;
+  summary: string;
+  skills: string[];
+  experience: { title: string; company: string; bullets: string[] }[];
+  education: { credential: string; institution: string }[];
+  certifications: string[];
+}): string {
+  return [
+    resume.headline,
+    resume.summary,
+    resume.skills.join(' '),
+    resume.experience.map((e) => `${e.title} ${e.company} ${e.bullets.join(' ')}`).join(' '),
+    resume.education.map((e) => `${e.credential} ${e.institution}`).join(' '),
+    resume.certifications.join(' '),
+  ].join(' ');
+}
+
+/**
+ * The signal-bearing posting text the keyword dimension measures: title,
+ * requirements and skills — never the full description, whose benefits and
+ * EEO boilerplate no résumé contains.
+ */
+export function jobSignalText(job: { title: string; requirements: string[]; skills: string[] }): string {
+  return `${job.title} ${job.requirements.join(' ')} ${job.skills.join(' ')}`;
+}
+
+export interface DimensionValues {
+  skills: number;
+  keywords: number;
+  experience: number;
+  seniority: number;
+  location: number;
+}
+
+/**
+ * The engine's combination rule, in one place: the weighted sum of the
+ * dimensions, scaled by domain fit — experience, seniority and location are
+ * only worth anything if the candidate can actually do the job; without the
+ * scaling a 6-year analyst scores ~45 on a backend role purely for being
+ * senior and local. The Stage 08 pipeline applies the same rule on every
+ * route, so the governed weights always produce the recorded score.
+ */
+export function combineScore(breakdown: DimensionValues, weights: DimensionValues): number {
+  const weighted =
+    breakdown.skills * weights.skills +
+    breakdown.keywords * weights.keywords +
+    breakdown.experience * weights.experience +
+    breakdown.seniority * weights.seniority +
+    breakdown.location * weights.location;
+  const domainFit = Math.min(1, 0.5 + (breakdown.skills / 100) * 0.7);
+  return Math.max(0, Math.min(100, Math.round(weighted * domainFit)));
+}
+
 /** Title-case a keyword for display: "power bi" -> "Power BI". */
 export function displayKeyword(keyword: string): string {
   const ACRONYMS = new Set([

@@ -1,10 +1,11 @@
 import { db } from '@/lib/db';
 import { runDiscovery } from '@/lib/connectors/pipeline';
 import type { JobContext } from '@/lib/providers';
-import * as ai from '@/lib/ai/gateway';
 import { loadEvidenceForGeneration } from '@/lib/evidence/vault';
 import { classifyStoredJob } from '@/lib/taxonomy/classify';
 import { ensureEligibility, loadCandidateEligibility } from '@/lib/eligibility/service';
+import { matchRows, scoreCompatibility } from '@/lib/matching/pipeline';
+import { getActiveWeights } from '@/lib/matching/weights';
 import { parseJson } from '@/lib/types';
 import type { Country, JobType, WorkMode } from '@/lib/types';
 import { loadResumeContent } from '@/lib/candidate/profile';
@@ -96,6 +97,8 @@ export async function runAgentScan(userId: string, agentId: string): Promise<Sca
   // ineligible posting never becomes a match, and the verdict with its
   // reasons is stored so the candidate can see why. `unknown` never excludes.
   const eligibilityProfile = discovery.jobIds.length > 0 ? await loadCandidateEligibility(userId, { reason: 'agent_scan', jobs: discovery.jobIds.length, agentId: agent.id }) : null;
+  // Stage 08: one weight version per scan, so every match in a run is scored the same way.
+  const weights = await getActiveWeights();
 
   for (const jobId of discovery.jobIds) {
     const job = await db.job.findUnique({ where: { id: jobId } });
@@ -117,27 +120,24 @@ export async function runAgentScan(userId: string, agentId: string): Promise<Sca
     });
     if (existing) continue;
 
-    // Stage 03: through the gateway — the tenant's AI policy is resolved
-    // before dispatch and the run is recorded (ADR-0006, ADR-0015).
-    const { value: analysis } = await ai.analyzeMatch(
-      { userId, evidence, inputRefs: [`job:${job.id}`, `agent:${agent.id}`] },
-      resumeContent,
-      toJobContext(job),
-    );
+    // Stage 08: the compatibility pipeline — requirement extraction, evidence
+    // retrieval, the deterministic stage through the gateway (Stage 03: policy
+    // resolved before dispatch, run recorded), the semantic stage, governed
+    // weights — with the score decomposed into cited dimensions.
+    const compatibility = await scoreCompatibility({ userId, resume: resumeContent, evidence, job, inputRefs: [`job:${job.id}`, `agent:${agent.id}`], weights });
+    const { analysis } = compatibility;
 
     // Respect the agent's floor so the feed stays signal, not noise.
     if (analysis.matchScore < agent.minMatchScore) continue;
 
+    const rows = matchRows(userId, compatibility);
     await db.jobMatch.create({
       data: {
         agentId: agent.id,
         jobId: job.id,
-        matchScore: analysis.matchScore,
-        scoreBreakdown: JSON.stringify(analysis.breakdown),
-        matchedKeywords: JSON.stringify(analysis.matchedKeywords),
-        missingKeywords: JSON.stringify(analysis.missingKeywords),
-        rationale: analysis.rationale,
         status: 'new',
+        ...rows.match,
+        dimensions: { create: rows.dimensions },
       },
     });
 
