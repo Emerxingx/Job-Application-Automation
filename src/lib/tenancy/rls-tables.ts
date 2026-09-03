@@ -183,7 +183,10 @@ export const RLS_TABLES: Record<string, RlsKind> = {
 
   // --- Stage 04: the occupational spine (ADR-0009). Shared, non-personal
   //     reference data written only by the licence-gated ingestion path.
-  TaxonomyDataset: { kind: 'reference' },
+  //     The dataset REGISTER is system-only: it carries who recorded a licence
+  //     and governance notes; the attribution line a page shows is read on the
+  //     system client through `loadedAttributions()` / `attributionFor()`.
+  TaxonomyDataset: { kind: 'system' },
   Occupation: { kind: 'reference' },
   OccupationLabel: { kind: 'reference' },
   OccupationCode: { kind: 'reference' },

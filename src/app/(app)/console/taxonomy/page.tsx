@@ -28,6 +28,7 @@ export default async function ConsoleTaxonomyPage() {
     licenceName: d.licenceName,
     licenceUrl: d.licenceUrl,
     attribution: d.attribution,
+    publisherTerms: d.publisherTerms,
     licenceStatus: d.licenceStatus,
     licenceRecordedByEmail: d.licenceRecordedByEmail,
     licenceRecordedAt: d.licenceRecordedAt?.toISOString() ?? null,

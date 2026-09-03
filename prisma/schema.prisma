@@ -2710,6 +2710,10 @@ model TaxonomyDataset {
   licenceUrl             String    @default("")
   // The attribution text the product must display where this data appears.
   attribution            String    @default("")
+  // What the publisher states publicly about its terms, copied from the code
+  // registry on every upsert. Informational, labelled as unconfirmed in the
+  // console; NEVER a licence record — that is licenceStatus below.
+  publisherTerms         String    @default("")
   // unrecorded | recorded | prohibited — the L-2 gate. Only `recorded` with
   // ingestionApproved may be loaded; `prohibited` is a counsel decision.
   licenceStatus          String    @default("unrecorded")
@@ -2758,9 +2762,15 @@ model OccupationLabel {
   occupationId    String
   locale          String // en | fr
   title           String
+  // `normalizeTitle(title)` computed at load time, so the classifier compares
+  // normalised to normalised: "Développeurs/développeuses Web" and a posting's
+  // "Développeur Web" meet on the same form.
+  normalizedTitle String   @default("")
   description     String   @default("")
-  // JSON string array of example / alternate titles in this locale.
-  alternateTitles String   @default("[]")
+  // JSON string array of example / alternate titles in this locale, and the
+  // same list normalised (one entry per alternate, same order).
+  alternateTitles      String @default("[]")
+  normalizedAlternates String @default("[]")
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -2768,6 +2778,7 @@ model OccupationLabel {
 
   @@unique([occupationId, locale])
   @@index([locale, title])
+  @@index([normalizedTitle])
 }
 
 model OccupationCode {

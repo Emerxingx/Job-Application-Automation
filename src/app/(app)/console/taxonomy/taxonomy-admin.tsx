@@ -16,6 +16,7 @@ export interface DatasetView {
   licenceName: string;
   licenceUrl: string;
   attribution: string;
+  publisherTerms: string;
   licenceStatus: string;
   licenceRecordedByEmail: string | null;
   licenceRecordedAt: string | null;
@@ -34,7 +35,7 @@ const STATUS_TONE: Record<string, string> = {
 export function TaxonomyAdmin({ datasets, report }: { datasets: DatasetView[]; report: CompletenessReport }) {
   const router = useRouter();
   const [editing, setEditing] = useState<string | null>(null);
-  const [form, setForm] = useState({ status: 'recorded', licenceName: '', licenceUrl: '', attribution: '', ingestionApproved: false, reason: '' });
+  const [form, setForm] = useState({ currentPassword: '', status: 'recorded', licenceName: '', licenceUrl: '', attribution: '', ingestionApproved: false, reason: '' });
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
 
@@ -47,11 +48,15 @@ export function TaxonomyAdmin({ datasets, report }: { datasets: DatasetView[]; r
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(form),
       });
-      const data = (await res.json()) as { error?: string };
-      if (!res.ok) setMessage({ ok: false, text: data.error ?? 'The record was refused.' });
-      else {
-        setMessage({ ok: true, text: `Licence state recorded for ${key}.` });
+      const data = (await res.json()) as { error?: string; purged?: { occupations: number; codes: number } };
+      if (!res.ok) {
+        setMessage({ ok: false, text: data.error ?? 'The record was refused.' });
+        if (res.status === 403) setForm({ ...form, currentPassword: '' });
+      } else {
+        const purged = data.purged && (data.purged.occupations || data.purged.codes) ? ` Purged ${data.purged.occupations} occupations and ${data.purged.codes} codes.` : '';
+        setMessage({ ok: true, text: `Licence state recorded for ${key}.${purged}` });
         setEditing(null);
+        setForm({ ...form, currentPassword: '' });
         router.refresh();
       }
     } catch {
@@ -121,7 +126,16 @@ export function TaxonomyAdmin({ datasets, report }: { datasets: DatasetView[]; r
               </>
             )}
           </p>
-          {d.notes && <p className="mt-1 text-xs text-muted">{d.notes}</p>}
+          {d.publisherTerms && (
+            <p className="mt-1 text-xs text-muted">
+              <span className="font-medium">Publisher&rsquo;s stated terms (unconfirmed, not a licence record):</span> {d.publisherTerms}
+            </p>
+          )}
+          {d.notes && (
+            <p className="mt-1 text-xs text-muted">
+              <span className="font-medium">Governance notes:</span> {d.notes}
+            </p>
+          )}
           {d.licenceStatus !== 'unrecorded' && (
             <p className="mt-1 text-xs text-muted">
               {d.licenceName || 'No licence name'}
@@ -160,7 +174,16 @@ export function TaxonomyAdmin({ datasets, report }: { datasets: DatasetView[]; r
                 <input type="checkbox" checked={form.ingestionApproved} onChange={(e) => setForm({ ...form, ingestionApproved: e.target.checked })} />
                 Approve ingestion
               </label>
-              <label className="block text-sm sm:col-span-2">
+              {d.rowCount > 0 && (form.status === 'prohibited' || !form.ingestionApproved) && (
+                <p className="text-xs text-danger sm:col-span-2" role="note">
+                  This decision withdraws the right to serve {d.rowCount} loaded rows: they will be purged, and jobs will lose their occupation link.
+                </p>
+              )}
+              <label className="block text-sm">
+                <span className="font-medium text-ink">Current password (re-authentication)</span>
+                <input type="password" autoComplete="current-password" required value={form.currentPassword} onChange={(e) => setForm({ ...form, currentPassword: e.target.value })} className="input mt-1 w-full" />
+              </label>
+              <label className="block text-sm">
                 <span className="font-medium text-ink">Reason (the review or counsel advice this records)</span>
                 <input type="text" required value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} className="input mt-1 w-full" maxLength={500} />
               </label>

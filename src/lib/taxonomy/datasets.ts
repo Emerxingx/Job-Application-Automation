@@ -16,8 +16,20 @@ import type { StaffContext } from '../crm/auth';
  * The registry below is what is KNOWN about each dataset's public terms,
  * written down so the review has something to confirm or correct. None of
  * it is a recorded licence: `licenceStatus` starts `unrecorded` for every
- * real dataset, and stays so until a person records it. Only the test
- * fixture (a dozen hand-written rows, attributed) is approvable by tests.
+ * real dataset, and stays so until a person records it. The text is synced
+ * to `publisherTerms` on every upsert and shown in the console labelled as
+ * the publisher's unconfirmed statement. Only the test fixture (seventeen
+ * hand-written rows, attributed) is approvable by tests.
+ *
+ * THE GATE COVERS WHAT IS ALREADY LOADED. Recording `prohibited`, or
+ * recording a licence without ingestion approval, on a dataset that has
+ * rows PURGES them in the same transaction: every Occupation the dataset
+ * introduced (labels, codes and skill links cascade; jobs lose the link)
+ * and every code row it attached. A counsel decision that the data may not
+ * be used cannot leave the data serving. Loads are single transactions, so
+ * a partial state never exists to be read. (The register itself is
+ * system-only, so the tenant path cannot filter on it — the purge is the
+ * control, not a read-time check.)
  */
 
 export type DatasetKey = 'noc-2021' | 'soc-2018' | 'oasis' | 'csct' | 'onet' | 'fixture';
@@ -91,10 +103,11 @@ export const DATASET_DEFINITIONS: readonly DatasetDefinition[] = [
 ];
 
 export class TaxonomyLicenceError extends Error {
-  readonly status = 403;
-  constructor(message: string) {
+  readonly status: number;
+  constructor(message: string, status = 403) {
     super(message);
     this.name = 'TaxonomyLicenceError';
+    this.status = status;
   }
 }
 
@@ -107,8 +120,10 @@ export async function ensureDatasetRegistry(client: Client = db): Promise<Taxono
     rows.push(
       await client.taxonomyDataset.upsert({
         where: { key: d.key },
-        create: { key: d.key, name: d.name, publisher: d.publisher, scheme: d.scheme, version: d.version, sourceUrl: d.sourceUrl, notes: d.knownTerms },
-        update: {},
+        create: { key: d.key, name: d.name, publisher: d.publisher, scheme: d.scheme, version: d.version, sourceUrl: d.sourceUrl, publisherTerms: d.knownTerms },
+        // Descriptive fields follow the code; governance fields (licence,
+        // approval, notes) are a person's record and are never touched here.
+        update: { name: d.name, publisher: d.publisher, scheme: d.scheme, version: d.version, sourceUrl: d.sourceUrl, publisherTerms: d.knownTerms },
       }),
     );
   }
@@ -125,18 +140,54 @@ export interface LicenceRecord {
   notes?: string;
 }
 
+export interface LicenceDecision {
+  dataset: TaxonomyDataset;
+  /** Rows removed because the decision withdrew the right to serve them. */
+  purged: { occupations: number; codes: number };
+}
+
+function snapshot(d: TaxonomyDataset) {
+  return {
+    licenceStatus: d.licenceStatus,
+    ingestionApproved: d.ingestionApproved,
+    licenceName: d.licenceName,
+    licenceUrl: d.licenceUrl,
+    attribution: d.attribution,
+    notes: d.notes,
+    rowCount: d.rowCount,
+    ingestedAt: d.ingestedAt?.toISOString() ?? null,
+  };
+}
+
+/**
+ * Purge everything a dataset put into the spine. Occupations it introduced
+ * cascade to their labels, codes, skill links and paths; jobs lose the link
+ * (SET NULL). Codes it merely attached to other datasets' occupations (a SOC
+ * crosswalk) are removed by scheme + version.
+ */
+async function purgeDataset(tx: Prisma.TransactionClient, dataset: TaxonomyDataset): Promise<{ occupations: number; codes: number }> {
+  const occupations = await tx.occupation.deleteMany({ where: { datasetId: dataset.id } });
+  const codes = await tx.occupationCode.deleteMany({ where: { scheme: dataset.scheme, version: dataset.version } });
+  await tx.occupationSkill.deleteMany({ where: { datasetId: dataset.id } });
+  return { occupations: occupations.count, codes: codes.count };
+}
+
 /**
  * Record a dataset's licence and whether it may be ingested. A governance
- * action: admin-only at the route, and audited here with who and why.
+ * action: admin-only and step-up re-authenticated at the route, audited
+ * here with who and why. A decision that withdraws the right to serve —
+ * `prohibited`, or `recorded` without approval — purges loaded rows.
  */
-export async function recordDatasetLicence(key: string, record: LicenceRecord, actor: StaffContext, reason: string): Promise<TaxonomyDataset> {
+export async function recordDatasetLicence(key: string, record: LicenceRecord, actor: StaffContext, reason: string): Promise<LicenceDecision> {
   if (record.status === 'recorded' && (!record.licenceName.trim() || !record.attribution.trim())) {
-    throw new TaxonomyLicenceError('A recorded licence needs its name and the attribution text the product must display.');
+    throw new TaxonomyLicenceError('A recorded licence needs its name and the attribution text the product must display.', 422);
   }
-  if (!reason.trim()) throw new TaxonomyLicenceError('A reason is required: name the review or the counsel advice this records.');
+  if (!reason.trim()) throw new TaxonomyLicenceError('A reason is required: name the review or the counsel advice this records.', 422);
   return db.$transaction(async (tx) => {
     const before = await tx.taxonomyDataset.findUnique({ where: { key } });
-    if (!before) throw new TaxonomyLicenceError('Unknown dataset.');
+    if (!before) throw new TaxonomyLicenceError('Unknown dataset.', 404);
+    const approved = record.status === 'recorded' && record.ingestionApproved;
+    const purged = !approved && (before.ingestedAt || before.rowCount > 0) ? await purgeDataset(tx, before) : { occupations: 0, codes: 0 };
     const after = await tx.taxonomyDataset.update({
       where: { key },
       data: {
@@ -144,13 +195,17 @@ export async function recordDatasetLicence(key: string, record: LicenceRecord, a
         licenceUrl: record.licenceUrl?.trim() ?? '',
         attribution: record.attribution.trim(),
         licenceStatus: record.status,
-        ingestionApproved: record.status === 'recorded' && record.ingestionApproved,
+        ingestionApproved: approved,
         licenceRecordedAt: new Date(),
         licenceRecordedById: actor.id,
         licenceRecordedByEmail: actor.email,
         ...(record.notes !== undefined ? { notes: record.notes } : {}),
+        ...(purged.occupations || purged.codes || !approved ? { ingestedAt: null, rowCount: 0 } : {}),
       },
     });
+    const b = snapshot(before);
+    const a = snapshot(after);
+    const changed = (Object.keys(a) as (keyof typeof a)[]).filter((k) => a[k] !== b[k]);
     await tx.auditLog.create({
       data: {
         actorType: 'staff',
@@ -160,14 +215,16 @@ export async function recordDatasetLicence(key: string, record: LicenceRecord, a
         action: 'taxonomy.licence.recorded',
         entityType: 'TaxonomyDataset',
         entityId: after.id,
-        summary: `${record.status === 'prohibited' ? 'Prohibited' : 'Recorded licence for'} ${after.name}${after.ingestionApproved ? ' (ingestion approved)' : ''}.`,
-        before: JSON.stringify({ licenceStatus: before.licenceStatus, ingestionApproved: before.ingestionApproved, licenceName: before.licenceName }),
-        after: JSON.stringify({ licenceStatus: after.licenceStatus, ingestionApproved: after.ingestionApproved, licenceName: after.licenceName, attribution: after.attribution }),
-        changedFields: JSON.stringify(['licenceStatus', 'ingestionApproved', 'licenceName', 'attribution']),
+        summary:
+          `${record.status === 'prohibited' ? 'Prohibited' : 'Recorded licence for'} ${after.name}${approved ? ' (ingestion approved)' : ''}` +
+          `${purged.occupations || purged.codes ? ` — purged ${purged.occupations} occupations and ${purged.codes} codes` : ''}.`,
+        before: JSON.stringify(b),
+        after: JSON.stringify(a),
+        changedFields: JSON.stringify(changed),
         reason,
       },
     });
-    return after;
+    return { dataset: after, purged };
   });
 }
 
@@ -186,4 +243,15 @@ export async function requireIngestible(client: Client, key: string): Promise<Ta
 export async function loadedAttributions(client: Client = db): Promise<{ key: string; attribution: string }[]> {
   const rows = await client.taxonomyDataset.findMany({ where: { ingestedAt: { not: null }, attribution: { not: '' } }, select: { key: true, attribution: true }, orderBy: { key: 'asc' } });
   return rows;
+}
+
+/**
+ * The attribution line for one occupation's dataset, read on the SYSTEM
+ * client: the register is system-only (it carries who recorded a licence),
+ * and this is the one column a page needs from it.
+ */
+export async function attributionFor(occupationId: string | null | undefined): Promise<string | null> {
+  if (!occupationId) return null;
+  const row = await db.occupation.findUnique({ where: { id: occupationId }, select: { dataset: { select: { attribution: true, licenceStatus: true } } } });
+  return row?.dataset?.licenceStatus === 'recorded' && row.dataset.attribution ? row.dataset.attribution : null;
 }

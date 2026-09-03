@@ -26,7 +26,7 @@ remediation has begun.**
 npm ci                # install from the lockfile
 npm run dev           # http://localhost:3000
 npx tsc --noEmit      # typecheck  — PASSES
-npm test              # 867 tests  — PASSES with the two database URLs below set; the
+npm test              # 871 tests  — PASSES with the two database URLs below set; the
                       #   database suites skip WITH A REASON without them and THROW
                       #   when CI=true, so CI cannot pass by skipping them
 npm run build         # production — PASSES
@@ -54,7 +54,7 @@ npm run cms:types          # regenerate payload-types.ts
 ## Things that will surprise you
 
 1. **The database is PostgreSQL with a versioned migration history** since
-   Stage 01 (`ADR-0002`). Three migrations under `prisma/migrations/`; CI applies
+   Stage 01 (`ADR-0002`). Thirteen migrations under `prisma/migrations/`; CI applies
    them to an empty database and fails on drift. `DATABASE_URL` is the
    transaction pooler, `DIRECT_URL` the session endpoint for migrations. The RLS
    migration is **generated** from `src/lib/tenancy/rls-tables.ts` — regenerate
@@ -76,7 +76,10 @@ npm run cms:types          # regenerate payload-types.ts
 3. **Many Prisma models still have no application code references.** Some are
    nested-write models genuinely in use (`InvoiceLine`, `PaymentAllocation`,
    `DocumentSequence`). Others are designed-but-unwired — `AgentSchedule` (a
-   complete scheduler with no scheduler) is the clearest. Stage 01 wired
+   complete scheduler with no scheduler) is the clearest; since Stage 04 so are
+   `Region`, `RegionLabel`, `CareerPath`, `SkillLabel`, `SkillMapping` and
+   `OccupationSkill` (schema and RLS only; their loaders wait on their own
+   licence reviews). Stage 01 wired
    `Organization` / `Membership` (every user owns a personal workspace) and
    `WebhookEvent` (replay and ordering). Check before assuming a model does
    something.

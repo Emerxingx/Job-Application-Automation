@@ -1,9 +1,12 @@
 import { z } from 'zod';
-import { fail, ok } from '@/lib/api';
-import { consoleRoute, requireStaff } from '@/lib/crm/auth';
-import { TaxonomyLicenceError, recordDatasetLicence } from '@/lib/taxonomy/datasets';
+import { ok } from '@/lib/api';
+import { requireStaff } from '@/lib/crm/auth';
+import { governanceRoute, requireStepUp } from '@/lib/crm/step-up';
+import { recordDatasetLicence } from '@/lib/taxonomy/datasets';
+import { requestMeta } from '@/lib/security-audit';
 
 const schema = z.object({
+  currentPassword: z.string().min(1, 'Re-enter your password to record a licence decision.'),
   status: z.enum(['recorded', 'prohibited']),
   licenceName: z.string().trim().max(200).default(''),
   licenceUrl: z.string().trim().max(500).optional(),
@@ -15,18 +18,18 @@ const schema = z.object({
 
 /**
  * PATCH /api/console/taxonomy/datasets/:key — record a dataset's licence
- * (or counsel's prohibition) and whether ingestion is approved. Admin-only
- * and audited: this is the L-2 gate being opened or closed, by a person.
+ * (or counsel's prohibition) and whether ingestion is approved. Admin-only,
+ * step-up re-authenticated (this is the L-2 gate being opened or closed, by
+ * a person) and audited. Withdrawing approval or prohibiting a dataset that
+ * has been loaded PURGES its rows: a prohibition cannot leave data serving.
  */
-export const PATCH = consoleRoute(async (request: Request, { params }: { params: Promise<{ key: string }> }) => {
+export const PATCH = governanceRoute(async (request: Request, { params }: { params: Promise<{ key: string }> }) => {
   const staff = await requireStaff('admin');
   const { key } = await params;
   const body = schema.parse(await request.json());
-  try {
-    const dataset = await recordDatasetLicence(key, body, staff, body.reason);
-    return ok({ dataset });
-  } catch (error) {
-    if (error instanceof TaxonomyLicenceError) return fail(error.message, error.status);
-    throw error;
-  }
+  await requireStepUp(staff, body.currentPassword, requestMeta(request));
+  const { currentPassword: _pw, reason, ...record } = body;
+  void _pw;
+  const result = await recordDatasetLicence(key, record, staff, reason);
+  return ok(result);
 });

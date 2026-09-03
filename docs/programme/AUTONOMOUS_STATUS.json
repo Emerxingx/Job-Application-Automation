@@ -247,20 +247,20 @@
   },
   "stage_04_progress": {
     "schema_and_migrations": "DONE locally — 10 reference tables + Job.occupationId/occupationSource (20260903100000), generated RLS (20260903100100, 95/95 forced); NOT VERIFIED on Supabase (R-34)",
-    "licence_gate": "DONE — TaxonomyDataset registry (6 datasets, all unrecorded), requireIngestible() refuses unrecorded/unapproved/prohibited, admin-only recording with attribution + reason, audited; /console/taxonomy",
-    "noc_loader": "DONE on the attributed fixture — CSV parser for the StatCan structure-file shape, prefix hierarchy, explicit TEER, bilingual labels, idempotent; NOT RUN on the real file (L-2)",
+    "licence_gate": "DONE — TaxonomyDataset register (system-only, 6 datasets, all unrecorded, publisher terms labelled unconfirmed), requireIngestible() refuses unrecorded/unapproved/prohibited, admin + step-up recording with attribution + reason, audited; a withdrawal or prohibition PURGES loaded rows; loads are single transactions; /console/taxonomy",
+    "noc_loader": "DONE on the attributed fixture — structure-file and elements-file parsers (published EN/FR headers, BOM), prefix hierarchy with missing parents refused, explicit TEER, bilingual labels with stored normal forms, one transaction per load, idempotent; NOT RUN on the real files (L-2)",
     "crosswalk": "DONE on the fixture — SOC 2018 attached to canonical occupations, both directions, many-to-one preserved, coverage measured",
-    "classification": "DONE — title_exact / title_alternate / regex_fallback / none with confidence recorded on Job.occupationSource; regex table moved out of the Adzuna adapter; scanner classifies once per posting; job page shows occupation + attribution",
+    "classification": "DONE — normalised-both-sides matching on unit groups (title_exact / title_alternate), head-of-title candidate, ambiguity → none, regex_fallback (low) with three mappings corrected, confidence recorded on Job.occupationSource; classifyStoredJob overwrites the capture-time guess on high confidence and is a no-op on an empty spine; job page qualifies both chips unless high-confidence and shows attribution read on the system client",
     "skills_and_career_paths": "SCHEMA ONLY — OccupationSkill, SkillMapping, SkillLabel, CareerPath, Region tables and RLS exist; no OaSIS/CSCT/O*NET loader (each needs its own licence review first)",
     "bilingual_model": "DONE — labels are per-locale records; completeness report; fixture complete in EN and FR",
-    "independent_review": "PENDING"
+    "independent_review": "DONE — 15 findings + nits (3 HIGH: write-time-only licence gate left loaded data serving; hyphen/raw-title normalisation made real titles unmatchable; parser rejected the published BOM/FR headers and had no elements-file loader), all HIGH/MEDIUM fixed with tests in the same PR, LOW fixed or recorded; STAGE04_EVIDENCE.md §7"
   },
   "stage_04_exit_gate": {
     "met": [
       "Taxonomy queryable and jurisdiction-aware on the tenant path (search, crosswalk, completeness)",
       "SOC attached with no schema change",
       "Licence gate enforced in code and audited",
-      "Full gate set green: lint 0/8, typecheck 0, 867/867 tests (0 skipped), build 0"
+      "Full gate set green: lint 0/8, typecheck 0, 871/871 tests (0 skipped), build 0"
     ],
     "not_met": [
       "Licence records for any real dataset (BLOCKED — L-2)",

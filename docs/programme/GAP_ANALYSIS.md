@@ -211,7 +211,7 @@ graph to be transactional and joinable, not CMS content.
 **Remediation:** Stage 16, with a clear CMS/transactional boundary per `ADR-0003`.
 
 ### G-21 — No Canadian labour-market taxonomy · NOT IMPLEMENTED
-No NOC, TEER, OaSIS, economic region, or skills-taxonomy tables. The 9-entry NOC
+No NOC, TEER, OaSIS, economic region, or skills-taxonomy tables. The 20-entry NOC
 regex in the Adzuna adapter is the entire current implementation. No French/EN
 bilingual content model. No SOC for the US.
 **Remediation:** Stage 04. Licensing must be confirmed before ingestion — see

@@ -107,7 +107,7 @@ DO $$ BEGIN EXECUTE format('CREATE POLICY system_full_access ON "SkillMapping" T
 DROP POLICY IF EXISTS tenant_update ON "SkillMapping";
 CREATE POLICY tenant_read ON "SkillMapping" FOR SELECT TO app_tenant USING (true);
 
--- TaxonomyDataset (reference)
+-- TaxonomyDataset (system)
 ALTER TABLE "TaxonomyDataset" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "TaxonomyDataset" FORCE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS system_full_access ON "TaxonomyDataset";
@@ -115,4 +115,4 @@ DROP POLICY IF EXISTS tenant_access ON "TaxonomyDataset";
 DROP POLICY IF EXISTS tenant_read ON "TaxonomyDataset";
 DO $$ BEGIN EXECUTE format('CREATE POLICY system_full_access ON "TaxonomyDataset" TO %I USING (true) WITH CHECK (true)', current_user); END $$;
 DROP POLICY IF EXISTS tenant_update ON "TaxonomyDataset";
-CREATE POLICY tenant_read ON "TaxonomyDataset" FOR SELECT TO app_tenant USING (true);
+-- (no tenant policy: a forced table with no policy for app_tenant denies every command)

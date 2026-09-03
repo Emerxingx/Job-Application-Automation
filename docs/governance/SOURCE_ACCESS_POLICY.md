@@ -66,8 +66,11 @@ starts `unrecorded`, and the loaders obtain a dataset only through
 approved. Recording is an admin action at `/console/taxonomy`, requires the
 attribution text the product will display and a reason, and writes an audit
 row (`taxonomy.licence.recorded`). A `prohibited` decision can never be
-loaded. The attribution is shown on any job page whose occupation came from
-that dataset.
+loaded, and recording it — or withdrawing approval — on a dataset that has
+been loaded purges its rows in the same transaction: the gate covers what is
+already in the database, not only what is about to enter it, and each load
+is one transaction. The attribution is shown on any job page whose occupation came from that
+dataset.
 
 | Dataset | Publisher | What the publisher states (to be CONFIRMED by counsel — L-2) | Record status |
 | --- | --- | --- | --- |
