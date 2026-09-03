@@ -11,7 +11,7 @@
  * applies to captures as they arrive.
  */
 import { db } from '../../src/lib/db';
-import { canonicalColumns, canonicalize, occupationFamily } from '../../src/lib/jobs/canonical';
+import { canonicalColumns, canonicalize } from '../../src/lib/jobs/canonical';
 import type { NormalizedPosting } from '../../src/lib/connectors/types';
 import { parseJson } from '../../src/lib/types';
 
@@ -44,7 +44,9 @@ async function main() {
         applyMethod: job.applyMethod as NormalizedPosting['applyMethod'],
         postedAt: job.postedAt.toISOString(),
       };
-      await db.job.update({ where: { id: job.id }, data: { ...canonicalColumns(canonicalize(posting)), occupationFamily: job.occupationFamily ?? occupationFamily(job.nocCode) } });
+      // The occupation family is set by classification against the spine
+      // (ADR-0009: confidence recorded, never implied), not from the capture-time regex guess.
+      await db.job.update({ where: { id: job.id }, data: canonicalColumns(canonicalize(posting)) });
       done += 1;
     }
     console.log(`[canonicalize] ${done} job(s) so far`);

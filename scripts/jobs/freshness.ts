@@ -15,7 +15,12 @@ import { ensureSourceRegistry } from '../../src/lib/connectors/registry';
 
 async function main() {
   const [only, hours] = process.argv.slice(2);
-  const staleAfterMs = (hours ? Number(hours) : 24) * 3_600_000;
+  const parsedHours = hours ? Number(hours) : 24;
+  if (!Number.isFinite(parsedHours) || parsedHours <= 0 || parsedHours > 24 * 30) {
+    console.error(`[freshness] hours must be a number between 1 and 720, got "${hours}"`);
+    process.exit(2);
+  }
+  const staleAfterMs = parsedHours * 3_600_000;
   await ensureSourceRegistry();
   const sources = await db.jobSource.findMany({ where: only ? { key: only } : { status: { in: ['enabled', 'degraded'] } }, orderBy: { priority: 'asc' } });
   let failed = 0;
@@ -33,4 +38,7 @@ async function main() {
   process.exit(failed ? 1 : 0);
 }
 
-main();
+main().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});

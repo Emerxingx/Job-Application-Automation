@@ -14,8 +14,11 @@ import path from 'node:path';
 import { describe, it } from 'node:test';
 import type { NormalizedPosting } from '../src/lib/connectors/types';
 import {
+  UNDISCLOSED_EMPLOYER,
   canonicalHash,
+  canonicalIdentityStrength,
   canonicalize,
+  educationRequirements,
   experienceYears,
   normalizeCompany,
   normalizeJobTitle,
@@ -55,13 +58,20 @@ describe('canonical job — normalisation goldens', () => {
     assert.equal(normalizeJobTitle('Data Analyst Req #3f9a1b2c'), 'data analyst', 'an alphanumeric requisition id');
     assert.equal(normalizeJobTitle('Engineer, Job ID JR0012345'), 'engineer');
     assert.equal(normalizeJobTitle('Engineer #88231'), 'engineer');
+    assert.equal(normalizeJobTitle('Sr. Developer'), normalizeJobTitle('Senior Developer'), 'abbreviations expand');
+    assert.equal(normalizeJobTitle('Jr. Mgr., Operations'), 'junior manager operations');
+    assert.equal(normalizeJobTitle('Position: Registered Nurse 2'), 'registered nurse 2');
     assert.notEqual(normalizeJobTitle('Senior Data Analyst'), normalizeJobTitle('Data Analyst'));
   });
 
   it('company: legal-form suffixes and punctuation removed, never emptied', () => {
     assert.equal(normalizeCompany('Maple Analytics Inc.'), 'maple analytics');
     assert.equal(normalizeCompany('Acme Corporation'), normalizeCompany('ACME Corp'));
-    assert.equal(normalizeCompany('The Co.'), 'the co', 'a name made only of suffix words keeps its base form');
+    assert.equal(normalizeCompany('Co.'), 'co', 'a name made only of a suffix keeps its base form');
+    assert.equal(normalizeCompany('Canada Life'), 'canada life', 'a country word inside the name is the name');
+    assert.equal(normalizeCompany('Air Canada'), 'air canada');
+    assert.equal(normalizeCompany('Groupe SA'), 'groupe');
+    assert.equal(normalizeCompany('The Home Depot Canada Inc.'), 'home depot canada');
   });
 
   it('region: province / state codes and names, postal codes, remote, known cities, unknown → null', () => {
@@ -76,20 +86,34 @@ describe('canonical job — normalisation goldens', () => {
     assert.equal(postalRegion('', 'CA', 'remote'), 'remote');
     assert.equal(postalRegion('Somewhere Unknown', 'CA'), null);
     assert.equal(postalRegion('Toronto, ON', 'US'), null, 'a Canadian city on a US posting is not guessed');
+    assert.equal(postalRegion('Hybrid - Toronto, ON', 'CA'), 'CA-ON/toronto', 'a work mode is not a city');
+    assert.equal(postalRegion('Washington, DC', 'US'), 'US-DC/washington');
+    assert.equal(postalRegion('Quebec City, QC', 'CA'), 'CA-QC/quebec-city');
   });
 
   it('experience, authorisation and sponsorship state only what is written', () => {
     assert.deepEqual(experienceYears('3+ years'), { min: 3, max: null });
     assert.deepEqual(experienceYears('5-8 years, or 10+ yrs in a related field'), { min: 5, max: 8 });
     assert.deepEqual(experienceYears('a great team'), { min: null, max: null });
+    assert.deepEqual(experienceYears('established 2024 years'), { min: null, max: null }, 'anchored: a four-digit number is not a year count');
+    assert.deepEqual(experienceYears('over 100 years of history; 2 years experience'), { min: 2, max: null });
+    assert.deepEqual(educationRequirements('Our office is in Boston, MA. BA or BS in Statistics. B.A. preferred.'), ['ba', 'bs'], 'a state abbreviation is not a degree; a degree context is, and B.A. collapses to ba');
     assert.equal(workAuthorization('Must be legally authorized to work in Canada'), 'authorization_required');
     assert.equal(workAuthorization('Only Canadian citizens and permanent residents will be considered'), 'citizenship_or_pr_required');
     assert.equal(workAuthorization('Reliability status clearance is required'), 'security_clearance_required');
     assert.equal(workAuthorization('We welcome applicants from everywhere'), null);
+    assert.equal(workAuthorization('Canadian citizenship is not required.'), null, 'a negated requirement is not a requirement');
+    assert.equal(workAuthorization('No security clearance required.'), null);
+    assert.equal(workAuthorization('Secret clearance is an asset.'), null, 'a preference is not a requirement');
+    assert.equal(workAuthorization('Must have the right to work in the UK.'), null, 'only Canada and the US are modelled');
+    assert.equal(workAuthorization('Clearance is not required. Must be legally authorized to work in Canada.'), 'authorization_required', 'each sentence on its own');
     assert.equal(sponsorship('We are unable to sponsor visas at this time'), 'not_offered');
     assert.equal(sponsorship('Visa sponsorship available for the right candidate'), 'offered');
     assert.equal(sponsorship('Sponsorship is not available'), 'not_offered');
     assert.equal(sponsorship('Great benefits'), 'unknown');
+    assert.equal(sponsorship('We will not discriminate on any ground. Sponsorship is available.'), 'offered', 'a negation in another sentence does not cross into this one');
+    assert.equal(sponsorship('We sponsor work visas.'), 'offered');
+    assert.equal(sponsorship('No visa sponsorship for this role.'), 'not_offered');
     assert.equal(occupationFamily('21234'), 'noc:2');
     assert.equal(occupationFamily('2123'), null);
     assert.equal(occupationFamily(null), null);
@@ -132,11 +156,16 @@ describe('canonical job — deduplication measured on the labelled set', () => {
     assert.ok(tp >= 2, 'the set contains real duplicates');
   });
 
-  it('the hash is a pure function of the canonical identity fields, insensitive to skill order and duplication', () => {
-    const a = { normalizedTitle: 't', normalizedCompany: 'c', postalRegion: 'CA-ON/x', requiredSkills: ['sql', 'python'], preferredSkills: ['dbt'] };
-    const b = { ...a, requiredSkills: ['python', 'sql', 'sql'], preferredSkills: ['dbt'] };
-    assert.equal(canonicalHash(a), canonicalHash(b));
-    assert.notEqual(canonicalHash(a), canonicalHash({ ...a, postalRegion: null }));
+  it('the hash is a pure function of the canonical identity fields, insensitive to skill order, duplication and non-vocabulary skills; a weak identity never merges', () => {
+    const a = { normalizedTitle: 't', normalizedCompany: 'c', postalRegion: 'CA-ON/x', country: 'CA', requiredSkills: ['sql', 'python'], preferredSkills: ['dbt'] };
+    const b = { ...a, requiredSkills: ['python', 'sql', 'sql', 'python 3'], preferredSkills: ['dbt'] };
+    assert.equal(canonicalHash(a), canonicalHash(b), 'a source-listed skill outside the vocabulary does not split a job');
+    assert.notEqual(canonicalHash(a), canonicalHash({ ...a, country: 'US' }), 'the country is part of the identity');
     assert.notEqual(canonicalHash(a), canonicalHash({ ...a, requiredSkills: ['sql'] }));
+    assert.equal(canonicalIdentityStrength(a), 'strong');
+    for (const weak of [{ ...a, postalRegion: null }, { ...a, normalizedCompany: UNDISCLOSED_EMPLOYER }, { ...a, requiredSkills: [], preferredSkills: [] }, { ...a, requiredSkills: ['python 3'], preferredSkills: [] }]) {
+      assert.equal(canonicalIdentityStrength(weak), 'weak');
+      assert.notEqual(canonicalHash(weak, { source: 's', externalId: '1' }), canonicalHash(weak, { source: 's', externalId: '2' }), 'a weak identity is salted with the capture id');
+    }
   });
 });

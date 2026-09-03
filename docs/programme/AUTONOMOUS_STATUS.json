@@ -323,18 +323,18 @@
   "stage_06_progress": {
     "schema_and_migrations": "DONE locally — fifteen canonical columns on Job, JobProvenance, indexes, provenance backfill (20260903130000); generated RLS (20260903130100, 100/100 forced); NOT VERIFIED on Supabase (R-34)",
     "canonical_model": "DONE — src/lib/jobs/canonical.ts (pure, deterministic): normalised title (seniority kept), company, postal region, required/preferred skills, education, certifications, experience range, languages, work-authorisation statement, sponsorship (unknown by default), occupation family + SOC via the spine; every field golden-tested on eight fixture postings",
-    "deduplication": "DONE — one Job per canonicalHash; resolution by provenance, then hash, then create; primary source owns columns; measured on the labelled set: precision 1.000 / recall 1.000 over 28 pairs; NOT MEASURED on real traffic (no credentialed source)",
-    "freshness": "DONE as a mechanism — per-source staleness, closure only when no source still lists the job, unknown never inferred as closed; closed jobs leave the feed; POST /api/console/sources/:key/refresh and npm run jobs:freshness; NO SCHEDULER (Stage 24)",
+    "deduplication": "DONE — one Job per canonicalHash (title, company, country, region, vocabulary skills); weak identities never merge; resolution by provenance, then hash (never a closed job), then create; primary source owns columns and is adopted when the register row is gone; measured on the labelled set: precision 1.000 / recall 1.000 over 105 pairs with five hard negatives; NOT MEASURED on real traffic (no credentialed source)",
+    "freshness": "DONE as a mechanism — per-source staleness with lastCheckedAt progress, closure and doubt only when no source still lists the job, unknown never inferred as closed; closed jobs leave the feed, dashboard and v1 match feed; POST /api/console/sources/:key/refresh and npm run jobs:freshness; NO SCHEDULER (Stage 24)",
     "backfill": "DONE — provenance by SQL in the migration; canonical columns by npm run jobs:canonicalize (idempotent, resumable)",
-    "independent_review": "PENDING"
+    "independent_review": "DONE — 2 HIGH (tenant-path include of the system-only register broke every job page; placeholder identities merged unrelated postings), 7 MEDIUM (company normalisation, per-source doubt, sweep progress, closed-job revival, negation in authorisation/sponsorship, heading content, v1 feed), 9 LOW; every HIGH and MEDIUM fixed with a test, LOW fixed or documented; STAGE06_EVIDENCE.md §9"
   },
   "stage_06_exit_gate": {
     "met": [
       "Canonical model live: every listed field on Job, derived on capture",
       "Acceptance: the same posting from two sources is one job with two provenance records (database test)",
-      "Dedup measured on a labelled fixture set (precision 1.000, recall 1.000, 28 pairs), re-computed and asserted on every run",
+      "Dedup measured on a labelled fixture set (precision 1.000, recall 1.000, 105 pairs, five hard negatives), re-computed and asserted on every run",
       "Freshness mechanism proven: per-source closure, unknown recorded as unknown, closed jobs leave the feed",
-      "Full gate set green with the documented command only: lint 0/8, typecheck 0, 932/932 tests (0 skipped), build 0"
+      "Full gate set green with the documented command only: lint 0/8, typecheck 0, 942/942 tests (0 skipped), build 0"
     ],
     "not_met": [
       "Dedup observed on real traffic (no credentialed source — inherits the Stage 05 blocker)",

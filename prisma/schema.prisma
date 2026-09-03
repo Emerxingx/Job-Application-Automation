@@ -329,8 +329,8 @@ model Job {
   @@index([occupationId])
   @@index([sourceId, activeState, lastSeenAt])
   @@index([canonicalHash])
+  // For Stage 08's search; nothing reads it yet.
   @@index([normalizedTitle])
-  @@index([activeState, postedAt])
 }
 
 /// Stage 06: one row per (source, external id) that carries a canonical
@@ -346,6 +346,10 @@ model JobProvenance {
   applyUrl    String   @default("")
   firstSeenAt DateTime @default(now())
   lastSeenAt  DateTime @default(now())
+  // When the freshness sweep last ASKED this source about it (null: never).
+  // A sweep orders by this, so every stale row is reached in turn and a row
+  // the source cannot answer for is not re-asked on every sweep.
+  lastCheckedAt DateTime?
   // Hash of the last normalised capture from THIS source.
   sourceHash  String   @default("")
 
@@ -354,6 +358,7 @@ model JobProvenance {
 
   @@unique([sourceId, externalId])
   @@index([jobId])
+  @@index([sourceId, lastSeenAt, lastCheckedAt])
 }
 
 // Join of agent × job, carrying the AI match analysis. This is what the job

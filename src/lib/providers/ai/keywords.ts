@@ -74,15 +74,27 @@ export function extractSkills(text: string): string[] {
   const haystack = normalize(text);
   const found = new Set<string>();
 
-  for (const skill of SKILL_VOCABULARY) {
-    const needle = normalize(skill);
-    // Word-boundary-ish check to avoid matching "r" inside "react".
-    const pattern = new RegExp(`(^|[^a-z0-9])${escapeRegex(needle)}([^a-z0-9]|$)`);
+  for (const { skill, pattern } of SKILL_PATTERNS) {
     if (pattern.test(haystack)) found.add(skill);
   }
 
   return [...found];
 }
+
+// Compiled once: the canonical-job pipeline calls extractSkills per sentence
+// of every posting, and compiling ~150 patterns per call made a bullet-heavy
+// 50 KB description cost seconds of CPU on the scan path (Stage 06 review).
+// Word-boundary-ish check to avoid matching "r" inside "react".
+const SKILL_PATTERNS: readonly { skill: string; pattern: RegExp }[] = SKILL_VOCABULARY.map((skill) => ({
+  skill,
+  pattern: new RegExp(`(^|[^a-z0-9])${escapeRegex(normalize(skill))}([^a-z0-9]|$)`),
+}));
+
+/** True when a skill string is one of the vocabulary's canonical entries. */
+export function isVocabularySkill(skill: string): boolean {
+  return VOCABULARY_SET.has(normalize(skill));
+}
+const VOCABULARY_SET = new Set(SKILL_VOCABULARY.map((s) => normalize(s)));
 
 function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

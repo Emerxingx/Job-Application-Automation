@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { ArrowLeft, Calendar, ExternalLink, MapPin, Wallet } from 'lucide-react';
 import { requireTenant } from '@/lib/tenancy/request';
+import { sourceNamesFor } from '@/lib/connectors/registry';
 import { attributionFor } from '@/lib/taxonomy/datasets';
 import { getQuota } from '@/lib/subscription';
 import { parseJson } from '@/lib/types';
@@ -28,7 +29,10 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
   // application are the user's own rows.
   const [loaded, quota] = await Promise.all([
     run(async (tx) => {
-      const job = await tx.job.findUnique({ where: { id }, include: { occupation: { include: { labels: true, codes: true } }, provenance: { include: { source: { select: { name: true, key: true } } }, orderBy: { firstSeenAt: 'asc' } } } });
+      // Provenance is reference data the tenant may read; the source REGISTER
+      // is system-only, so its names are resolved below, outside the tenant
+      // transaction (an include here would return no rows and throw).
+      const job = await tx.job.findUnique({ where: { id }, include: { occupation: { include: { labels: true, codes: true } }, provenance: { orderBy: { firstSeenAt: 'asc' } } } });
       if (!job) return null;
       const [match, application] = await Promise.all([
         tx.jobMatch.findFirst({
@@ -45,6 +49,8 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
   const { job, match, application } = loaded;
   // The dataset register is system-only; this reads the one column a page needs.
   const attribution = await attributionFor(job.occupationId);
+  // Likewise the source register: display names only, keyed by id.
+  const sourceNames = await sourceNamesFor(job.provenance.map((p) => p.sourceId));
 
   const breakdown = parseJson<ScoreBreakdown>(match?.scoreBreakdown, {
     skills: 0,
@@ -127,8 +133,20 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
             {/* Stage 06: one canonical job, every source that carries it named — the provenance the Job Folder relies on. */}
             {job.provenance.length > 0 && (
               <p className="mt-2 text-xs text-faint">
-                Listed by {job.provenance.map((p) => p.source.name).join(', ')}
-                {job.provenance.length > 1 ? ` — ${job.provenance.length} sources merged into one posting` : ''}
+                Listed by{' '}
+                {job.provenance.map((p, i) => (
+                  <span key={p.id}>
+                    {i > 0 ? ', ' : ''}
+                    {p.applyUrl ? (
+                      <a href={p.applyUrl} target="_blank" rel="noopener noreferrer" className="underline hover:text-ink">
+                        {sourceNames.get(p.sourceId) ?? 'a registered source'}
+                      </a>
+                    ) : (
+                      sourceNames.get(p.sourceId) ?? 'a registered source'
+                    )}
+                  </span>
+                ))}
+                {job.provenance.length > 1 ? ` — ${job.provenance.length} sources merged into one posting; each link is that source's own` : ''}
               </p>
             )}
           </Card>

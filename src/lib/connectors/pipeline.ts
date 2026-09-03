@@ -3,7 +3,7 @@ import type { JobSearchQuery } from '@/lib/types';
 import { Prisma } from '@prisma/client';
 import { db } from '../db';
 import { postingHash } from './base';
-import { canonicalColumns, canonicalize, occupationFamily } from '@/lib/jobs/canonical';
+import { canonicalColumns, canonicalize } from '@/lib/jobs/canonical';
 import { CONNECTOR_DEFINITIONS, missingCredentials, recordComplete, requireEnabledSource, SourceAccessError } from './registry';
 import type { JobSourceConnector, NormalizedPosting } from './types';
 
@@ -153,8 +153,13 @@ export interface UpsertResult {
  * snapshot only when the normalised content of THIS capture is one it has
  * not seen (the previous snapshots are never touched — the database refuses).
  * Job columns are rewritten from a capture only when the capture is the
- * job's primary source or the job has no primary any more, so a second
- * source's differently formatted copy never overwrites the first's.
+ * job's PRIMARY — the (source, externalId) the Job row itself names — so a
+ * second source's differently formatted copy never overwrites the first's.
+ * When the job's registered source is gone (`sourceId` null: the register
+ * row was deleted), the next capture from any source becomes the primary
+ * and the Job row is re-keyed to it. A CLOSED job is never a merge target:
+ * a posting that reappears from another source after closure is a new job,
+ * not a resurrection carrying a dead apply link and an old posting date.
  *
  * Concurrency: two runs racing on a new posting both see "no row"; the
  * loser hits a unique constraint (job or provenance) and is treated as an
@@ -180,7 +185,6 @@ export async function upsertPosting(source: JobSource, posting: NormalizedPostin
     requirements: JSON.stringify(posting.requirements),
     skills: JSON.stringify(posting.skills),
     nocCode: posting.nocCode ?? null,
-    occupationFamily: occupationFamily(posting.nocCode),
     applyUrl: posting.applyUrl,
     applyMethod: posting.applyMethod,
     postedAt: new Date(posting.postedAt),
@@ -195,8 +199,11 @@ export async function upsertPosting(source: JobSource, posting: NormalizedPostin
   const payload = JSON.stringify(posting);
   const provenanceWhere = { sourceId_externalId: { sourceId: source.id, externalId: posting.externalId } };
 
-  const touch = async (tx: Prisma.TransactionClient, jobId: string, existingHash: string, primary: boolean, seenBefore: boolean) => {
-    if (existingHash === hash) {
+  const touch = async (tx: Prisma.TransactionClient, jobId: string, existingHash: string, primary: boolean, seenBefore: boolean, adopt = false) => {
+    if (adopt) {
+      // The job's registered source is gone: this capture becomes the primary.
+      await tx.job.update({ where: { id: jobId }, data: { ...columns, source: posting.source, externalId: posting.externalId } });
+    } else if (existingHash === hash) {
       await tx.job.update({ where: { id: jobId }, data: { lastSeenAt: now, activeState: 'active', closedAt: null } });
     } else if (primary) {
       await tx.job.update({ where: { id: jobId }, data: columns });
@@ -224,8 +231,8 @@ export async function upsertPosting(source: JobSource, posting: NormalizedPostin
     // Pre-Stage-06 rows carry no provenance yet: the job's own key still counts.
     const own = await db.job.findUnique({ where: { source_externalId: { source: posting.source, externalId: posting.externalId } }, select: { id: true, sourceHash: true } });
     if (own) return { jobId: own.id, existingHash: own.sourceHash, primary: true, seenBefore: false };
-    const twin = await db.job.findFirst({ where: { canonicalHash: canonical.canonicalHash }, orderBy: { firstSeenAt: 'asc' }, select: { id: true, sourceId: true } });
-    if (twin) return { jobId: twin.id, existingHash: '', primary: twin.sourceId === null, seenBefore: false, merged: true };
+    const twin = await db.job.findFirst({ where: { canonicalHash: canonical.canonicalHash, activeState: { not: 'closed' } }, orderBy: { firstSeenAt: 'asc' }, select: { id: true, sourceId: true } });
+    if (twin) return { jobId: twin.id, existingHash: '', primary: twin.sourceId === null, seenBefore: false, merged: true, adopt: twin.sourceId === null };
     return null;
   };
 
@@ -246,12 +253,13 @@ export async function upsertPosting(source: JobSource, posting: NormalizedPostin
     }
   }
   const { jobId, existingHash, primary, seenBefore } = found;
+  const adopt = Boolean(found.adopt);
   try {
-    await db.$transaction((tx) => touch(tx, jobId, existingHash, primary, seenBefore));
+    await db.$transaction((tx) => touch(tx, jobId, existingHash, primary, seenBefore, adopt));
   } catch (error) {
     if (!isUniqueViolation(error) || seenBefore) throw error;
     // The provenance row appeared meanwhile (a concurrent capture of the same source): treat as seen.
-    await db.$transaction((tx) => touch(tx, jobId, existingHash, primary, true));
+    await db.$transaction((tx) => touch(tx, jobId, existingHash, primary, true, adopt));
   }
   return { id: jobId, isNew: false, merged: Boolean(found.merged) };
 }
@@ -272,13 +280,23 @@ export async function runRefresh(key: string, options: { staleAfterMs?: number; 
   const staleBefore = new Date(Date.now() - (options.staleAfterMs ?? 24 * 3_600_000));
   const run = await startRun(source, 'refresh', { staleBefore: staleBefore.toISOString() });
   try {
-    // Stale = this source's provenance not sighted within the window, on a
-    // job still open. Closure is per SOURCE: a job closes only when no
-    // source still lists it — another source's live copy keeps it open.
+    // Stale = this source's provenance not sighted within the window and not
+    // ASKED about within the window either, on a job still open. Never-asked
+    // rows come first, then the least recently asked, so every stale row is
+    // reached in turn and a source that cannot answer ("unknown" for every
+    // id, as Adzuna's does) is not re-asked about the same rows on every
+    // sweep. Closure and doubt are both per SOURCE: a job closes, or is
+    // marked unknown, only when no other source has sighted it within the
+    // window — another source's live copy keeps it open and confirmed.
     const stale = await db.jobProvenance.findMany({
-      where: { sourceId: source.id, lastSeenAt: { lt: staleBefore }, job: { activeState: { in: ['active', 'unknown'] } } },
+      where: {
+        sourceId: source.id,
+        lastSeenAt: { lt: staleBefore },
+        OR: [{ lastCheckedAt: null }, { lastCheckedAt: { lt: staleBefore } }],
+        job: { activeState: { in: ['active', 'unknown'] } },
+      },
       select: { id: true, jobId: true, externalId: true },
-      orderBy: { lastSeenAt: 'asc' },
+      orderBy: [{ lastCheckedAt: { sort: 'asc', nulls: 'first' } }, { lastSeenAt: 'asc' }],
       take: Math.min(options.limit ?? 200, 1000),
     });
     const states = stale.length ? await connector.refresh(stale.map((p) => p.externalId)) : {};
@@ -289,21 +307,21 @@ export async function runRefresh(key: string, options: { staleAfterMs?: number; 
       const state = states[row.externalId] ?? 'unknown';
       if (state === 'active') {
         await db.$transaction([
-          db.jobProvenance.update({ where: { id: row.id }, data: { lastSeenAt: now } }),
+          db.jobProvenance.update({ where: { id: row.id }, data: { lastSeenAt: now, lastCheckedAt: now } }),
           db.job.update({ where: { id: row.jobId }, data: { activeState: 'active', lastSeenAt: now, closedAt: null } }),
         ]);
         updated += 1;
         continue;
       }
+      await db.jobProvenance.update({ where: { id: row.id }, data: { lastCheckedAt: now } });
+      const stillListed = await db.jobProvenance.count({ where: { jobId: row.jobId, id: { not: row.id }, lastSeenAt: { gte: staleBefore } } });
+      if (stillListed > 0) continue;
       if (state === 'closed') {
-        const stillListed = await db.jobProvenance.count({ where: { jobId: row.jobId, id: { not: row.id }, lastSeenAt: { gte: staleBefore } } });
-        if (stillListed === 0) {
-          await db.job.update({ where: { id: row.jobId }, data: { activeState: 'closed', closedAt: now } });
-          closed += 1;
-        }
-        continue;
+        await db.job.update({ where: { id: row.jobId }, data: { activeState: 'closed', closedAt: now } });
+        closed += 1;
+      } else {
+        await db.job.update({ where: { id: row.jobId }, data: { activeState: 'unknown' } });
       }
-      await db.job.update({ where: { id: row.jobId }, data: { activeState: 'unknown' } });
     }
     return finishRun(run, { status: 'ok', discovered: stale.length, updated, closed }, source);
   } catch (error) {

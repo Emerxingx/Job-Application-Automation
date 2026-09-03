@@ -166,7 +166,7 @@ never occurred.
 
 ## Stage 06 — canonical job
 
-- `tests/canonical-jobs.test.ts` (pure): every canonical field of eight
+- `tests/canonical-jobs.test.ts` (pure): every canonical field of fifteen
   fixture postings asserted exactly (`tests/fixtures/canonical-postings.json`);
   dedup precision and recall computed over every pair of the labelled set on
   every run and asserted at 1.0 / 1.0, so a change to the identity rule is a
@@ -175,5 +175,6 @@ never occurred.
   regenerated.
 - `tests/connector-pipeline.test.ts` (database): the acceptance case (one
   job, two provenance rows, a snapshot per capture), primary-source column
-  ownership, the no-merge case, per-source closure, and tenant read-only
-  access to provenance.
+  ownership, the no-merge case, per-source closure and doubt, sweep
+  progress, closed-job non-revival, primacy adoption, the job page's
+  tenant-path include, and tenant read-only access to provenance.

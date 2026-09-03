@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { extractSkills, normalize } from '@/lib/providers/ai/keywords';
+import { extractSkills, isVocabularySkill, normalize } from '@/lib/providers/ai/keywords';
 import type { NormalizedPosting } from '@/lib/connectors/types';
 
 /**
@@ -56,8 +56,17 @@ const TITLE_NOISE_SEGMENT = /^(remote|hybrid|on[- ]?site|in[- ]office|work from 
  * why this is not the taxonomy's `normalizeTitle` (that one strips
  * qualifiers to find the occupation).
  */
+const TITLE_ABBREVIATIONS: Record<string, string> = { sr: 'senior', jr: 'junior', mgr: 'manager', assoc: 'associate', asst: 'assistant', eng: 'engineer', dev: 'developer', admin: 'administrator', coord: 'coordinator', spec: 'specialist', rep: 'representative' };
+const TITLE_LEADING_LABEL = /^(?:position|job title|title|role|posting)\s*:\s*/;
+
 export function normalizeJobTitle(title: string, company = '', location = ''): string {
-  const lower = title.toLowerCase().replace(/\(.*?\)|\[.*?\]/g, ' ').replace(REQUISITION, ' ');
+  const lower = title
+    .toLowerCase()
+    .replace(TITLE_LEADING_LABEL, '')
+    .replace(/\(.*?\)|\[.*?\]/g, ' ')
+    .replace(REQUISITION, ' ')
+    // "Sr. Developer" and "Senior Developer" are one title.
+    .replace(/\b([a-z]+)\.?(?=[^a-z0-9]|$)/g, (m, w: string) => TITLE_ABBREVIATIONS[w] ?? m);
   const segments = lower.split(/\s+[-–—|]\s+|\s*[|]\s*|\s*:\s+/).map((seg) => seg.replace(/[^\p{L}\p{N}+#.]+/gu, ' ').replace(/\s+/g, ' ').trim()).filter(Boolean);
   const companyNorm = normalizeCompany(company);
   const locationWords = location.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
@@ -75,12 +84,14 @@ export function normalizeJobTitle(title: string, company = '', location = ''): s
 // ---------------------------------------------------------------------------
 // Company
 
-const COMPANY_SUFFIXES = /\b(inc|incorporated|ltd|limited|llc|corp|corporation|co|company|plc|gmbh|sa|ag|group|holdings|canada|usa|the)\b/g;
+// Legal forms at the TAIL only ("Maple Analytics Inc.", "Acme Corp"), never a
+// word inside the name: "Canada Life" and "Air Canada" are the names.
+const TRAILING_LEGAL_FORM = /(?:\s+(?:inc|incorporated|ltd|limited|llc|corp|corporation|co|company|plc|gmbh|sa|ag))+$/;
 
-/** Lower-cased, punctuation-free, legal-form suffixes removed. */
+/** Lower-cased, punctuation-free, leading article and trailing legal forms removed. */
 export function normalizeCompany(company: string): string {
   const base = company.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').replace(/\s+/g, ' ').trim();
-  const stripped = base.replace(COMPANY_SUFFIXES, ' ').replace(/\s+/g, ' ').trim();
+  const stripped = base.replace(/^the\s+/, '').replace(TRAILING_LEGAL_FORM, '').trim();
   return stripped || base;
 }
 
@@ -125,7 +136,12 @@ const POSTAL = /\b\d{5}(?:-\d{4})?\b|\b[a-z]\d[a-z]\s?\d[a-z]\d\b/g;
  * only when it is on the known-city list for that country.
  */
 export function postalRegion(location: string, country: 'CA' | 'US', workMode?: string): string | null {
-  const raw = location.toLowerCase().replace(/\s+/g, ' ').trim();
+  const raw = location
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    // "Hybrid - Toronto, ON": the work mode is not the place.
+    .replace(/^(hybrid|on[- ]?site|in[- ]office)\s*(?:[-–—,|:]\s*)?/, '')
+    .trim();
   if (!raw) return workMode === 'remote' ? 'remote' : null;
   if (REMOTE.test(raw) || REMOTE_TRAILING.test(raw)) return 'remote';
   const parts = raw
@@ -161,9 +177,11 @@ const SECTION_PREFERRED = /^\s*(preferred|nice[- ]to[- ]have|bonus|desirable|ass
 const SECTION_REQUIRED = /^\s*(requirements?|qualifications?|required|must[- ]haves?|what you('ll| will) (need|bring)|about you|who you are)\b/i;
 const SECTION_END = /^\s*(benefits|what we offer|about (us|the (company|team))|how to apply|compensation|perks|why (join|work))\b/i;
 
-const DEGREE = /\b(ph\.?d|doctorate|master'?s?( degree)?|mba|bachelor'?s?( degree)?|b\.?sc|b\.?a\.?|b\.?eng|m\.?sc|m\.?a\.?|m\.?eng|college diploma|diploma|associate'?s? degree|high school( diploma)?|post[- ]secondary|undergraduate degree|graduate degree)\b/gi;
+// Bare "BA" / "MA" are also a US state and a common word; they count only in
+// a degree context ("BA in …", "BA or BS", "B.A.").
+const DEGREE = /\b(ph\.?d|doctorate|master'?s?( degree)?|mba|bachelor'?s?( degree)?|b\.?sc|b\.a\.|m\.a\.|b\.?eng|m\.?sc|m\.?eng|(?:ba|bs|ma|ms)(?= (?:in|or|\/|degree)\b)|college diploma|diploma|associate'?s? degree|high school( diploma)?|post[- ]secondary|undergraduate degree|graduate degree)\b/gi;
 const CERT = /\b(pmp|cpa|cfa|cissp|ccna|ccnp|cism|cisa|prince2|itil|six sigma|scrum master|csm|psm|cka|ckad|aws certified (?:solutions architect|developer|sysops administrator|devops engineer|cloud practitioner|security|data engineer|machine learning|data analytics)(?: ?[-–] ?(?:associate|professional|specialty))?|comptia [a-z+]+|rn|lpn|bls|acls|red seal|p\.?eng|cfp|frm|cbap|shrm-[cs]p|chrp|chrl|cphr)\b/gi;
-const YEARS = /(\d{1,2})\s*(?:\+|plus)?\s*(?:-|–|to)?\s*(\d{1,2})?\s*\+?\s*(?:years?|yrs?)\b/gi;
+const YEARS = /(?<!\d)(\d{1,2})(?!\d)\s*(?:\+|plus)?\s*(?:-|–|to)?\s*(?:(?<!\d)(\d{1,2})(?!\d))?\s*\+?\s*(?:years?|yrs?)\b/gi;
 const LANGUAGES = /\b(english|french|français|bilingual(?:ism)?|spanish|mandarin|cantonese|punjabi|arabic|german|portuguese|italian|japanese|korean|hindi|tagalog|russian|vietnamese)\b/gi;
 
 function splitSegments(p: NormalizedPosting): { text: string; preferred: boolean }[] {
@@ -172,19 +190,24 @@ function splitSegments(p: NormalizedPosting): { text: string; preferred: boolean
   for (const line of p.description.split(/\r?\n/)) {
     const t = line.trim();
     if (!t) continue;
-    if (t.length < 60 && SECTION_PREFERRED.test(t)) {
-      mode = 'preferred';
-      continue;
-    }
-    if (t.length < 60 && SECTION_REQUIRED.test(t)) {
-      mode = 'required';
-      continue;
-    }
-    if (t.length < 60 && SECTION_END.test(t)) {
-      mode = 'other';
-      continue;
-    }
-    for (const sentence of t.split(/(?<=[.;!?])\s+/)) {
+    // A heading switches the mode; what follows the colon on the same line
+    // ("Requirements: SQL and Python.") is content in the new mode.
+    const heading = t.match(/^([^:.]{1,40})(?::\s*(.*))?$/);
+    const head = heading?.[1] ?? '';
+    const rest = heading?.[2] ?? '';
+    let switched = false;
+    if (head && SECTION_PREFERRED.test(head) && (rest || t.length < 60)) { mode = 'preferred'; switched = true; }
+    else if (head && SECTION_REQUIRED.test(head) && (rest || t.length < 60)) { mode = 'required'; switched = true; }
+    else if (head && SECTION_END.test(head) && (rest || t.length < 60)) { mode = 'other'; switched = true; }
+    if (switched && !rest) continue;
+    const body = switched ? rest : t;
+    for (const chunk of body.split(/(?<=[.;!?])\s+/)) {
+      // A later inline heading in the same line ("Preferred: SQL. Requirements: Python.").
+      const inline = chunk.match(/^([^:.]{1,40}):\s*(.*)$/);
+      if (inline && SECTION_PREFERRED.test(inline[1])) mode = 'preferred';
+      else if (inline && SECTION_REQUIRED.test(inline[1])) mode = 'required';
+      else if (inline && SECTION_END.test(inline[1])) mode = 'other';
+      const sentence = inline && (SECTION_PREFERRED.test(inline[1]) || SECTION_REQUIRED.test(inline[1]) || SECTION_END.test(inline[1])) ? inline[2] : chunk;
       const s = sentence.trim();
       if (!s) continue;
       out.push({ text: s, preferred: mode === 'preferred' || PREFERRED.test(s) });
@@ -245,66 +268,117 @@ export function languageRequirements(text: string): string[] {
   );
 }
 
-/** What the posting STATES about the right to work; null when it says nothing. */
-export function workAuthorization(text: string): WorkAuthorizationStatement | null {
-  const t = text.toLowerCase();
-  if (/\b(security|reliability|secret|top secret|enhanced) (clearance|status)\b/.test(t) || /\bclearance (is )?required\b/.test(t)) return 'security_clearance_required';
-  if (
-    /\b(canadian citizen|citizenship|permanent resident|green card|u\.?s\.? citizen)s?\b[^.]{0,40}\b(required|only|must)\b/.test(t) ||
-    /\b(must|only)\b[^.]{0,40}\b(canadian citizen|permanent resident|u\.?s\.? citizen|green card)/.test(t)
-  ) {
-    return 'citizenship_or_pr_required';
-  }
-  if (
-    /\b(legally |lawfully )?(authori[sz]ed|eligible|entitled|permitted) to work (in|within) (canada|the (us|u\.s\.|united states)|usa)\b/.test(t) ||
-    /\bwork (permit|authori[sz]ation) (is )?required\b/.test(t) ||
-    /\bmust (be|have)\b[^.]{0,30}(right|authori[sz]ation|eligib\w+) to work\b/.test(t)
-  ) {
-    return 'authorization_required';
-  }
-  return null;
+const NEGATED = /\b(not|no|never|without|isn't|aren't|won't|don't|doesn't)\b[^.;]{0,25}\b(required|necessary|needed|mandatory|a requirement)\b|\b(not|no)\s+(security |secret |reliability )?(clearance|citizenship|permanent residen\w+|work permit|authori[sz]ation)\b|\b(an? asset|preferred|nice[- ]to[- ]have|a plus|bonus)\b/;
+
+function sentences(text: string): string[] {
+  return text
+    .replace(/[\u2018\u2019]/g, "'")
+    .toLowerCase()
+    .split(/(?<=[.;!?])\s+|\r?\n+/)
+    .map((x) => x.trim())
+    .filter(Boolean);
 }
 
-/** Only what is written: `unknown` is the honest default. */
+/**
+ * What the posting STATES about the right to work; null when it says
+ * nothing. Evaluated sentence by sentence, and a sentence that negates or
+ * merely prefers the requirement ("not required", "an asset") never counts:
+ * the false "required" is the dangerous direction — Stage 07 turns this into
+ * an eligibility gate — so silence beats a guess. Canada and the US only.
+ */
+export function workAuthorization(text: string): WorkAuthorizationStatement | null {
+  let found: WorkAuthorizationStatement | null = null;
+  const rank: Record<WorkAuthorizationStatement, number> = { authorization_required: 1, citizenship_or_pr_required: 2, security_clearance_required: 3 };
+  for (const t of sentences(text)) {
+    if (NEGATED.test(t)) continue;
+    let hit: WorkAuthorizationStatement | null = null;
+    if (/\b(security|reliability|secret|top secret|enhanced) (clearance|status)\b/.test(t) || /\bclearance (is )?required\b/.test(t)) hit = 'security_clearance_required';
+    else if (
+      /\b(canadian citizen|citizenship|permanent resident|green card|u\.?s\.? citizen)s?\b[^.]{0,40}\b(required|only|must)\b/.test(t) ||
+      /\b(must|only)\b[^.]{0,40}\b(canadian citizen|permanent resident|u\.?s\.? citizen|green card)/.test(t)
+    ) hit = 'citizenship_or_pr_required';
+    else if (
+      /\b(legally |lawfully )?(authori[sz]ed|eligible|entitled|permitted) to work (in|within) (canada|the (us|u\.s\.|united states)|usa|the united states of america)\b/.test(t) ||
+      /\bwork (permit|authori[sz]ation) (is )?required\b/.test(t) ||
+      /\bmust (be|have)\b[^.]{0,30}(right|authori[sz]ation|eligib\w+) to work (in|within) (canada|the (us|u\.s\.|united states)|usa)\b/.test(t)
+    ) hit = 'authorization_required';
+    if (hit && (!found || rank[hit] > rank[found])) found = hit;
+  }
+  return found;
+}
+
+/** Only what is written, sentence by sentence: `unknown` is the honest default. */
 export function sponsorship(text: string): Sponsorship {
-  const t = text.toLowerCase();
-  if (
-    /\b(no|not|unable to|cannot|can't|will not|won't|does not|doesn't|do not|don't)\b[^.]{0,40}\bsponsor/.test(t) ||
-    /\bsponsorship (is )?(not |un)available\b/.test(t) ||
-    /\bwithout (visa |immigration )?sponsorship\b/.test(t)
-  ) {
-    return 'not_offered';
+  let result: Sponsorship = 'unknown';
+  for (const t of sentences(text)) {
+    if (!/sponsor/.test(t)) continue;
+    const no =
+      /\b(no|not|unable to|cannot|can't|will not|won't|does not|doesn't|do not|don't|never)\b[^.;]{0,40}\bsponsor/.test(t) ||
+      /\bsponsorship (is )?(not |un)available\b/.test(t) ||
+      /\bwithout (visa |immigration )?sponsorship\b/.test(t) ||
+      /\bno (visa |immigration |work permit )?sponsorship\b/.test(t);
+    const yes =
+      /\b(visa |immigration |work permit |lmia )?sponsorship (is |may be |will be )?(available|offered|provided|possible)\b/.test(t) ||
+      /\b(we|company|employer) (will|can|may|do) (offer|provide|consider|sponsor)\b/.test(t) ||
+      /\bwilling to sponsor\b/.test(t) ||
+      /\bwe sponsor\b/.test(t);
+    if (no) return 'not_offered';
+    if (yes) result = 'offered';
   }
-  if (
-    /\b(visa |immigration |work permit |lmia )?sponsorship (is |may be |will be )?(available|offered|provided|possible)\b/.test(t) ||
-    /\b(we|company|employer) (will|can|may) (offer|provide|consider)\b[^.]{0,20}sponsor/.test(t) ||
-    /\bwilling to sponsor\b/.test(t)
-  ) {
-    return 'offered';
-  }
-  return 'unknown';
+  return result;
 }
 
 // ---------------------------------------------------------------------------
 // Identity
 
+/** The employer placeholder `normalizePosting` writes when a source omits it. */
+export const UNDISCLOSED_EMPLOYER = normalizeCompany('Employer not disclosed');
+
+export interface CanonicalIdentity {
+  normalizedTitle: string;
+  normalizedCompany: string;
+  postalRegion: string | null;
+  country: string;
+  requiredSkills: string[];
+  preferredSkills: string[];
+}
+
+/** The vocabulary part of the skill fingerprint: what survives an aggregator's reformatting. */
+function skillFingerprint(fields: Pick<CanonicalIdentity, 'requiredSkills' | 'preferredSkills'>): string[] {
+  return [...new Set([...fields.requiredSkills, ...fields.preferredSkills].filter((x) => isVocabularySkill(x)))].sort();
+}
+
+/**
+ * Whether the identity is strong enough to merge on. A placeholder employer,
+ * an unparseable region or an empty fingerprint would make every "Manager"
+ * in Toronto one job; such a capture keeps its own identity instead (the
+ * hash then includes the capture's source id, so it can only match itself).
+ */
+export function canonicalIdentityStrength(fields: CanonicalIdentity): 'strong' | 'weak' {
+  if (!fields.normalizedTitle || !fields.normalizedCompany || fields.normalizedCompany === UNDISCLOSED_EMPLOYER) return 'weak';
+  if (!fields.postalRegion) return 'weak';
+  if (skillFingerprint(fields).length === 0) return 'weak';
+  return 'strong';
+}
+
 /**
  * The canonical key: what a candidate would recognise as "the same job" —
- * the normalised title, the employer, the region and the posting's skill
- * fingerprint (the closed vocabulary makes it stable across an aggregator's
- * reformatting or truncation, where raw text is not). Two postings that
- * agree on all four are one job with two provenance rows.
+ * the normalised title, the employer, the country and region, and the
+ * posting's vocabulary skill fingerprint (the closed vocabulary makes it
+ * stable across an aggregator's reformatting or truncation, where raw text
+ * is not). Two postings that agree on all of them are one job with two
+ * provenance rows. A weak identity (see `canonicalIdentityStrength`) is
+ * salted with the capture's own id and never merges with anything.
  */
-export function canonicalHash(fields: Pick<CanonicalFields, 'normalizedTitle' | 'normalizedCompany' | 'postalRegion' | 'requiredSkills' | 'preferredSkills'>): string {
-  const skills = [...new Set([...fields.requiredSkills, ...fields.preferredSkills])].sort();
-  return createHash('sha256')
-    .update([fields.normalizedTitle, fields.normalizedCompany, fields.postalRegion ?? '', skills.join(',')].join(' '))
-    .digest('hex');
+export function canonicalHash(fields: CanonicalIdentity, capture?: { source: string; externalId: string }): string {
+  const parts = [fields.normalizedTitle, fields.normalizedCompany, fields.country, fields.postalRegion ?? '', skillFingerprint(fields).join(',')];
+  if (canonicalIdentityStrength(fields) === 'weak') parts.push(`capture:${capture?.source ?? ''}:${capture?.externalId ?? ''}`);
+  return createHash('sha256').update(parts.join(' ')).digest('hex');
 }
 
 /** Every canonical field for one normalised capture. Pure. */
 export function canonicalize(p: NormalizedPosting): CanonicalFields {
-  const text = `${p.title}\n${p.description}\n${p.requirements.join('\n')}`;
+  const text = `${p.title}\n${p.description}\n${p.requirements.join('\n')}`.replace(/[\u2018\u2019]/g, "'");
   const skills = splitSkills(p);
   const years = experienceYears(text);
   const fields = {
@@ -321,7 +395,7 @@ export function canonicalize(p: NormalizedPosting): CanonicalFields {
     workAuthorization: workAuthorization(text),
     sponsorship: sponsorship(text),
   };
-  return { ...fields, canonicalHash: canonicalHash(fields) };
+  return { ...fields, canonicalHash: canonicalHash({ ...fields, country: p.country }, { source: p.source, externalId: p.externalId }) };
 }
 
 /** Columns for the Job row from the canonical fields (JSON arrays as text). */
