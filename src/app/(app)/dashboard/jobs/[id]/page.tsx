@@ -73,6 +73,19 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
   const matched = parseJson<string[]>(match?.matchedKeywords, []);
   const missing = parseJson<string[]>(match?.missingKeywords, []);
   const requirements = parseJson<string[]>(job.requirements, []);
+  // Stage 08: HOW each skill matched (exactly, or through the equivalence
+  // map) and whether a missing one was a requirement or a nice-to-have, from
+  // the skills dimension. Rows written before the labels existed carry plain
+  // strings and simply show no label.
+  const skillsDim = match?.dimensions.find((d) => d.dimension === 'skills');
+  const semanticVia = new Map<string, string>();
+  for (const m of parseJson<unknown[]>(skillsDim?.matched, [])) {
+    if (m && typeof m === 'object' && (m as { how?: string }).how === 'semantic') semanticVia.set((m as { term: string }).term, (m as { via?: string }).via ?? '');
+  }
+  const preferredMissing = new Set<string>();
+  for (const m of parseJson<unknown[]>(skillsDim?.missing, [])) {
+    if (m && typeof m === 'object' && (m as { level?: string }).level === 'preferred') preferredMissing.add((m as { term: string }).term);
+  }
 
   return (
     <>
@@ -253,11 +266,15 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
                 <>
                   <p className="mb-2 text-xs font-medium text-success">You match these</p>
                   <div className="mb-4 flex flex-wrap gap-1.5">
-                    {matched.map((k) => (
-                      <span key={k} className="chip bg-success/10 text-success">
-                        {k}
-                      </span>
-                    ))}
+                    {matched.map((k) => {
+                      const via = semanticVia.get(k.toLowerCase());
+                      return (
+                        <span key={k} className="chip bg-success/10 text-success" title={via !== undefined ? `Matched through the equivalence map: your résumé says "${via}".` : undefined}>
+                          {k}
+                          {via !== undefined && <span className="ml-1 opacity-70">≈ {via}</span>}
+                        </span>
+                      );
+                    })}
                   </div>
                 </>
               )}
@@ -266,8 +283,9 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
                   <p className="mb-2 text-xs font-medium text-faint">Named but not evidenced</p>
                   <div className="flex flex-wrap gap-1.5">
                     {missing.map((k) => (
-                      <span key={k} className="chip">
+                      <span key={k} className="chip" title={preferredMissing.has(k.toLowerCase()) ? 'A nice-to-have in the posting, not a requirement.' : undefined}>
                         {k}
+                        {preferredMissing.has(k.toLowerCase()) && <span className="ml-1 text-faint">· nice-to-have</span>}
                       </span>
                     ))}
                   </div>

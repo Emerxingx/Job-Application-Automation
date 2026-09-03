@@ -21,6 +21,8 @@ type Db = typeof import('../src/lib/db')['db'];
 type Weights = typeof import('../src/lib/matching/weights');
 type Ctx = typeof import('../src/lib/tenancy/context');
 type Scanner = typeof import('../src/lib/services/scanner');
+type Pipeline = typeof import('../src/lib/matching/pipeline');
+type Keywords = typeof import('../src/lib/providers/ai/keywords');
 const S = randomBytes(4).toString('hex');
 const A = { id: `mw_staff_a_${S}`, email: `mw-a-${S}@mw.test`, fullName: 'Admin A', role: 'admin' as const, storedRole: 'admin' };
 const B = { id: `mw_staff_b_${S}`, email: `mw-b-${S}@mw.test`, fullName: 'Admin B', role: 'admin' as const, storedRole: 'admin' };
@@ -29,6 +31,8 @@ let db: Db;
 let weights: Weights;
 let ctx: Ctx;
 let scanner: Scanner;
+let pipeline: Pipeline;
+let keywords: Keywords;
 
 describe('Stage 08 — weight governance, regression and dimensions against the database', { skip: SKIP }, () => {
   before(async () => {
@@ -37,6 +41,8 @@ describe('Stage 08 — weight governance, regression and dimensions against the 
     weights = await import('../src/lib/matching/weights');
     ctx = await import('../src/lib/tenancy/context');
     scanner = await import('../src/lib/services/scanner');
+    pipeline = await import('../src/lib/matching/pipeline');
+    keywords = await import('../src/lib/providers/ai/keywords');
     for (const u of [A, B]) await db.user.create({ data: { id: u.id, email: u.email, passwordHash: 'x', fullName: u.fullName, role: 'admin' } });
     await db.user.create({ data: { id: USER.id, email: USER.email, passwordHash: 'x', fullName: 'Candidate', country: 'CA' } });
     // A clean register: any active version left by an earlier run would change every score below.
@@ -95,6 +101,67 @@ describe('Stage 08 — weight governance, regression and dimensions against the 
     }
   });
 
+  it('the decomposition is truthful: semantic matches are labelled, nice-to-haves are marked, keywords decompose into the tokens scored, citations are precise, the score is the weights applied to the breakdown', async () => {
+    const job = await db.job.create({
+      data: {
+        source: 'mock',
+        externalId: `mw-decomp-${S}`,
+        title: 'Data Analyst',
+        company: `Maple ${S}`,
+        location: 'Toronto, ON',
+        description: 'We need Postgres and Python. Nice to have: Looker.',
+        requirements: JSON.stringify(['Strong SQL and Postgres']),
+        skills: JSON.stringify(['postgres', 'python', 'looker']),
+        requiredSkills: JSON.stringify(['postgres', 'python', 'sql']),
+        preferredSkills: JSON.stringify(['looker']),
+        experienceYearsMin: 1,
+        postedAt: new Date(),
+      },
+    });
+    try {
+      const resume = { fullName: 'Candidate', headline: 'Data Analyst', email: USER.email, location: 'Toronto, ON', summary: 'Analyst with PostgreSQL, Python and Tableau.', skills: ['PostgreSQL', 'Python', 'Tableau'], experience: [{ title: 'Data Analyst', company: 'Old Co', location: 'Toronto', startDate: '2021-01', endDate: 'Present', bullets: ['Built SQL reporting', 'Python pipelines'] }], education: [], certifications: [], projects: [] };
+      const entries = [
+        { id: 'x', kind: 'achievement', claim: 'Helped the team go live with new reporting' },
+        { id: 'y', kind: 'skill', claim: 'Skill: PostgreSQL' },
+        { id: 'z', kind: 'employment', claim: 'Data Analyst at Old Co, 2021-01 to present' },
+        { id: 'w', kind: 'achievement', claim: 'Built SQL reporting for finance' },
+      ];
+      const active = await weights.getActiveWeights();
+      const r = await pipeline.scoreCompatibility({ userId: USER.id, resume, evidence: { ids: entries.map((e) => e.id), claims: entries.map((e) => e.claim), entries }, job, weights: active });
+      assert.equal(r.run.route, 'deterministic');
+      assert.equal(r.analysis.matchScore, keywords.combineScore(r.analysis.breakdown, active.weights), 'the recorded score is the governed rule over the breakdown');
+
+      const skills = r.dimensions.find((d) => d.dimension === 'skills')!;
+      assert.deepEqual(skills.matched.find((m) => m.term === 'postgres'), { term: 'postgres', how: 'semantic', via: 'postgresql' }, 'satisfied through the map, and says so');
+      assert.deepEqual(skills.matched.filter((m) => m.how === 'exact').map((m) => m.term), ['python', 'sql']);
+      assert.deepEqual(skills.missing, [{ term: 'looker', level: 'preferred' }]);
+      assert.equal(r.analysis.breakdown.skills, 86, '3 of 3.5: the nice-to-have costs half');
+      assert.deepEqual(skills.evidenceIds, ['y', 'w'], '"go live" is not evidence of anything asked for; the SQL and PostgreSQL claims are');
+      assert.match(skills.note, /3 of 3 required skills evidenced; 0 of 1 nice-to-haves \(1 through the equivalence map\)/);
+      assert.deepEqual(r.semanticMatches, [{ required: 'postgres', satisfiedBy: 'postgresql', how: 'semantic' }]);
+
+      const kw = r.dimensions.find((d) => d.dimension === 'keywords')!;
+      assert.deepEqual(kw.matched.map((m) => m.term), ['analyst', 'data', 'python', 'sql'], 'the tokens the density score counted');
+      assert.deepEqual(kw.missing, [{ term: 'looker', level: 'wording' }, { term: 'postgres', level: 'wording' }]);
+      assert.deepEqual(kw.evidenceIds, ['z', 'w'], 'claims containing those tokens as whole words');
+      assert.match(kw.note, /4 of 6 terms/);
+
+      assert.deepEqual(r.dimensions.find((d) => d.dimension === 'experience')!.evidenceIds, ['z']);
+      assert.deepEqual(r.dimensions.find((d) => d.dimension === 'seniority')!.evidenceIds, ['z'], 'the claim carrying the highest-level title');
+      const location = r.dimensions.find((d) => d.dimension === 'location')!;
+      assert.deepEqual(location.evidenceIds, []);
+      assert.match(location.note, /not an evidence claim/);
+
+      // The persisted shape carries the labels.
+      const rows = pipeline.matchRows(USER.id, r);
+      const stored = JSON.parse(rows.dimensions.find((d) => d.dimension === 'skills')!.matched) as { term: string; how: string; via?: string }[];
+      assert.ok(stored.some((m) => m.how === 'semantic' && m.via === 'postgresql'));
+      assert.equal(rows.match.pipelineVersion, pipeline.PIPELINE_VERSION);
+    } finally {
+      await db.job.delete({ where: { id: job.id } });
+    }
+  });
+
   it('governance: create → approve by a second admin → activate; a match scored before keeps its version and score; rollback recorded; retire rules', async () => {
     const v1 = await weights.createWeightVersion({ weights: { skills: 0.5, keywords: 0.2, experience: 0.15, seniority: 0.1, location: 0.05 }, notes: 'skills-heavy' }, A);
     assert.equal(v1.version, 1);
@@ -103,6 +170,9 @@ describe('Stage 08 — weight governance, regression and dimensions against the 
     await assert.rejects(() => weights.approveWeightVersion(v1.id, A), /second admin/);
     await assert.rejects(() => weights.createWeightVersion({ weights: { skills: 0.9, keywords: 0.2, experience: 0.15, seniority: 0.1, location: 0.05 } }, A), /sum to 1/);
     await weights.approveWeightVersion(v1.id, B);
+    // No evaluation gate exists for weights; the governance signal in its place is a mandatory, audited reason.
+    await assert.rejects(() => weights.activateWeightVersion(v1.id, A), /reason is required/);
+    await assert.rejects(() => weights.activateWeightVersion(v1.id, A, '   '), /reason is required/);
 
     // A match scored with the baseline, before activation.
     const agent = await db.agent.create({ data: { userId: USER.id, name: `MW2 ${S}`, titles: JSON.stringify(['Data Analyst']), keywords: '[]', excludeKeywords: '[]', locations: JSON.stringify(['Toronto']), workMode: 'any', jobType: 'any', minMatchScore: 0, autoApplyThreshold: 101, status: 'active' } });
@@ -142,7 +212,7 @@ describe('Stage 08 — weight governance, regression and dimensions against the 
     // v2, then rollback to v1 is recorded as a rollback; the active version cannot be retired.
     const v2 = await weights.createWeightVersion({ weights: { skills: 0.3, keywords: 0.3, experience: 0.2, seniority: 0.1, location: 0.1 } }, B);
     await weights.approveWeightVersion(v2.id, A);
-    await weights.activateWeightVersion(v2.id, B);
+    await weights.activateWeightVersion(v2.id, B, 'trial of a keyword-heavier mix');
     assert.equal((await weights.getActiveWeights()).version, 'v2');
     await weights.activateWeightVersion(v1.id, B, 'v2 over-weighted keywords');
     const audit = await db.auditLog.findMany({ where: { entityType: 'MatchWeightVersion', entityId: v1.id }, orderBy: { createdAt: 'asc' } });

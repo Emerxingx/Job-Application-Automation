@@ -348,7 +348,7 @@
     "engine": "DONE — src/lib/eligibility/engine.ts (pure): work_authorization, sponsorship, security_clearance, location, licensure, language; pass/fail/unknown with a reason in words, never a number; hard fail → ineligible, unknown never excludes; Canada and the US; coverage matrix tested per jurisdiction",
     "gate": "DONE — scanner evaluates eligibility BEFORE analyzeMatch; an ineligible posting never becomes a JobMatch; verdict stored per (user, job) with reasons; re-evaluated on profile or rule-set change; facts read once per batch on the tenant path, audit-first (eligibility.profile.read, never a value)",
     "surfaces": "DONE — /dashboard/jobs/excluded (every exclusion with reasons), eligibility panel on the job page, exclusion count on the feed and the scan result, GET /api/eligibility/:jobId",
-    "advisory_rules": "HONEST LIMIT — certification and language are advisory (pass/unknown) until Stage 08 separates required from preferred; licensure is hard only for a designation the title demands; radius NOT IMPLEMENTED; clearance unknown-only",
+    "advisory_rules": "HONEST LIMIT — certification and language are advisory (pass/unknown) in eligibility; Stage 08 separates required from preferred for scoring only; licensure is hard only for a designation the title demands; radius NOT IMPLEMENTED; clearance unknown-only",
     "independent_review": "DONE — 3 HIGH (stale verdicts after a certification change; matches surviving an ineligible verdict; substring licensure matching), 5 MEDIUM (substring place matching, audit row per page view, clearance rewritten as authorisation, unread postings \"state nothing\", wrong-country hard fail), 4 LOW; every HIGH and MEDIUM fixed with a test; STAGE07_EVIDENCE.md §9"
   },
   "stage_07_exit_gate": {
@@ -374,7 +374,7 @@
     "weights_governance": "DONE — MatchWeightVersion: draft → second-admin approval → active (one; rollback recorded) → retired; step-up + audit; /console/match-weights; built-in baseline recorded as builtin:1 when nothing is active; cache invalidated on activation",
     "semantic_stage": "HONEST LIMIT — pgvector BLOCKED (extension unavailable locally and in CI; staging unreachable); a deterministic equivalence map runs instead and labels its matches semantic; no embedding exists anywhere",
     "surfaces": "DONE — job page shows each dimension's weight, note and cited evidence claims and the versions the score was computed with; console register page",
-    "independent_review": "PENDING"
+    "independent_review": "DONE — 0 HIGH, 5 MEDIUM (dead requirement inputs and merged required/preferred; semantic label never persisted; keywords row decomposing the skills list; bare-word citations; one-sided canonicalisation), 5 LOW (tenant-client cache, invalid-row outage, no active tie-break, indiscriminate citations, external-route score), 5 INFO; every MEDIUM and LOW fixed with a test, INFO recorded; STAGE08_EVIDENCE.md §11"
   },
   "stage_08_exit_gate": {
     "met": [
@@ -382,7 +382,7 @@
       "Weights admin-editable and versioned with second-admin approval; every score records the weight version used",
       "Every score decomposable into named dimensions with cited evidence (MatchDimension rows, shown on the page)",
       "Scoring consistency, weight-change regression and explanation completeness tested",
-      "Full gate set green with the documented command only: lint 0/8, typecheck 0, 975/975 tests (0 skipped), build 0"
+      "Full gate set green with the documented command only: lint 0/8, typecheck 0, 982/982 tests (0 skipped), build 0"
     ],
     "not_met": [
       "Embedding-based semantic compare (pgvector BLOCKED: extension unavailable; deterministic equivalence map in its place, labelled)",

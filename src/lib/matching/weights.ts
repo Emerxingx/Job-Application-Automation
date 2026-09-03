@@ -68,8 +68,13 @@ export function parseWeights(json: string): Weights {
   return parsed;
 }
 
-/** The weights to score with now: the active register version, else the built-in baseline. Cache-first. */
-export async function getActiveWeights(client: Prisma.TransactionClient | typeof db = db): Promise<ActiveWeights> {
+/**
+ * The weights to score with now: the active register version, else the
+ * built-in baseline. Cache-first. Always read on the SYSTEM client: the
+ * register is system-only, and a tenant transaction would see no row and
+ * cache the baseline over a real activation (Stage 08 review, finding 6).
+ */
+export async function getActiveWeights(): Promise<ActiveWeights> {
   const cache = getCache();
   try {
     const cached = await cache.get(CACHE_KEY);
@@ -77,8 +82,23 @@ export async function getActiveWeights(client: Prisma.TransactionClient | typeof
   } catch (error) {
     console.error('[matching] cache read failed; reading through:', error);
   }
-  const active = await client.matchWeightVersion.findFirst({ where: { status: 'active' } });
-  const result: ActiveWeights = active ? { version: `v${active.version}`, weights: parseWeights(active.weights) } : { version: BUILTIN_WEIGHT_VERSION, weights: BUILTIN_WEIGHTS };
+  // One active row is the invariant the advisory lock keeps; should it ever
+  // be broken, the most recent activation wins deterministically.
+  const active = await db.matchWeightVersion.findFirst({ where: { status: 'active' }, orderBy: [{ activatedAt: 'desc' }, { version: 'desc' }] });
+  let result: ActiveWeights;
+  if (active) {
+    try {
+      result = { version: `v${active.version}`, weights: parseWeights(active.weights) };
+    } catch (error) {
+      // A stored row that no longer validates (a hand edit, a new dimension)
+      // must not take every scan down with it: the baseline scores, says so,
+      // and nothing is cached so a corrected register applies at once.
+      console.error(`[matching] active weights v${active.version} are invalid; scoring with the built-in baseline:`, error instanceof Error ? error.message : error);
+      return { version: BUILTIN_WEIGHT_VERSION, weights: BUILTIN_WEIGHTS };
+    }
+  } else {
+    result = { version: BUILTIN_WEIGHT_VERSION, weights: BUILTIN_WEIGHTS };
+  }
   try {
     await cache.set(CACHE_KEY, JSON.stringify(result), CACHE_TTL_SECONDS);
   } catch (error) {
@@ -167,12 +187,19 @@ export async function approveWeightVersion(id: string, actor: StaffContext, reas
   });
 }
 
-/** approved → active, demoting the current active version to approved. An older target is the rollback. */
+/**
+ * approved → active, demoting the current active version to approved. An
+ * older target is the rollback. Unlike a prompt, a weight version has no
+ * evaluation gate yet (there is no scored corpus to evaluate against); the
+ * governance signal in its place is a MANDATORY reason, recorded in the
+ * audit, so every change to how candidates are scored says why.
+ */
 export async function activateWeightVersion(id: string, actor: StaffContext, reason: string | null = null): Promise<MatchWeightVersion> {
   const result = await db.$transaction(async (tx) => {
     const before = await loadLocked(tx, id);
     if (before.status === 'active') throw new MatchWeightError('This version is already active.');
     if (before.status !== 'approved') throw new MatchWeightError(`Only an approved version can be activated; this version is ${before.status}.`);
+    if (!reason || !reason.trim()) throw new MatchWeightError('A reason is required to activate weights; it is recorded in the audit.', 422);
     const current = await tx.matchWeightVersion.findFirst({ where: { status: 'active' } });
     if (current) await tx.matchWeightVersion.update({ where: { id: current.id }, data: { status: 'approved' } });
     const after = await tx.matchWeightVersion.update({ where: { id }, data: { status: 'active', activatedAt: new Date() } });

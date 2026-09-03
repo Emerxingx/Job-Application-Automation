@@ -11,9 +11,10 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { getDeterministicEngine } from '../src/lib/providers';
+import { combineScore } from '../src/lib/providers/ai/keywords';
 import { canonicalSkill, compareTerms } from '../src/lib/matching/semantic';
 import { BUILTIN_WEIGHTS, validateWeights } from '../src/lib/matching/weights';
-import { citeEvidence } from '../src/lib/matching/pipeline';
+import { citeEvidence, keywordOverlap } from '../src/lib/matching/pipeline';
 import type { ResumeContent } from '../src/lib/types';
 import type { JobContext } from '../src/lib/providers';
 
@@ -80,6 +81,52 @@ describe('compatibility — deterministic stage with injected weights and the eq
     const noWeights = await engine.analyzeMatch(RESUME, JOB, { canonical: canonicalSkill });
     assert.equal(noWeights.matchScore, baseline.matchScore, 'absent weights are the built-in baseline');
   });
+  it('the score is the one combination rule applied to the breakdown, so the pipeline can apply it on every route', async () => {
+    const a = await engine.analyzeMatch(RESUME, JOB, { weights: BUILTIN_WEIGHTS, canonical: canonicalSkill });
+    assert.equal(a.matchScore, combineScore(a.breakdown, BUILTIN_WEIGHTS));
+    const w = { skills: 0.1, keywords: 0.1, experience: 0.1, seniority: 0.1, location: 0.6 };
+    const b = await engine.analyzeMatch(RESUME, JOB, { weights: w, canonical: canonicalSkill });
+    assert.equal(b.matchScore, combineScore(b.breakdown, w));
+  });
+});
+
+describe('compatibility — requirement extraction is consumed, and both sides are canonicalised (Stage 08 review)', () => {
+  const engine = getDeterministicEngine();
+  // The description spells it "PostgreSQL", the skills field "postgres": one requirement, not two.
+  const posting: JobContext = { title: 'Data Analyst', company: 'Maple', location: 'Toronto, ON', description: 'We need PostgreSQL and Python.', requirements: [], skills: ['postgres', 'python', 'looker'], workMode: 'hybrid' };
+  it('deduplicates the posting\'s skills under the equivalence map, so a spelling variant never counts twice', async () => {
+    const a = await engine.analyzeMatch(RESUME, posting, { canonical: canonicalSkill });
+    assert.equal(a.matchedKeywords.filter((k) => /postgres/i.test(k)).length, 1, `matched: ${a.matchedKeywords}`);
+    assert.equal(a.missingKeywords.filter((k) => /postgres/i.test(k)).length, 0, `missing: ${a.missingKeywords}`);
+    assert.match(a.rationale, /You match 2 of 3 named skills/);
+    assert.equal(a.breakdown.skills, 67);
+  });
+  it('a nice-to-have from the canonical job costs half a requirement; a certification requirement counts as a requirement', async () => {
+    const preferred = await engine.analyzeMatch(RESUME, posting, { canonical: canonicalSkill, requirements: { required: ['python', 'postgres'], preferred: ['looker'], certifications: [], experienceYearsMin: null } });
+    assert.equal(preferred.breakdown.skills, 80, 'earned 2 of 2.5');
+    assert.deepEqual(preferred.missingKeywords, ['Looker']);
+    const withCpa = await engine.analyzeMatch(RESUME, posting, { canonical: canonicalSkill, requirements: { required: ['python', 'postgres'], preferred: ['looker'], certifications: ['cpa'], experienceYearsMin: null } });
+    assert.equal(withCpa.breakdown.skills, 57, 'earned 2 of 3.5 — the missing credential counts in full');
+    assert.ok(withCpa.missingKeywords.includes('CPA'));
+    const holdsCpa = await engine.analyzeMatch({ ...RESUME, certifications: ['CPA'] }, posting, { canonical: canonicalSkill, requirements: { required: ['python', 'postgres'], preferred: ['looker'], certifications: ['cpa'], experienceYearsMin: null } });
+    assert.equal(holdsCpa.breakdown.skills, 86, 'earned 3 of 3.5');
+  });
+  it('the canonical job\'s extracted minimum years replaces the regex over the requirements text', async () => {
+    const none = await engine.analyzeMatch(RESUME, posting, { canonical: canonicalSkill });
+    assert.equal(none.breakdown.experience, 78, 'no stated requirement anywhere');
+    const ten = await engine.analyzeMatch(RESUME, posting, { canonical: canonicalSkill, requirements: { required: [], preferred: [], certifications: [], experienceYearsMin: 10 } });
+    assert.ok(ten.breakdown.experience < none.breakdown.experience, `${ten.breakdown.experience} < ${none.breakdown.experience}`);
+    assert.match(ten.rationale, /asks for 10 years/);
+  });
+});
+
+describe('compatibility — the keyword dimension decomposes into the tokens it measures', () => {
+  it('lists the posting\'s signal tokens the résumé contains and those it does not, lexically', () => {
+    const d = keywordOverlap(JOB, RESUME);
+    assert.deepEqual(d.overlap, ['analyst', 'data', 'python', 'senior', 'tableau']);
+    assert.deepEqual(d.absent, ['postgres', 'sql'], 'density is lexical: "postgresql" on the résumé does not contain the token "sql"');
+    assert.equal(d.total, 7);
+  });
 });
 
 describe('compatibility — weights validation and evidence citation', () => {
@@ -103,5 +150,25 @@ describe('compatibility — weights validation and evidence citation', () => {
     assert.deepEqual(citeEvidence(entries, ['python'], ['skill']), [], 'kind filter');
     assert.deepEqual(citeEvidence(entries, ['tableau']), []);
     assert.deepEqual(citeEvidence(entries, []), []);
+  });
+  it('never cites a claim on a bare word: an ambiguous vocabulary term needs a skill claim or a proper-noun spelling', () => {
+    const entries = [
+      { id: 'g1', kind: 'achievement', claim: 'Helped the team go live with new reporting' },
+      { id: 'g2', kind: 'skill', claim: 'Skill: Go' },
+      { id: 'g3', kind: 'achievement', claim: 'Rewrote billing services in Go' },
+      { id: 'g4', kind: 'achievement', claim: 'Migrated pipelines to golang' },
+      { id: 'g5', kind: 'achievement', claim: 'Reduced Google Ads spend' },
+      { id: 'g6', kind: 'achievement', claim: 'Built dashboards for finance in R' },
+      { id: 'g7', kind: 'achievement', claim: 'Rest days were rostered fairly' },
+    ];
+    assert.deepEqual(citeEvidence(entries, ['go']), ['g2', 'g3', 'g4']);
+    assert.deepEqual(citeEvidence(entries, ['golang']), ['g2', 'g3', 'g4'], 'the same under the map');
+    assert.deepEqual(citeEvidence(entries, ['r']), ['g6']);
+    assert.deepEqual(citeEvidence(entries, ['rest']), [], 'a sentence-initial common word without a skill claim is not evidence of REST');
+    // Keyword-density tokens: whole words only, never stop words or fragments.
+    const k = [{ id: 'k1', kind: 'achievement', claim: 'Built dashboards for finance' }];
+    assert.deepEqual(citeEvidence(k, ['dashboards']), ['k1']);
+    assert.deepEqual(citeEvidence(k, ['dash']), []);
+    assert.deepEqual(citeEvidence(k, ['for', 'the']), []);
   });
 });

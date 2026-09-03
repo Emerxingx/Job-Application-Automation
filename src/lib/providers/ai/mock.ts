@@ -9,11 +9,14 @@ import type {
 import { renderResumeText } from '@/lib/resume-render';
 import type { AIProvider, JobContext, MatchOptions } from './types';
 import {
+  combineScore,
   displayKeyword,
   extractSkills,
+  jobSignalText,
   normalize,
   overlapRatio,
   requiredYears,
+  resumeCorpusText,
   seniorityOf,
   tokenize,
   yearsOfExperience,
@@ -32,47 +35,65 @@ export class MockAIProvider implements AIProvider {
   async analyzeMatch(resume: ResumeContent, job: JobContext, options: MatchOptions = {}): Promise<MatchAnalysis> {
     const canonical = options.canonical ?? ((s: string) => s);
     const weights = options.weights ?? { skills: 0.34, keywords: 0.22, experience: 0.22, seniority: 0.14, location: 0.08 };
+    const requirements = options.requirements;
     const jobText = `${job.title} ${job.description} ${job.requirements.join(' ')} ${job.skills.join(' ')}`;
-    const resumeText = [
-      resume.headline,
-      resume.summary,
-      resume.skills.join(' '),
-      resume.experience.map((e) => `${e.title} ${e.company} ${e.bullets.join(' ')}`).join(' '),
-      resume.education.map((e) => `${e.credential} ${e.institution}`).join(' '),
-      resume.certifications.join(' '),
-    ].join(' ');
+    const resumeText = resumeCorpusText(resume);
 
     // Stage 08: both sides are compared under the equivalence map, so a
     // posting's "Postgres" is satisfied by a résumé's "PostgreSQL". The
-    // posting's own spelling is what is reported as matched or missing.
-    const jobSkills = new Set([...extractSkills(jobText), ...job.skills.map((s) => normalize(s))]);
-    const resumeSkills = new Set([...extractSkills(resumeText), ...resume.skills.map((s) => normalize(s))].map(canonical));
+    // posting's skills are DEDUPLICATED under the map — one requirement, one
+    // entry, whatever spellings the description and the skills field used;
+    // the first spelling seen is what is reported as matched or missing.
+    // Each entry weighs 1 (required, or unclassified) or 0.5 (a nice-to-have
+    // the canonical job placed in `preferredSkills` and nowhere else); a
+    // certification requirement is a named credential and counts as required.
+    const preferredCanon = new Set((requirements?.preferred ?? []).map((s) => canonical(normalize(s))));
+    const requiredCanon = new Set([...(requirements?.required ?? []), ...(requirements?.certifications ?? [])].map((s) => canonical(normalize(s))));
+    const jobSkills = new Map<string, { term: string; weight: number }>();
+    const consider = (raw: string) => {
+      const term = normalize(raw);
+      if (!term) return;
+      const key = canonical(term);
+      if (jobSkills.has(key)) return;
+      jobSkills.set(key, { term, weight: preferredCanon.has(key) && !requiredCanon.has(key) ? 0.5 : 1 });
+    };
+    for (const s of extractSkills(jobText)) consider(s);
+    for (const s of job.skills) consider(s);
+    for (const s of requirements?.required ?? []) consider(s);
+    for (const s of requirements?.certifications ?? []) consider(s);
+    for (const s of requirements?.preferred ?? []) consider(s);
+    const resumeSkills = new Set([...extractSkills(resumeText), ...resume.skills.map((s) => normalize(s)), ...resume.certifications.map((s) => normalize(s))].map(canonical));
 
     const matched: string[] = [];
     const missing: string[] = [];
-    for (const skill of jobSkills) {
-      if (resumeSkills.has(canonical(skill))) matched.push(skill);
-      else missing.push(skill);
+    let earned = 0;
+    let possible = 0;
+    for (const [key, { term, weight }] of jobSkills) {
+      possible += weight;
+      if (resumeSkills.has(key)) {
+        matched.push(term);
+        earned += weight;
+      } else missing.push(term);
     }
 
     // --- Sub-scores --------------------------------------------------------
 
-    // Skills: proportion of the posting's named skills the resume evidences.
-    const skillsScore = jobSkills.size
-      ? Math.round((matched.length / jobSkills.size) * 100)
-      : 70;
+    // Skills: the weighted proportion of the posting's named skills the
+    // résumé evidences (a missing nice-to-have costs half a required skill).
+    const skillsScore = possible > 0 ? Math.round((earned / possible) * 100) : 70;
 
     // Keywords: overlap against the signal-bearing parts of the posting only.
     // Scoring against the full description would measure the resume against
     // benefits blurbs and EEO boilerplate, which no resume ever contains, and
     // drag every candidate's score down uniformly.
-    const jobSignalText = `${job.title} ${job.requirements.join(' ')} ${job.skills.join(' ')}`;
-    const jobTokens = [...new Set(tokenize(jobSignalText))];
+    const jobTokens = [...new Set(tokenize(jobSignalText(job)))];
     const resumeTokens = [...new Set(tokenize(resumeText))];
     const keywordsScore = Math.round(overlapRatio(jobTokens, resumeTokens) * 135);
 
-    // Experience: candidate years vs. the posting's stated requirement.
-    const need = requiredYears(job.requirements);
+    // Experience: candidate years vs. the posting's stated requirement — the
+    // canonical job's extracted minimum when there is one (Stage 06), else
+    // the first "N years" the requirements text carries.
+    const need = requirements?.experienceYearsMin ?? requiredYears(job.requirements);
     const have = yearsOfExperience(resume.experience);
     let experienceScore: number;
     if (!need) experienceScore = 78;
@@ -98,22 +119,12 @@ export class MockAIProvider implements AIProvider {
       seniority: clamp(seniorityScore),
     };
 
-    // Weighted toward what actually gates a screening decision. The weights
-    // are governed data since Stage 08 (src/lib/matching/weights.ts); these
-    // constants are the built-in baseline, recorded as "builtin:1".
-    const weighted =
-      breakdown.skills * weights.skills +
-      breakdown.keywords * weights.keywords +
-      breakdown.experience * weights.experience +
-      breakdown.seniority * weights.seniority +
-      breakdown.location * weights.location;
-
-    // Experience, seniority and location are only worth anything if the
-    // candidate can actually do the job. Without this, a 6-year analyst scores
-    // ~45 on a backend engineering role purely for being senior and local —
-    // which would be a dishonest number to show someone deciding where to apply.
-    const domainFit = Math.min(1, 0.5 + (breakdown.skills / 100) * 0.7);
-    const matchScore = clamp(Math.round(weighted * domainFit));
+    // Weighted toward what actually gates a screening decision, then scaled by
+    // domain fit (combineScore: a candidate who cannot do the job earns nothing
+    // for being senior and local). The weights are governed data since Stage
+    // 08 (src/lib/matching/weights.ts); these constants are the built-in
+    // baseline, recorded as "builtin:1".
+    const matchScore = combineScore(breakdown, weights);
 
     return {
       matchScore,

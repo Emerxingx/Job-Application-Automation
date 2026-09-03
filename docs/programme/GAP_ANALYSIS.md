@@ -143,7 +143,7 @@ The brief mandates: parse → **hard eligibility** → requirement extraction �
 evidence retrieval → deterministic compare → semantic compare → weighted score →
 explanation.
 
-**Stage 07:** hard eligibility now runs before scoring (`src/lib/eligibility/engine.ts`): work authorisation, sponsorship, clearance, location, licensure, language, each with a status and a reason in words; an ineligible posting never becomes a match and every exclusion is listed with its reason (`STAGE07_EVIDENCE.md`). Remaining: certification and language are advisory until Stage 08 separates required from preferred; no radius (no coordinates); clearance is not on the profile.
+**Stage 07:** hard eligibility now runs before scoring (`src/lib/eligibility/engine.ts`): work authorisation, sponsorship, clearance, location, licensure, language, each with a status and a reason in words; an ineligible posting never becomes a match and every exclusion is listed with its reason (`STAGE07_EVIDENCE.md`). Remaining: certification and language are advisory in eligibility (Stage 08 separates required from preferred for scoring, not for exclusion); no radius (no coordinates); clearance is not on the profile.
 
 Present: a deterministic, explainable keyword/semantic engine with a score
 breakdown — **a genuine asset worth preserving.**

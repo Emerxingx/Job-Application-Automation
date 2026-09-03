@@ -26,7 +26,7 @@ remediation has begun.**
 npm ci                # install from the lockfile
 npm run dev           # http://localhost:3000
 npx tsc --noEmit      # typecheck  — PASSES
-npm test              # 975 tests  — PASSES with the two database URLs below set; the
+npm test              # 982 tests  — PASSES with the two database URLs below set; the
                       #   database suites skip WITH A REASON without them and THROW
                       #   when CI=true, so CI cannot pass by skipping them
 npm run build         # production — PASSES
@@ -203,8 +203,9 @@ npm run cms:types          # regenerate payload-types.ts
     `profileVersionOf()` (timestamps only) before the audited read.
     The candidate's facts are read once per batch on the tenant path,
     audit-first (`eligibility.profile.read`, never a value). Certification
-    and language are ADVISORY until Stage 08 separates required from
-    preferred; do not make them hard gates on a mention. Nothing under
+    and language are ADVISORY in eligibility (Stage 08 separates required
+    from preferred for SCORING only, not for exclusion); do not make them
+    hard gates on a mention. Nothing under
     `src/lib/eligibility/` may touch the sensitive schema (ADR-0007; the
     static allowlist test enforces it).
 
@@ -218,8 +219,12 @@ npm run cms:types          # regenerate payload-types.ts
     active; nothing seeded active, the built-in constants apply as
     `builtin:1`). Every `JobMatch` records `weightVersion` and
     `pipelineVersion` and carries one `MatchDimension` row per dimension with
-    cited evidence ids. Never change the built-in constants silently; never
-    rewrite a stored score when weights change.
+    cited evidence ids; `matched` items carry `how` (`exact` | `semantic`)
+    and `missing` items a `level` (`required` | `preferred` | `wording`).
+    The recorded score is `combineScore(breakdown, weights)` on every route.
+    Never change the built-in constants silently; never rewrite a stored
+    score when weights change; activation needs a reason (no evaluation
+    gate exists for weights — say so, do not fake one).
 
 ## Conventions worth preserving
 

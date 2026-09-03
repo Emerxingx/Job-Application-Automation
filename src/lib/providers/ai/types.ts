@@ -27,11 +27,25 @@ export interface JobContext {
  * request whenever the tenant's policy, the prompt registry or the provider
  * does not permit an external model (`src/lib/ai/gateway.ts`).
  */
+/** What the canonical job (Stage 06) says the posting requires, as the engine consumes it. */
+export interface MatchRequirements {
+  /** Skills the posting requires; a miss counts in full. */
+  required: string[];
+  /** Nice-to-haves; a miss counts half. */
+  preferred: string[];
+  /** Named credentials the posting requires; compared like required skills. */
+  certifications: string[];
+  /** The posting's stated minimum years when Stage 06 extracted one; the engine's own regex otherwise. */
+  experienceYearsMin: number | null;
+}
+
 export interface MatchOptions {
   /** Per-dimension weights summing to 1; the engine's built-in constants when absent. */
   weights?: { skills: number; keywords: number; experience: number; seniority: number; location: number };
   /** Maps a skill to its canonical form under an equivalence map, so "postgres" and "postgresql" compare equal. */
   canonical?: (skill: string) => string;
+  /** Stage 08: separated requirements from the canonical job; the posting's own text is the fallback. */
+  requirements?: MatchRequirements;
 }
 
 export interface AIProvider {

@@ -1,7 +1,8 @@
 import type { Job } from '@prisma/client';
 import * as ai from '@/lib/ai/gateway';
 import type { EvidenceBundle, GatewayResult } from '@/lib/ai/gateway';
-import { extractSkills, normalize } from '@/lib/providers/ai/keywords';
+import { combineScore, extractSkills, hasWord, isVocabularySkill, jobSignalText, normalize, resumeCorpusText, seniorityOf, tokenize } from '@/lib/providers/ai/keywords';
+import type { JobContext, MatchRequirements } from '@/lib/providers/ai/types';
 import type { MatchAnalysis, ResumeContent } from '@/lib/types';
 import { parseJson } from '@/lib/types';
 import { toJobContext } from '@/lib/services/scanner';
@@ -19,13 +20,32 @@ import { DIMENSIONS, getActiveWeights, type ActiveWeights, type Dimension } from
  *   → weighted score (governed weights, versioned) → explanation
  *
  * Every score is decomposable: one `DimensionResult` per named dimension
- * with its score, weight, contribution, what matched and what was missing,
- * and the approved evidence ids that support it. The verdict never becomes
- * `résumé + JD → model → %`: the model, when policy allows one, only refines
- * the deterministic baseline inside the gateway's grounding.
+ * with its score, weight, contribution, what matched (and HOW — exactly or
+ * through the equivalence map), what was missing (and whether it was a
+ * requirement or a nice-to-have), and the approved evidence ids that
+ * support it. The verdict never becomes `résumé + JD → model → %`: the
+ * model, when policy allows one, only refines the deterministic baseline
+ * inside the gateway's grounding, and the recorded score is ALWAYS the
+ * governed weights applied to the grounded breakdown (`combineScore`),
+ * whichever route served.
  */
 
-export const PIPELINE_VERSION = '2026-09-03.1';
+/** Bumped when the assembly rules change, so a stored decomposition says which rules produced it. */
+export const PIPELINE_VERSION = '2026-09-03.2';
+
+export interface MatchedItem {
+  /** The posting's term, normalised. */
+  term: string;
+  /** `exact` — the résumé holds the same term; `semantic` — an equivalent under the map (`via` says which). */
+  how: 'exact' | 'semantic';
+  via?: string;
+}
+
+export interface MissingItem {
+  term: string;
+  /** `required` / `preferred` from the canonical job; `wording` for a keyword-density token, which is not a requirement. */
+  level: 'required' | 'preferred' | 'wording';
+}
 
 export interface DimensionResult {
   dimension: Dimension;
@@ -33,8 +53,8 @@ export interface DimensionResult {
   weight: number;
   /** score × weight, before the domain-fit scaling the engine applies to the total. */
   contribution: number;
-  matched: string[];
-  missing: string[];
+  matched: MatchedItem[];
+  missing: MissingItem[];
   /** Approved CareerEvidence ids whose claims support the matched items. */
   evidenceIds: string[];
   note: string;
@@ -45,51 +65,109 @@ export interface CompatibilityResult {
   dimensions: DimensionResult[];
   weightVersion: string;
   pipelineVersion: string;
-  /** Posting terms satisfied only through the equivalence map. */
+  /** Posting terms satisfied only through the equivalence map (also carried on the skills dimension's `matched`). */
   semanticMatches: SemanticMatch[];
   run: GatewayResult<MatchAnalysis>['run'];
 }
 
-/** What Stage 06 extracted from the posting, as the compare stage reads it. */
-export interface JobRequirements {
-  requiredSkills: string[];
-  preferredSkills: string[];
-  experienceYearsMin: number | null;
-  educationRequirements: string[];
-  certificationRequirements: string[];
-}
+/**
+ * What Stage 06 extracted from the posting, as the compare stage consumes
+ * it. Education requirements are deliberately NOT here: the engine has no
+ * education dimension and inventing one would change the weights contract;
+ * they stay visible on the posting and are a stated limit (evidence §3).
+ */
+export type JobRequirements = MatchRequirements;
 
-export function jobRequirements(job: Pick<Job, 'requiredSkills' | 'preferredSkills' | 'experienceYearsMin' | 'educationRequirements' | 'certificationRequirements'>): JobRequirements {
+export function jobRequirements(job: Pick<Job, 'requiredSkills' | 'preferredSkills' | 'experienceYearsMin' | 'certificationRequirements'>): JobRequirements {
   return {
-    requiredSkills: parseJson<string[]>(job.requiredSkills, []),
-    preferredSkills: parseJson<string[]>(job.preferredSkills, []),
+    required: parseJson<string[]>(job.requiredSkills, []),
+    preferred: parseJson<string[]>(job.preferredSkills, []),
+    certifications: parseJson<string[]>(job.certificationRequirements, []),
     experienceYearsMin: job.experienceYearsMin,
-    educationRequirements: parseJson<string[]>(job.educationRequirements, []),
-    certificationRequirements: parseJson<string[]>(job.certificationRequirements, []),
   };
 }
 
-/** The evidence rows whose claim mentions any of the terms (lexically, under the equivalence map). */
+/**
+ * Vocabulary entries that are also ordinary English words. "Helped the
+ * team go live" evidences nothing about Go; "Skill: Go" and "services in
+ * Go" do. For these, a claim is cited only when it is a skill claim or
+ * writes the term as a proper noun (capitalised, whole word). The residual —
+ * a sentence-initial "Go live with…" — is accepted and stated.
+ */
+const AMBIGUOUS_TERMS = new Set([
+  'go', 'r', 'rest', 'excel', 'swift', 'spark', 'rails', 'ruby', 'sketch', 'triage', 'sap', 'git', 'french', 'statistics',
+  'forecasting', 'budgeting', 'documentation', 'communication', 'collaboration', 'leadership', 'mentoring', 'presentation',
+  'accessibility', 'logistics', 'procurement', 'reconciliation', 'charting', 'experimentation', 'agile', 'scrum', 'kanban',
+  'confluence', 'observability', 'prototyping', 'snowflake', 'pandas', 'java', 'angular', 'docker', 'linux',
+]);
+
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * The term written capitalised, whole, and NOT at the start of the claim or
+ * a sentence — where English capitalises any word ("Rest days were…").
+ */
+function writtenAsProperNoun(claim: string, term: string): boolean {
+  const capitalised = term.charAt(0).toUpperCase() + term.slice(1);
+  const pattern = new RegExp(`(^|[^A-Za-z0-9])${escapeRegex(capitalised)}([^A-Za-z0-9]|$)`, 'g');
+  for (const m of claim.matchAll(pattern)) {
+    const before = claim.slice(0, (m.index ?? 0) + m[1].length).replace(/[\s"“(\[]+$/, '');
+    if (before.length > 0 && !/[.!?]$/.test(before)) return true;
+  }
+  return false;
+}
+
+/**
+ * The evidence rows whose claim supports any of the terms, under the
+ * equivalence map. A vocabulary term is found the way the engine finds it —
+ * the boundary-aware pattern, never a bare token — and an ambiguous word
+ * needs a skill claim or a proper-noun spelling; any other term must appear
+ * as a whole word or phrase. Optionally restricted to evidence kinds.
+ */
 export function citeEvidence(entries: NonNullable<EvidenceBundle['entries']>, terms: string[], kinds?: string[]): string[] {
-  const wanted = terms.map(canonicalSkill).filter(Boolean);
+  // A one-letter term is only ever a vocabulary entry ("r"); anything else that short is noise.
+  const wanted = [...new Set(terms.map(canonicalSkill).filter((t) => t.length >= 2 || isVocabularySkill(t)))];
   if (wanted.length === 0) return [];
   const out: string[] = [];
   for (const e of entries) {
     if (kinds && !kinds.includes(e.kind)) continue;
     const claim = normalize(e.claim);
-    const claimTerms = new Set([...extractSkills(claim), ...claim.split(' ')].map(canonicalSkill));
-    if (wanted.some((w) => claimTerms.has(w) || (w.includes(' ') && claim.includes(w)))) out.push(e.id);
+    // The vocabulary spellings the claim carries, found the way the engine finds them.
+    const spellings = extractSkills(claim);
+    const supports = wanted.some((w) => {
+      if (isVocabularySkill(w)) {
+        const found = spellings.filter((s) => canonicalSkill(s) === w);
+        if (found.length === 0) return false;
+        if (e.kind === 'skill') return true;
+        // "golang" is unambiguous however it is written; "go" needs a proper-noun spelling.
+        return found.some((s) => !AMBIGUOUS_TERMS.has(s) || writtenAsProperNoun(e.claim, s));
+      }
+      // A plain word must carry signal (not a stop word, three letters or more) and appear whole.
+      const usable = w.includes(' ') || (w.length >= 3 && tokenize(w).length > 0);
+      return usable && hasWord(claim, w);
+    });
+    if (supports) out.push(e.id);
   }
   return out;
 }
 
-const NOTES: Record<Dimension, (d: { score: number; matched: string[]; missing: string[]; cited: number }) => string> = {
-  skills: (d) => (d.matched.length + d.missing.length === 0 ? 'The posting names no skills the engine recognises; scored neutrally.' : `${d.matched.length} of ${d.matched.length + d.missing.length} named skills evidenced${d.cited ? ` (${d.cited} supporting evidence claim${d.cited === 1 ? '' : 's'})` : ''}.`),
-  keywords: (d) => `Overlap with the posting's title, requirements and skills wording${d.cited ? `, ${d.cited} supporting claim${d.cited === 1 ? '' : 's'}` : ''}.`,
-  experience: (d) => (d.cited ? `Years of experience against the posting's stated requirement, from ${d.cited} employment claim${d.cited === 1 ? '' : 's'}.` : 'Years of experience against the posting\'s stated requirement.'),
-  seniority: () => 'Distance between the résumé\'s highest title level and the posting\'s.',
-  location: () => 'City or province against the posting\'s; remote is always reachable.',
-};
+/** The keyword-density decomposition: the posting's signal tokens the résumé contains, and those it does not. */
+export function keywordOverlap(job: JobContext, resume: ResumeContent): { overlap: string[]; absent: string[]; total: number } {
+  const jobTokens = [...new Set(tokenize(jobSignalText(job)))];
+  const resumeTokens = new Set(tokenize(resumeCorpusText(resume)));
+  const overlap = jobTokens.filter((t) => resumeTokens.has(t)).sort();
+  const absent = jobTokens.filter((t) => !resumeTokens.has(t)).sort();
+  return { overlap, absent, total: jobTokens.length };
+}
+
+/** The résumé terms the semantic stage compares the posting's matched terms against — the same corpus the engine scored. */
+function resumeTerms(resume: ResumeContent): string[] {
+  return [...extractSkills(resumeCorpusText(resume)), ...resume.skills, ...resume.certifications];
+}
+
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 /**
  * Score one canonical job for one candidate. Deterministic for fixed inputs
@@ -108,44 +186,76 @@ export async function scoreCompatibility(input: {
   const context = toJobContext(input.job);
   const requirements = jobRequirements(input.job);
 
-  // Requirement extraction: Stage 06's separated skills join the posting's
-  // listed skills so the deterministic stage compares against what the
-  // posting REQUIRES, not only what its skills field happened to carry.
-  const jobSkillTerms = [...new Set([...context.skills, ...requirements.requiredSkills, ...requirements.preferredSkills].map((s) => normalize(s)).filter(Boolean))];
-  const contextForEngine = { ...context, skills: jobSkillTerms };
+  // Requirement extraction: Stage 06's separated skills and credentials join
+  // the posting's listed skills so the deterministic stage compares against
+  // what the posting REQUIRES (and weighs a nice-to-have as such); its
+  // extracted minimum years replaces the engine's regex when present.
+  const jobSkillTerms = [...new Set([...context.skills, ...requirements.required, ...requirements.certifications, ...requirements.preferred].map((s) => normalize(s)).filter(Boolean))];
+  const contextForEngine: JobContext = { ...context, skills: jobSkillTerms };
 
-  const result = await ai.analyzeMatch({ userId: input.userId, evidence: input.evidence, inputRefs: input.inputRefs }, input.resume, contextForEngine, { weights: active.weights, canonical: canonicalSkill });
-  const analysis = result.value;
+  const result = await ai.analyzeMatch({ userId: input.userId, evidence: input.evidence, inputRefs: input.inputRefs }, input.resume, contextForEngine, { weights: active.weights, canonical: canonicalSkill, requirements });
+  // The recorded score is the governed weights applied to the grounded
+  // breakdown on EVERY route. On the deterministic route this equals the
+  // engine's own number; on an external route it replaces the model's, so
+  // `weightVersion` and the contributions always describe the score.
+  const analysis: MatchAnalysis = { ...result.value, matchScore: combineScore(result.value.breakdown, active.weights) };
 
-  // Semantic stage: which of the matched terms were satisfied only through
-  // the equivalence map. Labelled, never hidden.
-  const resumeTerms = [...extractSkills([input.resume.headline, input.resume.summary, input.resume.skills.join(' '), input.resume.experience.map((e) => `${e.title} ${e.bullets.join(' ')}`).join(' ')].join(' ')), ...input.resume.skills];
-  const compared = compareTerms(analysis.matchedKeywords.map((k) => normalize(k)), resumeTerms);
-  const semanticMatches = compared.matched.filter((m) => m.how === 'semantic');
-
-  const entries = input.evidence.entries ?? [];
+  // Semantic stage: which matched terms were satisfied only through the
+  // equivalence map. Labelled on the dimension row and shown on the page.
   const matchedNorm = analysis.matchedKeywords.map((k) => normalize(k));
   const missingNorm = analysis.missingKeywords.map((k) => normalize(k));
+  const compared = compareTerms(matchedNorm, resumeTerms(input.resume));
+  const howByTerm = new Map(compared.matched.map((m) => [m.required, m]));
+  const semanticMatches = compared.matched.filter((m) => m.how === 'semantic');
+  const skillsMatched: MatchedItem[] = matchedNorm.map((term) => {
+    const m = howByTerm.get(term);
+    return m && m.how === 'semantic' ? { term, how: 'semantic', via: m.satisfiedBy } : { term, how: 'exact' };
+  });
+  const requiredCanon = new Set([...requirements.required, ...requirements.certifications].map(canonicalSkill));
+  const preferredCanon = new Set(requirements.preferred.map(canonicalSkill));
+  const skillsMissing: MissingItem[] = missingNorm.map((term) => {
+    const c = canonicalSkill(term);
+    return { term, level: preferredCanon.has(c) && !requiredCanon.has(c) ? 'preferred' : 'required' };
+  });
+  const isPreferred = (term: string) => preferredCanon.has(canonicalSkill(term)) && !requiredCanon.has(canonicalSkill(term));
+
+  // Keyword density decomposes into the tokens it actually measured.
+  const density = keywordOverlap(contextForEngine, input.resume);
+
+  const entries = input.evidence.entries ?? [];
+  const employment = entries.filter((e) => e.kind === 'employment');
   const skillsCited = citeEvidence(entries, matchedNorm);
-  const keywordCited = citeEvidence(entries, matchedNorm.slice(0, 12));
-  const experienceCited = entries.filter((e) => e.kind === 'employment').map((e) => e.id);
+  const keywordCited = citeEvidence(entries, density.overlap);
+  // Years of experience sum every dated role, so every employment claim fed it.
+  const experienceCited = employment.map((e) => e.id);
+  // Seniority is the highest title level; cite the employment claims carrying a title at that level.
+  const topLevel = input.resume.experience.length ? Math.max(...input.resume.experience.map((e) => seniorityOf(e.title))) : null;
+  const topTitles = topLevel === null ? [] : input.resume.experience.filter((e) => seniorityOf(e.title) === topLevel).map((e) => normalize(e.title)).filter(Boolean);
+  const seniorityCited = employment.filter((e) => topTitles.some((t) => hasWord(normalize(e.claim), t))).map((e) => e.id);
+
+  const requiredTotal = skillsMatched.filter((m) => !isPreferred(m.term)).length + skillsMissing.filter((m) => m.level === 'required').length;
+  const requiredMatched = skillsMatched.filter((m) => !isPreferred(m.term)).length;
+  const preferredTotal = skillsMatched.filter((m) => isPreferred(m.term)).length + skillsMissing.filter((m) => m.level === 'preferred').length;
+  const preferredMatched = skillsMatched.filter((m) => isPreferred(m.term)).length;
+
+  const notes: Record<Dimension, string> = {
+    skills:
+      requiredTotal + preferredTotal === 0
+        ? 'The posting names no skills the engine recognises; scored neutrally.'
+        : `${requiredMatched} of ${requiredTotal} required skills evidenced${preferredTotal ? `; ${preferredMatched} of ${preferredTotal} nice-to-haves` : ''}${semanticMatches.length ? ` (${semanticMatches.length} through the equivalence map)` : ''}${skillsCited.length ? ` — ${plural(skillsCited.length, 'supporting claim')}` : ''}.`,
+    keywords: `${density.overlap.length} of ${density.total} terms from the posting's title, requirements and skills wording appear in the résumé${keywordCited.length ? `; ${plural(keywordCited.length, 'supporting claim')}` : ''}.`,
+    experience: experienceCited.length ? `Years of experience against the posting's stated requirement, summed from ${plural(experienceCited.length, 'employment claim')}.` : "Years of experience against the posting's stated requirement.",
+    seniority: `Highest résumé title level against the posting's title${seniorityCited.length ? `, from ${plural(seniorityCited.length, 'employment claim')}` : ''}.`,
+    location: "Profile location against the posting's; remote is always reachable. A profile fact, not an evidence claim.",
+  };
 
   const dimensions: DimensionResult[] = DIMENSIONS.map((dimension) => {
     const score = analysis.breakdown[dimension];
     const weight = active.weights[dimension];
-    const matched = dimension === 'skills' ? matchedNorm : dimension === 'keywords' ? matchedNorm.slice(0, 12) : [];
-    const missing = dimension === 'skills' ? missingNorm : [];
-    const evidenceIds = dimension === 'skills' ? skillsCited : dimension === 'keywords' ? keywordCited : dimension === 'experience' ? experienceCited : [];
-    return {
-      dimension,
-      score,
-      weight,
-      contribution: Math.round(score * weight * 100) / 100,
-      matched,
-      missing,
-      evidenceIds,
-      note: NOTES[dimension]({ score, matched, missing, cited: evidenceIds.length }),
-    };
+    const matched: MatchedItem[] = dimension === 'skills' ? skillsMatched : dimension === 'keywords' ? density.overlap.map((term) => ({ term, how: 'exact' as const })) : [];
+    const missing: MissingItem[] = dimension === 'skills' ? skillsMissing : dimension === 'keywords' ? density.absent.slice(0, 20).map((term) => ({ term, level: 'wording' as const })) : [];
+    const evidenceIds = dimension === 'skills' ? skillsCited : dimension === 'keywords' ? keywordCited : dimension === 'experience' ? experienceCited : dimension === 'seniority' ? seniorityCited : [];
+    return { dimension, score, weight, contribution: Math.round(score * weight * 100) / 100, matched, missing, evidenceIds, note: notes[dimension] };
   });
 
   return { analysis, dimensions, weightVersion: active.version, pipelineVersion: PIPELINE_VERSION, semanticMatches, run: result.run };

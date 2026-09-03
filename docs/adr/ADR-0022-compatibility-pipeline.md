@@ -17,11 +17,16 @@ persistence so a score stays explicable after the weights change.
    the pipeline injects its weights and an equivalence map and reads its
    breakdown. No stage replaces it with a model call.
 2. **Weights are governed, versioned data.** `MatchWeightVersion` follows the
-   prompt discipline: draft → approved by a second admin → active (one at a
-   time; an older activation is a recorded rollback) → retired, each step
-   re-authenticated and audited. Nothing is seeded active: until an admin
-   activates a version the built-in constants apply and are recorded as
-   `builtin:1`.
+   prompt LIFECYCLE and separation of duties: draft → approved by a second
+   admin → active (one at a time; an older activation is a recorded
+   rollback) → retired, each step re-authenticated and audited. It does NOT
+   yet have the prompt registry's evaluation gate — there is no scored
+   corpus to evaluate a weight change against — so activation requires a
+   mandatory, audited reason in its place. Nothing is seeded active: until
+   an admin activates a version the built-in constants apply and are
+   recorded as `builtin:1`. The recorded score is always the governed
+   weights applied to the grounded breakdown (`combineScore`), on every
+   route, so `weightVersion` describes the score whichever engine served.
 3. **Every score records its versions.** `JobMatch.weightVersion` and
    `pipelineVersion` are written at scoring time and never rewritten; a
    weight change affects new scores only.
@@ -32,9 +37,24 @@ persistence so a score stays explicable after the weights change.
 5. **The semantic stage is honest about what it is.** pgvector is BLOCKED
    (the extension is not available locally or in CI and staging is
    unreachable), so no embedding is computed or pretended. The stage is a
-   closed equivalence map over the skill vocabulary; a match made through it
-   is labelled `semantic`. An embedding comparer can replace it behind the
-   same function when the extension exists.
+   closed equivalence map over the skill vocabulary applied to BOTH sides
+   (the posting's spellings are deduplicated under it); a match made through
+   it is persisted on the skills dimension as `{ term, how: 'semantic', via }`
+   and shown to the candidate as such. An embedding comparer can replace it
+   behind the same function when the extension exists.
+7. **Requirement extraction is consumed, not decorative.** The canonical
+   job's `requiredSkills`, `preferredSkills`, `certificationRequirements`
+   and `experienceYearsMin` reach the engine: a missing nice-to-have costs
+   half a requirement and is marked `preferred`; a required credential
+   counts in full; the extracted minimum years replaces the regex. Education
+   requirements are NOT scored (the engine has no education dimension) and
+   the evidence says so rather than pretending.
+8. **A citation is a claim that supports the term.** A vocabulary term is
+   found in a claim the way the engine finds it (boundary-aware pattern under
+   the map), an ambiguous word ("go", "r", "rest", "excel"…) needs a skill
+   claim or a proper-noun spelling, and a keyword token must appear whole.
+   The keyword-density dimension decomposes into the tokens it counted, not
+   into the skills list.
 6. **Sensitive attributes are structurally absent.** The pipeline's inputs
    are the résumé projection, approved evidence and the canonical job; the
    ADR-0007 allowlist test covers the new modules.
