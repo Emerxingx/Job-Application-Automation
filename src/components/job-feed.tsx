@@ -30,7 +30,6 @@ export interface JobFeedItem {
 type SortKey = 'score' | 'recent' | 'salary';
 
 interface ApplyResult {
-  submitted: number;
   prepared: number;
   failed: number;
   skipped: number;
@@ -201,20 +200,14 @@ export function JobFeed({ items, remaining }: { items: JobFeedItem[]; remaining:
             <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-success" />
             <div className="min-w-0 flex-1">
               <p className="font-semibold text-ink">
-                {[
-                  result.submitted > 0 &&
-                    `${result.submitted} application${result.submitted === 1 ? '' : 's'} submitted`,
-                  result.prepared > 0 && `${result.prepared} prepared for your review`,
-                ]
-                  .filter(Boolean)
-                  .join(', ') || 'Nothing was prepared'}
+                {result.prepared > 0 ? `${result.prepared} application${result.prepared === 1 ? '' : 's'} prepared for your review` : 'Nothing was prepared'}
                 {result.failed > 0 && `, ${result.failed} need${result.failed === 1 ? 's' : ''} attention`}
                 {result.skipped > 0 && `, ${result.skipped} skipped`}
               </p>
               <p className="mt-0.5 text-sm text-muted">
                 {result.prepared > 0
                   ? 'Each one has its own folder with every field prepared. Nothing has been sent: review it, then submit on the employer form — or, where the employer has authorised it, from the folder with one click.'
-                  : 'Each one has its own folder with the resume and cover letter that were sent.'}
+                  : 'Nothing new reached a folder. The reasons are listed below.'}
               </p>
               <Link
                 href="/dashboard/applications"

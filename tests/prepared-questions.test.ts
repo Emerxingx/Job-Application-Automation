@@ -102,6 +102,8 @@ describe('field mappings — matcher and validator (pure)', () => {
     assert.match(validateMappings([{ ...one, dataType: 'select', selectOptions: [] }])!, /select needs its options/);
     assert.match(validateMappings([{ ...one, fallbackRule: 'If unknown, assume yes.' }])!, /invent, assume or guess/);
     assert.match(validateMappings([{ ...one, canonicalFieldKey: 'Work-Auth' }])!, /snake_case/);
+    assert.match(validateMappings([{ ...one, patterns: [{ kind: 'regex', pattern: '(a+)+$' }] }])!, /catastrophic backtracking/, 'a nested quantifier is refused');
+    assert.equal(validateMappings([{ ...one, patterns: [{ kind: 'regex', pattern: '\\b(remote|hybrid)\\b' }] }]), null, 'an ordinary alternation is fine');
     assert.match(validateMappings([])!, /non-empty/);
   });
 });

@@ -493,11 +493,11 @@
     "schema_and_migrations": "DONE locally — User.applicationMode; Application.preparedQuestions / applicationMode / fieldMappingVersion / atsSubmittable; FieldMappingVersion (20260903200000); generated RLS (20260903200100, system-only); thirty-two applied fresh, drift clean, 117 public tables forced; NOT VERIFIED on Supabase (R-34)",
     "modes": "DONE — three reachable modes (recommend_only / prepare / review_submit) stored per applicant, chosen in Settings, enforced at the apply route, the applicator and the submission step; approved_auto_apply refused by parseApplicationMode (403 with the ADR-0016 reason), no permission row, no flag; no mode permits submit_unattended (tested)",
     "preparation_never_submits": "DONE — every provider's apply() prepares only (tested with an employer credential set; the mock too); records are ready_to_submit or failed at preparation, never submitted",
-    "instructed_submission": "DONE on the mock — POST /api/applications/:id/submit → submitThroughAts: owner, review_submit, ready_to_submit, atsSubmittable and canSubmit re-checked, then the provider's submit, a status-machine move (source ats_api, reason recorded), confirmation stored, documents sealed; an ATS refusal leaves the record ready for the form. REAL BOARD NEVER CALLED (no sandbox credential)",
+    "instructed_submission": "DONE on the mock, proven against the database (tests/assisted-submission.test.ts) — POST /api/applications/:id/submit → submitThroughAts: owner, review_submit, an advisory-locked claim ready_to_submit → applying through the machine, atsSubmittable and canSubmit re-checked, the provider's submit, applying → submitted (source ats_api, reason recorded), confirmation stored, documents sealed, match applied; an engine refusal releases the claim with the reason; two simultaneous clicks reach the engine once. REAL BOARD NEVER CALLED (no sandbox credential)",
     "question_bank": "DONE — prepareQuestions (pure): fill / ask / review / never per Stage 03 policy; a never entry carries no value and no evidence ids (tested with a stored answer); profile facts stand in only where the active register maps a profile key (never a salary); shown on the folder with decision chips",
     "field_mappings": "DONE — CMS collection removed (types and import map regenerated); FieldMappingVersion governed at /console/field-mappings (draft → second-admin approval → active with mandatory reason → retired; rollback; step-up; audit; invalid row → built-in set uncached); thirteen built-in mappings as builtin:1; every application records fieldMappingVersion — the last ADR-0019 Tier-1 migration",
     "browser_extension": "NOT IMPLEMENTED (optional in the plan); PreparedField remains the contract",
-    "independent_review": "PENDING"
+    "independent_review": "DONE — adversarial pass: 1 HIGH (the instructed submission had no end-to-end test behind its MET claim), 3 MEDIUM (unlocked double-submit window, unmapped FieldMappingError, match marked applied on mere preparation), 3 LOW (dead submitted counter, unwired guard, regex backtracking) — all seven fixed with tests (STAGE12_EVIDENCE.md §12)"
   },
   "stage_12_exit_gate": {
     "met": [
@@ -505,7 +505,7 @@
       "Autonomous submission is impossible — no provider, mode, flag or route submits without the applicant's click (tested at the mode table, the providers and the routes)",
       "Question bank wired with its policy states; NEVER_AUTOMATE always human",
       "FieldMappings under governed administration; exact version recorded per application",
-      "Full gate set green with the documented command only: lint 0/8, typecheck 0, 1050/1050 tests (0 skipped), build 0"
+      "Full gate set green with the documented command only: lint 0/8, typecheck 0, 1054/1054 tests (0 skipped), build 0"
     ],
     "not_met": [
       "Assisted path validated end-to-end against a REAL board; ATS reclassified SANDBOX-VALIDATED — BLOCKED (CREDENTIAL)",

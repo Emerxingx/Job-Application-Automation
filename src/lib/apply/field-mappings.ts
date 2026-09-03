@@ -77,6 +77,8 @@ const CACHE_TTL_SECONDS = 300;
 const KEY_RE = /^[a-z][a-z0-9_]{1,63}$/;
 /** Words that would make a fallback rule an instruction to fabricate rather than a note to the applicant. */
 const FORBIDDEN_FALLBACK = /\b(invent|fabricate|make up|assume yes|answer yes|guess)\b/i;
+/** A quantified group that is itself quantified — (a+)+, (.*)*, (\w+){2,} — backtracks catastrophically on a long label. */
+const NESTED_QUANTIFIER = /\((?:[^()\\]|\\.)*[+*}](?:[^()\\]|\\.)*\)\s*[+*{]/;
 
 /** A register must be a non-empty array of well-formed, uniquely keyed mappings whose patterns compile. */
 export function validateMappings(input: unknown): string | null {
@@ -103,6 +105,7 @@ export function validateMappings(input: unknown): string | null {
         } catch (error) {
           return `${m.canonicalFieldKey}: invalid regex — ${error instanceof Error ? error.message : String(error)}`;
         }
+        if (NESTED_QUANTIFIER.test(pattern)) return `${m.canonicalFieldKey}: a quantified group may not itself be quantified (catastrophic backtracking)`;
       }
     }
     if (m.dataType === 'select' && (!Array.isArray(m.selectOptions) || m.selectOptions.length === 0 || !(m.selectOptions as unknown[]).every((o) => typeof o === 'string' && o.trim()))) return `${m.canonicalFieldKey}: a select needs its options`;

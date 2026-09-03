@@ -18,7 +18,7 @@ describe('application status machine', () => {
     const allowed: [ApplicationStatus, ApplicationStatus][] = [
       ['queued', 'applying'], ['queued', 'failed'], ['queued', 'withdrawn'],
       ['applying', 'submitted'], ['applying', 'ready_to_submit'], ['applying', 'failed'],
-      ['ready_to_submit', 'submitted'], ['ready_to_submit', 'withdrawn'],
+      ['ready_to_submit', 'submitted'], ['ready_to_submit', 'withdrawn'], ['ready_to_submit', 'applying'],
       ['submitted', 'interviewing'], ['submitted', 'offer'], ['submitted', 'rejected'], ['submitted', 'withdrawn'],
       ['failed', 'queued'], ['failed', 'withdrawn'],
       ['interviewing', 'offer'], ['interviewing', 'rejected'], ['interviewing', 'withdrawn'],

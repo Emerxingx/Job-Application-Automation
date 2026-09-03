@@ -7,6 +7,7 @@ import { TaxonomyLicenceError } from '../taxonomy/datasets';
 import { SourceAccessError } from '../connectors/registry';
 import { AtsRulesetError } from '../apply/ats-rulesets';
 import { MatchWeightError } from '../matching/weights';
+import { FieldMappingError } from '../apply/field-mappings';
 import { LIMITS, rateLimit } from '../rate-limit';
 import { recordSecurityEvent, type RequestMeta } from '../security-audit';
 
@@ -63,6 +64,7 @@ export function governanceRoute<Args extends unknown[]>(
       if (error instanceof SourceAccessError) return fail(error.message, error.status);
       if (error instanceof AtsRulesetError) return fail(error.message, error.status);
       if (error instanceof MatchWeightError) return fail(error.message, error.status);
+      if (error instanceof FieldMappingError) return fail(error.message, error.status);
       throw error;
     }
   });

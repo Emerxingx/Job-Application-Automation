@@ -15,7 +15,9 @@ export const APPLICATION_STATUSES: readonly ApplicationStatus[] = ['queued', 'ap
 export const TRANSITIONS: Record<ApplicationStatus, readonly ApplicationStatus[]> = {
   queued: ['applying', 'failed', 'withdrawn'],
   applying: ['submitted', 'ready_to_submit', 'failed'],
-  ready_to_submit: ['submitted', 'withdrawn'],
+  // `applying` from here is the CLAIM an instructed ATS submission takes before
+  // it calls the employer (Stage 12): one caller wins, the rest are refused.
+  ready_to_submit: ['submitted', 'withdrawn', 'applying'],
   submitted: ['interviewing', 'offer', 'rejected', 'withdrawn'],
   failed: ['queued', 'withdrawn'],
   interviewing: ['offer', 'rejected', 'withdrawn'],
@@ -66,7 +68,7 @@ export function outcomeFor(to: ApplicationStatus): 'rejected' | 'withdrawn' | nu
 export function describeRefusal(from: ApplicationStatus, to: ApplicationStatus): string {
   if (from === to) return `This application is already ${STATUS_LABELS[to]}.`;
   if (isTerminal(from)) return `This application is ${STATUS_LABELS[from]} and cannot change again.`;
-  if (from === 'ready_to_submit' && to !== 'withdrawn') return 'This application is awaiting your confirmation on the employer form; confirm it first.';
+  if (from === 'ready_to_submit' && to !== 'withdrawn' && to !== 'applying') return 'This application is awaiting your confirmation on the employer form; confirm it first.';
   if (!REACHED_EMPLOYER.includes(from) && REACHED_EMPLOYER.includes(to)) return `This application has not reached the employer yet (it is ${STATUS_LABELS[from]}).`;
   return `An application that is ${STATUS_LABELS[from]} cannot become ${STATUS_LABELS[to]}.`;
 }

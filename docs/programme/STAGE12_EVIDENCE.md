@@ -64,13 +64,23 @@ in `review_submit` with an authorised board).
 ## 5. Submission on instruction — `PASS` (mock) · `IMPLEMENTED-NOT-VALIDATED` (real)
 
 `POST /api/applications/:id/submit` → `submitThroughAts`: owner-scoped;
-mode `review_submit` only; status `ready_to_submit` only; `atsSubmittable`
-and the engine's `canSubmit` re-checked at click time; then the provider's
-`submit`, a status-machine move to `submitted` with source `ats_api` and
-the reason "on the applicant's instruction after review", the
-confirmation recorded, the documents sealed (Stage 09). A refusal leaves
-the record ready for the form with the reason stored. The manual path
-(`/confirm`, "I submitted this on the employer's form") is unchanged.
+mode `review_submit` only; then, under an advisory lock on the
+application, the CLAIM — `ready_to_submit → applying` through the status
+machine (source `ats_api`) — so a second click, a retry or a second tab
+finds it `applying` and is refused before any engine call; `atsSubmittable`
+and the engine's `canSubmit` re-checked; the provider's `submit`; on success
+`applying → submitted` with the reason "on the applicant's instruction after
+review", the confirmation recorded, the documents sealed (Stage 09), the
+match marked `applied` (only now — a prepared match is `reviewed`). An
+engine refusal releases the claim (`applying → ready_to_submit`) with the
+reason on the record; nothing retries unattended. **Proven end to end
+against the database with the deterministic mock engine**
+(`tests/assisted-submission.test.ts`): the three moves in the history, the
+seal, the match, a second click refused, another user / a non-permitting
+mode / a record not awaiting review / an unauthorised board refused without
+touching the engine, an engine refusal releasing the claim, and two
+simultaneous clicks reaching the engine exactly once. The manual path
+(`/confirm`) is unchanged and now also marks the match applied.
 
 **No real board has been submitted to.** `submitToAts` (Greenhouse, Lever)
 is unchanged from Stage 00 and has never been called with a live
@@ -124,7 +134,7 @@ back to the built-in set and is not cached. `tests/field-mappings.test.ts`
 | --- | --- |
 | Lint | 0 errors, 8 warnings (baseline) |
 | Typecheck | 0 |
-| Tests | **1050 / 1050**, 0 skipped (Stage 11: 1033) — new: `application-modes` 4, `prepared-questions` 6, `field-mappings` 5; `apply-engine` +1 rewritten |
+| Tests | **1054 / 1054**, 0 skipped (Stage 11: 1033) — new: `application-modes` 4, `prepared-questions` 6, `field-mappings` 5, `assisted-submission` 4 (database, end to end); `apply-engine` +1 rewritten |
 | Build | passes; `/api/applications/[id]/submit`, `/api/console/field-mappings`, `/console/field-mappings` present |
 | Migrations | thirty-two applied fresh; drift clean; 117 public tables forced; RLS migration equals the generator output |
 
@@ -132,7 +142,7 @@ back to the built-in set and is not cached. `tests/field-mappings.test.ts`
 
 | Condition | State |
 | --- | --- |
-| Assisted apply completes in one click after review | **MET** on the mock engine (prepare → review → instructed submit → `submitted` with confirmation, sealed) |
+| Assisted apply completes in one click after review | **MET** on the mock engine, proven against the database (`assisted-submission` test: prepare → review → instructed submit → `submitted` with confirmation, sealed, match applied) |
 | Autonomous submission is impossible | **MET** — no provider, mode, flag or route submits without the applicant's click; tested at the mode table, the providers and the routes |
 | Question bank wired with its policy states; `NEVER_AUTOMATE` always human | **MET** |
 | `FieldMappings` under governed administration with the exact version per application | **MET** |
@@ -158,4 +168,24 @@ the inherited causes. Merge posture inherited from the stack.
 
 ## 12. Independent review
 
-PENDING — recorded here when done.
+An independent adversarial pass over the whole diff (autonomous submission,
+authorization, tenant leakage, data, migration, the register, contract
+consumers, false PASS, dead code). One HIGH, three MEDIUM, three LOW — every
+one fixed:
+
+| Severity | Finding | Disposition |
+| --- | --- | --- |
+| HIGH | The evidence and the status file claimed the instructed submission was proven "end to end on the mock", but no test called `submitThroughAts` or the submit route — a false PASS by this document's own standard | **Fixed** — `tests/assisted-submission.test.ts` (database): the full path, every refusal, the engine-refusal release, the double click; the claims now cite it |
+| MEDIUM | `submitThroughAts` checked the status without a lock and only wrote after the employer-facing call, so two near-simultaneous clicks could both reach the ATS | **Fixed** — an advisory-locked CLAIM (`ready_to_submit → applying`, a new machine transition) before any engine call; the second caller is refused; tested with two concurrent calls |
+| MEDIUM | `FieldMappingError` was not mapped in `governanceRoute`, so every register refusal surfaced as an opaque 500 | **Fixed** — mapped like its siblings |
+| MEDIUM | `JobMatch.status` became `applied` on mere preparation (and `/api/v1` exposes it), now that `apply()` never submits | **Fixed** — a prepared match is `reviewed`; `applied` is written only by the confirmation or the instructed submission (tested) |
+| LOW | The `submitted` counter and its job-feed branch were unreachable | **Fixed** — removed from `BulkApplyResult` and the feed; the activity message says "prepared" |
+| LOW | `carriesNeverAutomatedValue` guarded nothing at runtime | **Fixed** — the applicator refuses to persist a prepared set that carries a never-automated value |
+| LOW | No screening of admin regexes for catastrophic backtracking | **Fixed** — a quantified group that is itself quantified is refused by `validateMappings` (tested) |
+
+Found sound, with the line read: no path submits without the applicant's
+click; `approved_auto_apply` cannot be stored by any route, seed or default;
+the settings radio is inert; every new query is owner-scoped; the applicator
+and the register stay on the system client by design; a never-automated
+answer never reaches the prepared set, the UI or the ATS payload; both
+migrations are additive with defaults; the CMS collection is fully gone.
