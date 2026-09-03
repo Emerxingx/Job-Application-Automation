@@ -2,7 +2,7 @@
 
 Recorded 2026-09-03 on branch `claude/stage-06-normalization-dedup-freshness`,
 stacked on Stage 05 (PR #17) → 04 (#16) → 03 (#15) → 02 (#14) → 01 (#13,
-PARTIAL). Every line was run or read; nothing is PASS on the strength of a
+PARTIAL). Draft PR #18. Every line was run or read; nothing is PASS on the strength of a
 mock, a skipped test or a document. This stage's honest centre: **the
 canonical job model is live and dedup is measured — on a hand-labelled set of
 eight postings, because no real source is credentialed yet; the freshness
