@@ -1,13 +1,13 @@
 {
   "$comment": "Machine-readable controller for the autonomous build programme. Authoritative over any chat transcript: if this file and a conversation disagree, this file wins. Updated at every stage checkpoint.",
   "schema_version": 1,
-  "updated_at": "2026-09-03",
+  "updated_at": "2026-09-03T15:50:00Z",
   "current_stage": "14",
   "last_completed_stage": "00",
   "current_branch": "claude/stage-14-candidate-api-contract",
-  "current_head": "cf148462238494fec18c5ee43cd01b935293aa9c",
+  "current_head": "bf6318d",
   "current_head_meaning": "SHA of the last commit whose full gate set was verified locally (lint, typecheck, tests, build). Set by the status-sync commit that immediately follows it, so it names a real, verified commit rather than the one it is written in.",
-  "current_pr": null,
+  "current_pr": "https://github.com/Emerxingx/Job-Application-Automation/pull/26",
   "main_head": "d6ae8b3a9180b529abe06f23417515432c0a7f0e",
   "run_complete": false,
   "stage_status": {
@@ -562,5 +562,27 @@
       "Staging rehearsal (NOT VERIFIED — R-34)"
     ],
     "verdict": "Stage 14 meets its exit gate as the plan words it — the contract is frozen and versioned before app work begins — and is PARTIAL on the stage's objective, the app, which is not built here and stated. Merge posture inherited from the stack."
+  },
+  "pause_checkpoint": {
+    "requested_by": "operator, 2026-09-03 (mid Stage 14 wrap-up)",
+    "state": "PAUSED — safe checkpoint; no stage, remediation cycle or major task in flight",
+    "current_stage": "14 — Candidate mobile: the API contract (PASS on the contract gate; objective PARTIAL, the Expo app is NOT built)",
+    "current_branch": "claude/stage-14-candidate-api-contract (stacked on claude/stage-13-candidate-analytics)",
+    "current_head": "bf6318d = Stage 14 content (cf14846) + status sync; this checkpoint commit sits on top and is the branch tip on origin",
+    "current_pr": "https://github.com/Emerxingx/Job-Application-Automation/pull/26 (draft, subscribed)",
+    "completed_work": [
+      "Stages 01–13 delivered as stacked draft PRs #13–#25 with evidence documents and independent reviews recorded",
+      "Stage 14: OpenAPI 3.1 contract docs/api/openapi.candidate.v1.json (13 operations) + hash lock, npm run api:freeze, nine new v1 routes, src/lib/integrations/candidate-api.ts, tests/candidate-api-contract.test.ts, ADR-0028, STAGE14_EVIDENCE.md, registers and STAGE_STATUS updated, draft PR #26 opened and subscribed"
+    ],
+    "test_status": "On bf6318d (unchanged by this checkpoint, which touches docs only): npm run lint:ci 0 errors / 8 warnings; npx tsc --noEmit 0; npm test 1078/1078 with both database URLs set against local PostgreSQL 16 (35 migrations, drift clean); npm run build 0. CI on PR #26 not yet observed.",
+    "remaining_work": [
+      "Stage 14: the independent adversarial review was stopped for this pause before reporting — re-run it (tenant leakage through the key's user, data exposure in the contract, submit/confirm routes, enum/format correctness, freeze rule, merged-notification pagination, false PASS, dead code), fix findings, fill STAGE14_EVIDENCE.md §10 and independent_review here",
+      "Watch CI on PRs #23–#26 (not yet confirmed green at the pause); #21/#22 were green at last check",
+      "Stage 15 (Payments): entitlement layer per ADR-0010 in a worktree stacked on the Stage 14 head; Stripe stays IMPLEMENTED-NOT-VALIDATED (no key) so its exit is BLOCKED on the credential",
+      "Stages 16–24 per docs/programme/MASTER_BUILD_PLAN.md; Stage 22 gated (ADR-0016); run_complete stays false until Stage 24; stop before public go-live"
+    ],
+    "external_blockers": "See blockers[] — Supabase staging unreachable from this environment (raw TCP), no Stripe/Adzuna/Anthropic/ATS sandbox credentials, taxonomy licences unrecorded, pgvector blocked. None was changed by this checkpoint.",
+    "check_in_trigger": "trig_01BKHMsQzJMggVMpQT8She2z DISABLED for the pause (name \"Re-check PRs #13–#26 (paused at operator request)\")",
+    "exact_next_action_on_resume": "1) git fetch origin && git checkout claude/stage-14-candidate-api-contract && git pull; 2) re-enable the check-in trigger (update_trigger enabled=true, run_once_at ≈ now+65min) and re-subscribe to PRs #13–#26; 3) launch the Stage 14 independent review agent against the branch head, act on its findings, record §10 of STAGE14_EVIDENCE.md and independent_review here, rerun the four gates, push; 4) then start Stage 15 in a worktree stacked on the Stage 14 head."
   }
 }
