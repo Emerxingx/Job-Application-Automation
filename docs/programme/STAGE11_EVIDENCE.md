@@ -1,7 +1,7 @@
 # Stage 11 — Email and calendar intelligence — evidence
 
-Recorded 2026-09-03 on branch `claude/stage-11-email-calendar-intelligence`,
-stacked on Stage 10 → 09 (PR #21) → 08 (#20) → 07 (#19) → 06 (#18) → 05 (#17)
+Recorded 2026-09-03 on branch `claude/stage-11-email-calendar-intelligence` (PR #23),
+stacked on Stage 10 (PR #22) → 09 (PR #21) → 08 (#20) → 07 (#19) → 06 (#18) → 05 (#17)
 → 04 (#16) → 03 (#15) → 02 (#14) → 01 (#13, PARTIAL). Every line was run or
 read; nothing is PASS on the strength of a mock, a skipped test or a
 document. This stage's honest centre: **the whole chain — consent, a
