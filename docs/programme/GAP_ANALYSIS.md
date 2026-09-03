@@ -268,11 +268,16 @@ governed `PromptVersion` registry in the transactional database (approval,
 evaluation-gated promotion, rollback, step-up, audit) and the AI gateway.
 **Remediation:** `ADR-0006` — implemented; see `STAGE03_EVIDENCE.md`.
 
-### G-25 — Reporting shares the transactional store · PARTIAL
+### G-25 — Reporting shares the transactional store · PARTIAL (candidate side CLOSED, Stage 13)
 Rollup models and 1,066 lines of revenue analytics exist — genuinely capable. But
-dashboards query the transactional database directly, which the brief explicitly
-warns against. No event stream, no marts.
-**Remediation:** `ADR-0012`.
+dashboards queried the transactional database directly, which the brief explicitly
+warns against. No event stream.
+**Stage 13 (ADR-0027):** the CANDIDATE dashboards now read three marts through one
+metric dictionary, rebuilt by replacement with a `RollupRun` per run; a static test
+refuses a transactional read on those pages. Remaining: the console/revenue pages
+still read transactional tables (Stage 21); no event stream feeds the marts
+(ADR-0011); no scheduler runs the sweep.
+**Remediation:** `ADR-0012`, Stage 21.
 
 ### G-26 — No platform admin; founder cannot operate the business · FAIL
 The founder is non-technical. Today, changing a plan price, a matching weight, a

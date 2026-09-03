@@ -34,6 +34,8 @@ so they still read correctly after erasure. `User.anonymizedAt` marks this.
 | Sessions | CONFIDENTIAL | 30 days, or immediately on revocation | Logout / revoke | |
 | Rate-limit counters | INTERNAL | Window duration | — | Ephemeral |
 | Analytics marts | INTERNAL | 3 years | — | Aggregate; small cohorts suppressed |
+| Candidate outcome and match marts — `CandidateOutcomeMart`, `CandidateMatchMart` (Stage 13) | CONFIDENTIAL | With the account (rebuilt from the application rows; deleted with the user) | Erasure cascade | Per-user counts by day and dimension; no free text beyond a job title, company or keyword; user-owned under RLS |
+| Candidate benchmark mart — `CandidateBenchmarkMart` (Stage 13) | INTERNAL | 3 years | — | Cross-user counts with the distinct-user cohort; suppressed below 5 people on read; system-only |
 | CMS content | PUBLIC | Indefinite | — | Versioned |
 
 ## Rules

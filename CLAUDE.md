@@ -26,7 +26,7 @@ remediation has begun.**
 npm ci                # install from the lockfile
 npm run dev           # http://localhost:3000
 npx tsc --noEmit      # typecheck  — PASSES
-npm test              # 1054 tests  — PASSES with the two database URLs below set; the
+npm test              # 1068 tests  — PASSES with the two database URLs below set; the
                       #   database suites skip WITH A REASON without them and THROW
                       #   when CI=true, so CI cannot pass by skipping them
 npm run build         # production — PASSES
@@ -54,7 +54,7 @@ npm run cms:types          # regenerate payload-types.ts
 ## Things that will surprise you
 
 1. **The database is PostgreSQL with a versioned migration history** since
-   Stage 01 (`ADR-0002`). Thirty-two migrations under `prisma/migrations/`; CI applies
+   Stage 01 (`ADR-0002`). Thirty-four migrations under `prisma/migrations/`; CI applies
    them to an empty database and fails on drift. `DATABASE_URL` is the
    transaction pooler, `DIRECT_URL` the session endpoint for migrations. The RLS
    migration is **generated** from `src/lib/tenancy/rls-tables.ts` — regenerate
@@ -283,6 +283,21 @@ npm run cms:types          # regenerate payload-types.ts
     a version is active); every application records the version it was
     prepared with. The CMS no longer holds any automation configuration. No
     real board has ever been submitted to.
+
+24. **Candidate dashboards read marts, through one dictionary** (Stage 13,
+    ADR-0027). `src/lib/analytics/candidate/dictionary.ts` defines every
+    candidate metric once (mirrored in `docs/governance/METRIC_DICTIONARY.md`;
+    a test fails if they differ); `rollup.ts` is the ONLY reader of the
+    transactional tables and REPLACES whole (days × user) scopes; `read.ts`
+    reads `CandidateOutcomeMart` / `CandidateMatchMart` on the tenant path
+    and the system-only `CandidateBenchmarkMart` only through
+    `suppressSmallCohort` (under five people → no number). A static test
+    refuses a transactional query for a metric in the read module, the
+    analytics page or the overview — add a metric to the dictionary and the
+    mart, never a `count()` to a page. Counts are reach from the status
+    HISTORY. There is no scheduler: `npm run analytics:rollup`, the
+    candidate's refresh, or the first-visit rebuild. No industry dimension
+    exists; do not fake one.
 
 ## Conventions worth preserving
 

@@ -1,4 +1,5 @@
 import { requireTenant } from '@/lib/tenancy/request';
+import { readCandidateTotals } from '@/lib/analytics/candidate/read';
 import { notIneligibleFor } from '@/lib/eligibility/service';
 import { getQuota } from '@/lib/subscription';
 import { getDashboardLayout } from '@/lib/cms';
@@ -29,14 +30,18 @@ export default async function DashboardPage() {
 
   // The CMS layout and the quota come from library paths; the user's own rows
   // load together on the tenant path.
-  const [layout, quota, [agentCount, applicationCount, topMatches, events, submittedCount, interviewCount]] =
+  // Stage 13 (ADR-0012): the three NUMBERS come from the candidate's outcome
+  // mart (one definition each, docs/governance/METRIC_DICTIONARY.md). The two
+  // LISTS — what to do next, what just happened — are operational reads of
+  // the candidate's own rows, not metrics, and stay where they are.
+  const [layout, quota, [agentCount, totals, topMatches, events]] =
     await Promise.all([
       getDashboardLayout(),
       getQuota(user.id),
       run((tx) =>
         Promise.all([
           tx.agent.count({ where: { userId: user.id } }),
-          tx.application.count({ where: { userId: user.id } }),
+          readCandidateTotals(tx, user.id),
           tx.jobMatch.findMany({
             where: { agent: { userId: user.id }, status: 'new', job: { activeState: { not: 'closed' }, ...notIneligibleFor(user.id) } },
             orderBy: { matchScore: 'desc' },
@@ -49,13 +54,12 @@ export default async function DashboardPage() {
             orderBy: { createdAt: 'desc' },
             take: 20,
           }),
-          tx.application.count({ where: { userId: user.id, status: 'submitted' } }),
-          tx.application.count({
-            where: { userId: user.id, status: { in: ['interviewing', 'offer'] } },
-          }),
         ]),
       ),
     ]);
+  const applicationCount = totals.applications;
+  const submittedCount = totals.sent;
+  const interviewCount = totals.interviews;
 
   const data: DashboardData = {
     firstName: user.fullName.split(' ')[0],
