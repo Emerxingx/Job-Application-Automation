@@ -198,15 +198,19 @@ resolved before any real signup (Stage 24 gate at the latest).
 employment/education entry in generated output that the résumé and the
 approved evidence do not contain, section by section, replacing the section
 with the deterministic baseline and counting the rejection on the `AiRun`.
-Résumé sections do not admit the posting's vocabulary, which is what stops a
-posting from injecting claims into a résumé. What it does **not** catch: an
-invented lower-case verb phrase built from words already present ("led the
-migration" when the candidate only "supported" it), and a single Title-case
-word at a sentence start ("Google hired me" — acronyms, mixed case and
-proper-noun runs are still checked). Compensating controls: bullets belong
-only to real roles and a rejected bullet falls back to the original at the
-same position; the prompt forbids invention; every run records what was
-rejected. Stage 09 adds claim-level citations, which closes the residual
+The posting's free text is admitted nowhere (only its title, company,
+location, listed skills and the closed technology vocabulary), which is what
+stops a posting from injecting claims into a résumé or a letter. What it
+does **not** catch: an invented lower-case verb phrase built from words
+already present ("led the migration" when the candidate only "supported"
+it); an entity written in lower case ("at google"); a number written in
+words ("forty engineers"); and, in prose sections only (letters, stories,
+answers, rationale), a single Title-case word at a sentence start ("Google
+hired me" — acronyms, mixed case and proper-noun runs are still checked;
+résumé sections exempt nothing). Compensating controls: bullets belong only
+to real roles, are checked against their own role's evidence, and a rejected
+bullet falls back to the original at the same position; the prompt forbids
+invention; every run records what was rejected. Stage 09 adds claim-level citations, which closes the residual
 structurally. Likelihood 2 · Impact 3 · Score 6. Owner: engineering.
 
 ## R-38 — no prompt version has passed evaluation, so external AI is off by construction (open, Stage 03)

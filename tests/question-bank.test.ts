@@ -18,6 +18,16 @@ describe('question bank — classification and policy floors (pure)', () => {
       'Are you an Indigenous person (First Nations, Métis or Inuit)?',
       'Please provide your SIN',
       'What is your citizenship?',
+      'Are you 18 or older?',
+      'When were you born?',
+      'Are you a Canadian citizen?',
+      'Are you transgender or non-binary?',
+      'Have you ever been arrested or charged?',
+      'Are you Hispanic or Latino?',
+      'What is your nationality?',
+      'Do you have any conditions that would prevent you from working night shifts?',
+      'Do you have childcare or caregiving responsibilities that affect your availability?',
+      'Are you able to stand for long hours and lift 50 lbs?',
     ]) {
       const c = classifyQuestion(q);
       assert.equal(c.category, 'sensitive', q);
@@ -32,8 +42,10 @@ describe('question bank — classification and policy floors (pure)', () => {
     assert.equal(enforcePolicy('eligibility', 'NEVER_AUTOMATE'), 'NEVER_AUTOMATE');
     assert.equal(classifyQuestion('What are your salary expectations?').category, 'compensation');
     assert.equal(enforcePolicy('compensation', 'ASK_IF_CHANGED'), 'REQUIRE_REVIEW');
-    assert.equal(classifyQuestion('What is your LinkedIn profile URL?').category, 'logistics');
-    assert.equal(enforcePolicy('logistics', 'AUTO_FILL'), 'AUTO_FILL');
+    assert.equal(classifyQuestion('What is your LinkedIn profile URL?').category, 'contact');
+    assert.equal(enforcePolicy('contact', 'AUTO_FILL'), 'AUTO_FILL');
+    assert.equal(classifyQuestion('When could you start?').category, 'logistics');
+    assert.equal(enforcePolicy('logistics', 'AUTO_FILL'), 'ASK_IF_CHANGED');
     assert.equal(classifyQuestion('How many years of experience do you have with SQL?').category, 'experience');
     assert.equal(enforcePolicy('experience', 'AUTO_FILL'), 'ASK_IF_CHANGED');
     assert.equal(classifyQuestion('Why do you want to work here?').category, 'motivation');
@@ -46,7 +58,8 @@ describe('question bank — classification and policy floors (pure)', () => {
   });
   it('the key ignores case, punctuation and spacing', () => {
     assert.equal(questionKey('  Are you authorized to WORK in Canada?! '), questionKey('are you authorized to work in canada'));
-    assert.equal(questionKey('a'.repeat(300)).length, 200);
+    assert.notEqual(questionKey('a'.repeat(300)), questionKey('a'.repeat(299) + 'b'));
+    assert.ok(questionKey('a'.repeat(300)).length < 200);
   });
   it('resolveAutomation follows the policy and the confirmation bookkeeping', () => {
     const t0 = new Date('2026-01-01');
@@ -93,13 +106,16 @@ describe('question bank — stored form', { skip: SKIP }, () => {
   });
   const asA = <T,>(fn: (tx: Parameters<Parameters<Ctx['withTenant']>[1]>[0]) => Promise<T>) => ctx.withTenant({ userId: A.id }, fn);
 
-  it('a sensitive question is stored NEVER_AUTOMATE with no evidence link, even when AUTO_FILL and evidence are requested', async () => {
+  it('a sensitive question is stored NEVER_AUTOMATE with no evidence link AND NO ANSWER, even when AUTO_FILL, an answer and evidence are given', async () => {
     const ev = await asA(async (tx) => vault.approveEvidence(tx, A.id, (await vault.addManualEvidence(tx, A.id, { kind: 'skill', claim: 'Skill: French' })).id));
-    const q = await asA((tx) => questions.upsertQuestion(tx, A.id, { question: 'Do you have a disability?', answer: 'Prefer not to say', policy: 'AUTO_FILL', evidenceIds: [ev.id] }));
+    const q = await asA((tx) => questions.upsertQuestion(tx, A.id, { question: 'Do you have a disability?', answer: 'Yes, I use a wheelchair', policy: 'AUTO_FILL', evidenceIds: [ev.id] }));
     assert.equal(q.category, 'sensitive');
     assert.equal(q.policy, 'NEVER_AUTOMATE');
     assert.equal(q.evidenceIds, '[]');
+    assert.equal(q.answer, '', 'a RESTRICTED value must never be written to a public-schema table (ADR-0007)');
     assert.equal(questions.resolveAutomation(q), 'never');
+    const stored = await db.applicationQuestion.findUniqueOrThrow({ where: { id: q.id } });
+    assert.equal(stored.answer, '');
   });
   it('the same question in different words updates one row; a requested policy below the floor is raised', async () => {
     const first = await asA((tx) => questions.upsertQuestion(tx, A.id, { question: 'Are you authorized to work in Canada?', answer: 'Yes', policy: 'AUTO_FILL' }));

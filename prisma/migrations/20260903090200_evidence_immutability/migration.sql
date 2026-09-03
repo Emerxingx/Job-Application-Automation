@@ -9,7 +9,10 @@
 -- is (or was) approved raises, whatever issued it — a service bug, a raw
 -- query, a console. Status may still move forward (approved → superseded /
 -- revoked) and the timestamps that record those moves may be set; nothing
--- else may change.
+-- else may change. DELETE is deliberately not guarded: the account-erasure
+-- path removes a candidate's evidence by cascade from User, and a
+-- CONFIDENTIAL table of the candidate's own claims is erased by deletion,
+-- not scrubbed in place (there is no invoice to keep it for).
 --
 -- Idempotent (CREATE OR REPLACE / DROP IF EXISTS) so a fixed shadow database
 -- replays it cleanly, matching the sensitive-schema migration's posture.
@@ -26,7 +29,9 @@ BEGIN
        OR NEW."sourceType" IS DISTINCT FROM OLD."sourceType"
        OR NEW."sourceId" IS DISTINCT FROM OLD."sourceId"
        OR NEW.version IS DISTINCT FROM OLD.version
-       OR NEW."supersedesId" IS DISTINCT FROM OLD."supersedesId"
+       -- Lineage may only be CLEARED, and only by the predecessor's own
+       -- deletion (ON DELETE SET NULL); it is never re-pointed.
+       OR (NEW."supersedesId" IS DISTINCT FROM OLD."supersedesId" AND NEW."supersedesId" IS NOT NULL)
        OR NEW."userId" IS DISTINCT FROM OLD."userId"
        OR NEW."approvedAt" IS DISTINCT FROM OLD."approvedAt"
     THEN

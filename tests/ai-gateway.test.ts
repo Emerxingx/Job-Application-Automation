@@ -44,7 +44,8 @@ describe('AI gateway — static: only the gateway can reach an external model', 
       const rel = path.relative(ROOT, f);
       const src = readFileSync(f, 'utf8');
       if (/@anthropic-ai\/sdk/.test(src) && rel !== 'src/lib/providers/ai/anthropic.ts') offenders.push(`${rel} imports the SDK`);
-      if (/ai\/anthropic'/.test(src) && !['src/lib/providers/index.ts', 'src/lib/providers/ai/anthropic.ts'].includes(rel)) offenders.push(`${rel} imports the adapter`);
+      if (/ai\/anthropic["'`]/.test(src) && !['src/lib/providers/index.ts', 'src/lib/providers/ai/anthropic.ts'].includes(rel)) offenders.push(`${rel} imports the adapter`);
+      if (/AnthropicModelProvider/.test(src) && !['src/lib/providers/index.ts', 'src/lib/providers/ai/anthropic.ts'].includes(rel)) offenders.push(`${rel} names the adapter`);
     }
     assert.deepEqual(offenders, []);
   });
@@ -53,7 +54,7 @@ describe('AI gateway — static: only the gateway can reach an external model', 
     for (const f of files(SRC)) {
       const rel = path.relative(ROOT, f);
       if (rel === 'src/lib/providers/index.ts') continue;
-      if (/getExternalModelProvider\(/.test(readFileSync(f, 'utf8'))) callers.push(rel);
+      if (/getExternalModelProvider/.test(readFileSync(f, 'utf8'))) callers.push(rel);
     }
     assert.deepEqual(callers, ['src/lib/ai/gateway.ts']);
   });
@@ -62,7 +63,7 @@ describe('AI gateway — static: only the gateway can reach an external model', 
     for (const f of files(SRC)) {
       const rel = path.relative(ROOT, f);
       if (rel.startsWith('src/lib/providers/') || rel.startsWith('src/lib/ai/')) continue;
-      if (/providers\/ai\/(mock|anthropic)'/.test(readFileSync(f, 'utf8'))) importers.push(rel);
+      if (/providers\/ai\/(mock|anthropic)["'`]/.test(readFileSync(f, 'utf8'))) importers.push(rel);
     }
     assert.deepEqual(importers, []);
   });
@@ -218,6 +219,7 @@ describe('AI gateway — policy enforcement, traceability and grounding on the l
     assert.equal(req.prompt.includes('{{'), false, 'no placeholder survives interpolation');
     assert.ok(req.prompt.includes('Maple Analytics'));
     assert.ok(req.prompt.includes('Northbridge Commerce'));
+    assert.ok(req.prompt.includes('Led migration of 12 dashboards to Snowflake'), 'approved claims reach the model');
     assert.equal(req.effort, 'high');
     assert.equal(req.maxTokens, 16000);
 
@@ -271,6 +273,36 @@ describe('AI gateway — policy enforcement, traceability and grounding on the l
     assert.equal(r.run.route, 'degraded');
     assert.equal(r.run.reason, 'malformed_output');
     assert.equal(fake.calls.length, 2);
+  });
+
+  it('a provider that THROWS still leaves a trace: the run is recorded as failed and the error propagates', async () => {
+    const throwing: ExternalModelProvider = { name: 'throwing', complete: async () => { throw new Error('socket hang up'); } };
+    providers.setExternalModelProviderForTests(throwing);
+    await assert.rejects(async () => gateway.tailor({ userId: ALLOWED.id }, RESUME, JOB, await analysis()), /socket hang up/);
+    const row = await lastRun(ALLOWED.id);
+    assert.equal(row.status, 'failed');
+    assert.equal(row.error, 'provider_threw');
+    assert.equal(row.route, 'external');
+    assert.equal(row.provider, 'throwing');
+    assert.equal(row.promptVersion, 1);
+    providers.setExternalModelProviderForTests(fake);
+  });
+
+  it('the tenant can read its own AiRun rows and nothing else, and cannot change them', async () => {
+    const ctx = await import('../src/lib/tenancy/context');
+    const mine = await ctx.withTenant({ userId: ALLOWED.id }, (tx) => tx.aiRun.findMany());
+    assert.ok(mine.length > 0);
+    assert.ok(mine.every((r) => r.userId === ALLOWED.id));
+    // No write policy: a DELETE sees no rows (affects 0) and an INSERT is refused outright.
+    const deleted = await ctx.withTenant({ userId: ALLOWED.id }, (tx) => tx.aiRun.deleteMany());
+    assert.equal(deleted.count, 0);
+    assert.equal((await db.aiRun.count({ where: { userId: ALLOWED.id } })), mine.length);
+    await assert.rejects(
+      () => ctx.withTenant({ userId: ALLOWED.id }, (tx) => tx.aiRun.create({ data: { task: 'tailor', userId: ALLOWED.id, policyState: 'EXTERNAL_AI_ALLOWED', route: 'external', provider: 'forged' } })),
+      /row-level security|42501|permission denied/,
+    );
+    const theirs = await ctx.withTenant({ userId: RESTRICTED.id }, (tx) => tx.aiRun.findMany({ where: { userId: ALLOWED.id } }));
+    assert.deepEqual(theirs, []);
   });
 
   it('no external provider configured: an ALLOWED tenant degrades and is told; nothing pretends to be a model', async () => {

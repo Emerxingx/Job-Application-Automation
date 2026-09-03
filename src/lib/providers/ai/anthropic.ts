@@ -41,6 +41,7 @@ export class AnthropicModelProvider implements ExternalModelProvider {
         model: input.model,
         max_tokens: input.maxTokens ?? 16000,
         system: input.system,
+        ...(input.temperature !== undefined ? { temperature: input.temperature } : {}),
         output_config: {
           effort: input.effort ?? 'high',
           format: { type: 'json_schema', schema: input.schema },

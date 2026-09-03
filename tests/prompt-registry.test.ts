@@ -35,6 +35,7 @@ type Registry = typeof import('../src/lib/ai/prompt-registry');
 const S = randomBytes(4).toString('hex');
 const SLUG = `test-${S}`;
 const STAFF = { id: `staff_${S}`, email: `staff-${S}@registry.test`, fullName: 'Staff', role: 'admin' as const, storedRole: 'admin' };
+const SECOND = { id: `staff2_${S}`, email: `staff2-${S}@registry.test`, fullName: 'Second', role: 'admin' as const, storedRole: 'admin' };
 let db: Db;
 let reg: Registry;
 
@@ -46,7 +47,8 @@ describe('prompt registry — lifecycle against the database', { skip: SKIP }, (
   });
   after(async () => {
     await db.promptVersion.deleteMany({ where: { slug: SLUG } });
-    await db.auditLog.deleteMany({ where: { actorId: STAFF.id } });
+    await db.auditLog.deleteMany({ where: { actorId: { in: [STAFF.id, SECOND.id] } } });
+    await db.user.deleteMany({ where: { id: { in: [STAFF.id, SECOND.id] } } });
     await db.$disconnect();
   });
 
@@ -75,8 +77,10 @@ describe('prompt registry — lifecycle against the database', { skip: SKIP }, (
     assert.equal(v1.version, 1);
     assert.equal(v1.deploymentStatus, 'draft');
     await assert.rejects(() => reg.promotePromptVersion(v1.id, STAFF), /Only an approved version/);
-    const approved = await reg.approvePromptVersion(v1.id, STAFF);
-    assert.equal(approved.approvedByEmail, STAFF.email);
+    // Separation of duties: the author cannot approve their own version.
+    await assert.rejects(() => reg.approvePromptVersion(v1.id, STAFF), /second admin/);
+    const approved = await reg.approvePromptVersion(v1.id, SECOND);
+    assert.equal(approved.approvedByEmail, SECOND.email);
     await assert.rejects(() => reg.promotePromptVersion(v1.id, STAFF), /evaluation has passed/);
     await assert.rejects(() => reg.recordPromptEvaluation(v1.id, { status: 'passed', note: 'ok' }, STAFF), /note/);
     await reg.recordPromptEvaluation(v1.id, { status: 'passed', note: 'Golden set 12/12 on claude-opus-5, 2026-09-03.' }, STAFF);
@@ -86,7 +90,10 @@ describe('prompt registry — lifecycle against the database', { skip: SKIP }, (
 
     const audit = await db.auditLog.findMany({ where: { entityType: 'PromptVersion', entityId: v1.id }, orderBy: { createdAt: 'asc' } });
     assert.deepEqual(audit.map((a) => a.action), ['prompt.create', 'prompt.approve', 'prompt.evaluate', 'prompt.promote']);
-    assert.ok(audit.every((a) => a.actorEmail === STAFF.email && a.actorType === 'staff'));
+    assert.ok(audit.every((a) => a.actorType === 'staff'));
+    assert.equal(audit[1].actorEmail, SECOND.email);
+    // The evaluation note survives in the audit trail even after the row's note is overwritten.
+    assert.match(JSON.parse(audit[2].after).evaluationNote, /Golden set 12\/12/);
     assert.equal(audit[3].reason, 'go live');
     // The audit row carries a digest of the text, not the text.
     assert.ok(JSON.parse(audit[3].after).digest.length === 64);
@@ -105,7 +112,7 @@ describe('prompt registry — lifecycle against the database', { skip: SKIP }, (
   it('promoting v2 demotes v1 to approved; promoting v1 again is recorded as a rollback', async () => {
     const v2 = await reg.createPromptVersion(input(2), STAFF);
     assert.equal(v2.version, 2);
-    await reg.approvePromptVersion(v2.id, STAFF);
+    await reg.approvePromptVersion(v2.id, SECOND);
     await reg.recordPromptEvaluation(v2.id, { status: 'passed', note: 'Golden set 12/12, no regression against v1.' }, STAFF);
     await reg.promotePromptVersion(v2.id, STAFF);
     const rows = await db.promptVersion.findMany({ where: { slug: SLUG }, orderBy: { version: 'asc' } });
@@ -128,6 +135,18 @@ describe('prompt registry — lifecycle against the database', { skip: SKIP }, (
     await assert.rejects(() => reg.promotePromptVersion(v2.id, STAFF), /Only an approved version/);
   });
 
+  it('resetting the live default to pending demotes it: nothing serves without a PASSED evaluation at any moment', async () => {
+    const v1 = await db.promptVersion.findUniqueOrThrow({ where: { slug_version: { slug: SLUG, version: 1 } } });
+    assert.equal(v1.deploymentStatus, 'default');
+    const reset = await reg.recordPromptEvaluation(v1.id, { status: 'pending', note: 'Re-evaluating on a new model.' }, STAFF);
+    assert.equal(reset.deploymentStatus, 'approved');
+    assert.equal(await reg.getActivePrompt(SLUG), null);
+    // Put it back for the next case, through the gate.
+    await reg.recordPromptEvaluation(v1.id, { status: 'passed', note: 'Golden set 12/12 on the new model.' }, STAFF);
+    await reg.promotePromptVersion(v1.id, STAFF);
+    assert.equal((await reg.getActivePrompt(SLUG))?.id, v1.id);
+  });
+
   it('a failed evaluation on the live default demotes it immediately: the slug has no default', async () => {
     const v1 = await db.promptVersion.findUniqueOrThrow({ where: { slug_version: { slug: SLUG, version: 1 } } });
     const demoted = await reg.recordPromptEvaluation(v1.id, { status: 'failed', note: 'Truthfulness suite: 2 fabricated employers.' }, STAFF);
@@ -135,5 +154,32 @@ describe('prompt registry — lifecycle against the database', { skip: SKIP }, (
     assert.equal(demoted.evaluationStatus, 'failed');
     assert.equal(await reg.getActivePrompt(SLUG), null);
     await assert.rejects(() => reg.promotePromptVersion(v1.id, STAFF), /evaluation has passed/);
+  });
+
+  it('concurrent promotes of two passed versions leave exactly one default', async () => {
+    const [v1, v2] = await db.promptVersion.findMany({ where: { slug: SLUG }, orderBy: { version: 'asc' } });
+    await db.promptVersion.update({ where: { id: v1.id }, data: { deploymentStatus: 'approved', evaluationStatus: 'passed' } });
+    await db.promptVersion.update({ where: { id: v2.id }, data: { deploymentStatus: 'approved', evaluationStatus: 'passed' } });
+    const results = await Promise.allSettled([reg.promotePromptVersion(v1.id, STAFF), reg.promotePromptVersion(v2.id, STAFF)]);
+    assert.ok(results.every((r) => r.status === 'fulfilled'));
+    const defaults = await db.promptVersion.count({ where: { slug: SLUG, deploymentStatus: 'default' } });
+    assert.equal(defaults, 1);
+  });
+
+  it('step-up: a wrong password is refused and audited; an account without a local password cannot step up; attempts are rate-limited', async () => {
+    const { hashPassword } = await import('../src/lib/auth');
+    const { requireStepUp, StepUpError } = await import('../src/app/(app)/api/console/prompts/step-up');
+    await db.user.create({ data: { id: STAFF.id, email: STAFF.email, passwordHash: await hashPassword('correct horse battery staple'), fullName: 'Staff', role: 'admin' } });
+    await db.user.create({ data: { id: SECOND.id, email: SECOND.email, passwordHash: '', fullName: 'Second', role: 'admin' } });
+    await requireStepUp(STAFF, 'correct horse battery staple', {});
+    await assert.rejects(() => requireStepUp(STAFF, 'wrong', { ip: '203.0.113.9' }), StepUpError);
+    const audit = await db.auditLog.findFirst({ where: { action: 'auth.step_up.failed', actorId: STAFF.id }, orderBy: { createdAt: 'desc' } });
+    assert.ok(audit);
+    assert.equal(audit.ip, '203.0.113.9');
+    assert.equal(audit.after.includes('wrong'), false, 'the attempted password is never recorded');
+    await assert.rejects(() => requireStepUp(SECOND, 'anything', {}), StepUpError);
+    // The auth bucket allows 10 attempts per window; the rest are refused before any comparison.
+    for (let i = 0; i < 12; i += 1) await requireStepUp(STAFF, 'wrong', {}).catch(() => undefined);
+    await assert.rejects(() => requireStepUp(STAFF, 'correct horse battery staple', {}), /Too many/);
   });
 });

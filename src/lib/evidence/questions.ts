@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { ApplicationQuestion, Prisma } from '@prisma/client';
 import { parseJson } from '../types';
 
@@ -18,16 +19,18 @@ import { parseJson } from '../types';
  * policy it permits — and `enforcePolicy` raises anything below it. Sensitive
  * questions (demographic self-identification, health, criminal record, age,
  * family status, SIN/SSN) are pinned to NEVER_AUTOMATE, cannot be relaxed by
- * the candidate, and are never linked to evidence; that is the structural
- * form of "sensitive answers default to NEVER_AUTOMATE", and the values are
- * stored here only as the candidate's own words for their own use.
+ * the candidate, are never linked to evidence, and THEIR ANSWERS ARE NEVER
+ * STORED: this table is a public-schema Prisma model, and ADR-0007 keeps
+ * every RESTRICTED value out of those. The question is kept so the candidate
+ * can see it was recognised and will always be asked live. Only `contact`
+ * questions (an email, a URL) may AUTO_FILL.
  *
  * Stage 22 is not this: nothing here submits anything (ADR-0016).
  */
 
 type Client = Prisma.TransactionClient;
 
-export const QUESTION_CATEGORIES = ['eligibility', 'logistics', 'compensation', 'experience', 'motivation', 'screening', 'sensitive', 'other'] as const;
+export const QUESTION_CATEGORIES = ['eligibility', 'contact', 'logistics', 'compensation', 'experience', 'motivation', 'screening', 'sensitive', 'other'] as const;
 export type QuestionCategory = (typeof QUESTION_CATEGORIES)[number];
 export const RISK_LEVELS = ['low', 'medium', 'high'] as const;
 export type RiskLevel = (typeof RISK_LEVELS)[number];
@@ -44,7 +47,8 @@ export const POLICY_FLOOR: Record<QuestionCategory, AutomationPolicy> = {
   screening: 'REQUIRE_REVIEW',
   motivation: 'REQUIRE_REVIEW',
   experience: 'ASK_IF_CHANGED',
-  logistics: 'AUTO_FILL',
+  contact: 'AUTO_FILL',
+  logistics: 'ASK_IF_CHANGED',
   other: 'REQUIRE_REVIEW',
 };
 
@@ -55,6 +59,7 @@ export const DEFAULT_RISK: Record<QuestionCategory, RiskLevel> = {
   screening: 'medium',
   motivation: 'medium',
   experience: 'low',
+  contact: 'low',
   logistics: 'low',
   other: 'medium',
 };
@@ -68,14 +73,19 @@ export class QuestionError extends Error {
   }
 }
 
-/** Normalise question text to a stable key: lower-case, punctuation-free, single-spaced, capped. */
+/**
+ * Normalise question text to a stable key: lower-case, punctuation-free,
+ * single-spaced. A long question keeps its first 180 characters plus a digest
+ * of the whole, so two long questions that share a prefix stay distinct.
+ */
 export function questionKey(text: string): string {
-  return text
+  const norm = text
     .toLowerCase()
     .replace(/[^a-z0-9\s]/g, ' ')
     .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 200);
+    .trim();
+  if (norm.length <= 200) return norm;
+  return `${norm.slice(0, 180)}#${createHash('sha256').update(norm).digest('hex').slice(0, 12)}`;
 }
 
 const RULES: { category: QuestionCategory; pattern: RegExp }[] = [
@@ -83,11 +93,13 @@ const RULES: { category: QuestionCategory; pattern: RegExp }[] = [
   {
     category: 'sensitive',
     pattern:
-      /\b(gender|sex\b|pronouns?|ethnic|race|racial|indigenous|aboriginal|first nations|m[ée]tis|inuit|visible minority|disabilit|disabled|accommodation|veteran|military service|religio|marital|married|pregnan|children|dependants?|dependents?|age\b|date of birth|birth ?date|how old|criminal|convict|background check|medical|health condition|sexual orientation|lgbt|social insurance|\bsin\b|social security|\bssn\b|citizenship\b|national origin|union member)/i,
+      /\b(gender|transgender|non-?binary|sex\b|pronouns?|ethnic|race\b|racial|hispanic|latin[oax]|indigenous|aboriginal|first nations|m[ée]tis|inuit|visible minority|disabilit|disabled|accommodat|impairment|veteran|military service|religio|marital|married|spouse|pregnan|children|childcare|caregiv|dependants?|dependents?|family status|\bage\b|aged?\b|date of birth|birth ?date|\bborn\b|how old|\b(18|19|21|40|65) or (older|over)|criminal|convict|arrest|charged|offen[cs]e|background check|medical|health|condition|\bhiv\b|mental|sexual orientation|lgbt|social insurance|\bsin\b|social security|\bssn\b|citizen|national origin|nationality|where were you born|union member|political|lift \d|physical (demands|requirements|ability)|stand for)/i,
   },
   { category: 'eligibility', pattern: /\b(authori[sz]ed to work|legally (able|entitled|eligible)|work (permit|authori[sz]ation|visa)|visa|sponsorship|sponsor|permanent resident|eligib|security clearance|relocat|driver'?s licen[cs]e|licen[cs]ed to)/i },
   { category: 'compensation', pattern: /\b(salary|compensation|pay\b|rate\b|hourly|wage|expected (pay|earnings)|remuneration|bonus)/i },
-  { category: 'logistics', pattern: /\b(start date|available|availability|notice period|when (can|could|would) you|earliest|hours|shift|weekends?|travel|on-?site|remote|hybrid|commute|phone|email|linkedin|portfolio|website|address|city|postal|zip)/i },
+  // Contact details are the only AUTO_FILL category: a URL or an address is not a claim.
+  { category: 'contact', pattern: /\b(phone|mobile|email|e-mail|linkedin|portfolio|website|github|address|city|postal code|zip code|province|state of residence)\b/i },
+  { category: 'logistics', pattern: /\b(start date|available|availability|notice period|when (can|could|would) you|earliest|hours|shift|weekends?|travel|on-?site|remote|hybrid|commute)/i },
   { category: 'experience', pattern: /\b(years? of experience|how many years|experience with|proficien|familiar with|worked with|certif|degree|education|qualification|skills?)/i },
   { category: 'motivation', pattern: /\b(why (do you|are you|would you|this)|interest(ed)? in|motivat|what (attracts|excites)|career goals?|where do you see)/i },
   { category: 'screening', pattern: /\b(describe|tell us|explain|example|situation|how (did|would) you|what would you|cover letter|summary|about yourself)/i },
@@ -154,6 +166,9 @@ export async function upsertQuestion(tx: Client, userId: string, input: UpsertQu
 
   const classification = classifyQuestion(question);
   const policy = enforcePolicy(classification.category, input.policy);
+  // A sensitive answer is never written to this table (ADR-0007): the row
+  // records that the question exists and will always be asked live.
+  const storedAnswer = classification.category === 'sensitive' ? '' : answer;
 
   let evidenceIds: string[] = [];
   if (classification.category !== 'sensitive' && input.evidenceIds?.length) {
@@ -165,13 +180,13 @@ export async function upsertQuestion(tx: Client, userId: string, input: UpsertQu
 
   const existing = await tx.applicationQuestion.findFirst({ where: { userId, key } });
   const now = new Date();
-  const answerChanged = !existing || existing.answer !== answer;
+  const answerChanged = !existing || existing.answer !== storedAnswer;
   const data = {
     question,
     category: classification.category,
     riskLevel: classification.riskLevel,
     policy,
-    answer,
+    answer: storedAnswer,
     evidenceIds: JSON.stringify(evidenceIds),
     ...(answerChanged ? { answerUpdatedAt: now } : {}),
   };

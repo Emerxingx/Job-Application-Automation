@@ -180,8 +180,23 @@ async function execute<T, Raw>(ctx: GenerationContext, spec: TaskSpec<T, Raw>): 
     throw error;
   }
 
+  // Anything that throws after this point is still a run: the row is
+  // written with status `failed` and a stable code before the error
+  // propagates, so a call that reached the provider always leaves a trace.
+  const failed = async (code: string, error: unknown): Promise<never> => {
+    run.durationMs = Date.now() - started;
+    await record('failed', code);
+    throw error;
+  };
+
   // 3. The grounded baseline, always.
-  const baseline = await spec.deterministic();
+  let baseline: T;
+  try {
+    baseline = await spec.deterministic();
+  } catch (error) {
+    run.route = 'deterministic';
+    return failed('deterministic_engine_error', error);
+  }
 
   const degrade = async (route: AiRoute, reason: DegradeReason): Promise<GatewayResult<T>> => {
     run.route = route;
@@ -218,14 +233,23 @@ async function execute<T, Raw>(ctx: GenerationContext, spec: TaskSpec<T, Raw>): 
 
   // 5. The call, then grounding in code.
   const params = prompt.modelParameters;
-  const raw = await provider.complete<Raw>({
-    model: prompt.targetModel,
-    system: prompt.systemPrompt,
-    prompt: prompt.userPrompt ?? '',
-    schema: prompt.outputSchema ?? spec.schema,
-    maxTokens: typeof params.max_tokens === 'number' ? params.max_tokens : undefined,
-    effort: typeof params.effort === 'string' ? (params.effort as 'low' | 'medium' | 'high' | 'xhigh' | 'max') : undefined,
-  });
+  run.route = 'external';
+  let raw: Raw | null;
+  try {
+    raw = await provider.complete<Raw>({
+      model: prompt.targetModel,
+      system: prompt.systemPrompt,
+      prompt: prompt.userPrompt ?? '',
+      schema: prompt.outputSchema ?? spec.schema,
+      maxTokens: typeof params.max_tokens === 'number' ? params.max_tokens : undefined,
+      effort: typeof params.effort === 'string' ? (params.effort as 'low' | 'medium' | 'high' | 'xhigh' | 'max') : undefined,
+      temperature: typeof params.temperature === 'number' ? params.temperature : undefined,
+    });
+  } catch (error) {
+    // The adapter returns null on its own failures; a throw here is a
+    // provider that does not honour the contract. Recorded, then raised.
+    return failed('provider_threw', error);
+  }
   if (raw === null || raw === undefined) return degrade('degraded', 'provider_unavailable');
 
   let candidate: T;
@@ -234,11 +258,14 @@ async function execute<T, Raw>(ctx: GenerationContext, spec: TaskSpec<T, Raw>): 
   } catch {
     return degrade('degraded', 'malformed_output');
   }
-  const grounded = spec.ground(candidate, baseline);
-  run.route = 'external';
-  run.claimsRejected = grounded.rejected;
-  await record('ok', null);
-  return { value: grounded.value, run };
+  try {
+    const grounded = spec.ground(candidate, baseline);
+    run.claimsRejected = grounded.rejected;
+    await record('ok', null);
+    return { value: grounded.value, run };
+  } catch (error) {
+    return failed('grounding_error', error);
+  }
 }
 
 // --- shared prompt material -----------------------------------------------------------

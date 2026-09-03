@@ -173,7 +173,11 @@ export interface SyncReport {
  */
 export async function syncEvidenceFromProfile(tx: Client, userId: string): Promise<SyncReport> {
   const profile = await tx.candidateProfile.findFirst({ where: { userId }, include: PROFILE_INCLUDE });
-  const derived = profile ? deriveClaims(profile) : [];
+  // No profile row means nothing has been entered yet — not that everything
+  // was removed. Deriving from nothing must not revoke what a previous
+  // profile produced; an emptied profile (row present, no children) does.
+  if (!profile) return { created: 0, superseded: 0, revoked: 0, unchanged: 0 };
+  const derived = deriveClaims(profile);
   const live = await tx.careerEvidence.findMany({
     where: { userId, status: { in: ['draft', 'approved'] }, sourceType: { startsWith: 'profile_' } },
   });
@@ -196,7 +200,7 @@ export async function syncEvidenceFromProfile(tx: Client, userId: string): Promi
     await tx.careerEvidence.create({
       data: {
         userId,
-        profileId: profile?.id ?? null,
+        profileId: profile.id,
         kind: d.kind,
         sourceType: d.sourceType,
         sourceId: d.sourceId,

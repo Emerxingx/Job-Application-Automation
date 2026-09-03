@@ -115,14 +115,56 @@ describe('grounding — adversarial tailored output', () => {
     assert.ok(report.violations.some((v) => v.value === 'Google'));
   });
 
-  it('a cover letter may reference the posting but not invent a metric', async () => {
+  it('a cover letter may name the posting and its listed skills but not invent a metric', async () => {
     const base = await baseline();
-    const ok: TailoredDocuments = { ...base, coverLetter: 'Dear Hiring Team, your Looker work at Maple Analytics is why I am writing. Sincerely, Avery Chen' };
+    const ok: TailoredDocuments = { ...base, coverLetter: 'Dear Hiring Team, your Looker work at Maple Analytics in Toronto is why I am writing. Sincerely, Avery Chen' };
     assert.equal(groundTailoredDocuments(ok, base, RESUME, JOB).report.violations.length, 0);
     const bad: TailoredDocuments = { ...base, coverLetter: 'I saved $4M at Northbridge Commerce.' };
     const { documents, report } = groundTailoredDocuments(bad, base, RESUME, JOB);
     assert.equal(documents.coverLetter, base.coverLetter);
     assert.ok(report.violations.some((v) => v.section === 'coverLetter' && v.value === '4'));
+  });
+
+  it('injection: the posting\'s free text is not admitted in a cover letter either — a number-free fabricated letter is replaced', async () => {
+    const base = await baseline();
+    const bad: TailoredDocuments = { ...base, coverLetter: 'Dear Hiring Team, I hold a PhD from MIT and previously worked at Google. Sincerely, Avery Chen' };
+    const { documents, report } = groundTailoredDocuments(bad, base, RESUME, JOB);
+    assert.equal(documents.coverLetter, base.coverLetter);
+    assert.ok(report.violations.some((v) => v.value === 'MIT'));
+    assert.ok(report.violations.some((v) => v.value === 'Google'));
+    assert.ok(report.violations.some((v) => v.value === 'PhD'));
+  });
+
+  it('a posting\'s numbers are not a licence to claim them: "I bring 5 years of SQL" is rejected in a letter', async () => {
+    const base = await baseline();
+    const bad: TailoredDocuments = { ...base, coverLetter: 'Dear Hiring Team, I bring 5 years of SQL. Sincerely, Avery Chen' };
+    const { report } = groundTailoredDocuments(bad, base, RESUME, JOB);
+    assert.ok(report.violations.some((v) => v.kind === 'number' && v.value === '5'));
+    // The derived years of experience ARE admitted, but only as "N years".
+    const years: TailoredDocuments = { ...base, resumeContent: { ...base.resumeContent, summary: 'Senior Data Analyst with 6 years of experience.' } };
+    assert.equal(groundTailoredDocuments(years, base, RESUME, JOB).report.violations.length, 0);
+    const laundered: TailoredDocuments = { ...base, resumeContent: { ...base.resumeContent, summary: 'Senior Data Analyst who saved $6M.' } };
+    assert.ok(groundTailoredDocuments(laundered, base, RESUME, JOB).report.violations.some((v) => v.value === '6'));
+  });
+
+  it('a bullet cannot migrate between employers, a title cannot be inflated, and a colon does not start a sentence', async () => {
+    const base = await baseline();
+    const [first, second] = base.resumeContent.experience;
+    // "Automated ETL checks in Python" belongs to Halcyon; moving it to Northbridge is rejected.
+    const moved: TailoredDocuments = {
+      ...base,
+      resumeContent: { ...base.resumeContent, experience: [{ ...first, bullets: ['Automated ETL checks in Python', first.bullets[1]] }, second] },
+    };
+    const r1 = groundTailoredDocuments(moved, base, RESUME, JOB);
+    assert.equal(r1.documents.resumeContent.experience[0].bullets[0], first.bullets[0]);
+    assert.ok(r1.report.violations.some((v) => v.value === 'ETL'));
+    const inflated: TailoredDocuments = { ...base, resumeContent: { ...base.resumeContent, summary: 'Director of Analytics at Northbridge Commerce.' } };
+    assert.ok(groundTailoredDocuments(inflated, base, RESUME, JOB).report.violations.some((v) => v.value === 'Director'));
+    const colon: TailoredDocuments = { ...base, resumeContent: { ...base.resumeContent, summary: 'Previous employer: Google.' } };
+    assert.ok(groundTailoredDocuments(colon, base, RESUME, JOB).report.violations.some((v) => v.value === 'Google'));
+    // A list longer than the original is truncated rather than padded with duplicates.
+    const long: TailoredDocuments = { ...base, resumeContent: { ...base.resumeContent, experience: [{ ...first, bullets: [...first.bullets, 'Won 3 awards', 'Shipped 9 features'] }, second] } };
+    assert.equal(groundTailoredDocuments(long, base, RESUME, JOB).documents.resumeContent.experience[0].bullets.length, first.bullets.length);
   });
 
   it('approved evidence claims extend what a résumé section may say', async () => {
@@ -150,6 +192,20 @@ describe('grounding — match analysis and interview pack', () => {
     assert.deepEqual(analysis.missingKeywords, ['Looker']);
     assert.equal(analysis.rationale, base.rationale);
     assert.ok(report.replaced.includes('rationale'));
+  });
+
+  it('a number-free fabricated story built from the posting\'s injection text is dropped', async () => {
+    const base = await engine.prepareInterview(RESUME, JOB);
+    const fabricated: InterviewPrepPackage = {
+      ...base,
+      stories: [{ title: 'Google years', situation: 'While at Google as a senior analyst', task: 'Ship', action: 'Led the migration to Looker', result: 'Success', mapsTo: [] }],
+      questions: [...base.questions, { question: 'Background?', category: 'closing', suggestedAnswer: 'I hold a PhD from MIT and spent years at Google.', tips: [] }],
+    };
+    const { pack, report } = groundInterviewPack(fabricated, base, RESUME, JOB);
+    assert.deepEqual(pack.stories, base.stories);
+    assert.equal(pack.questions.length, base.questions.length);
+    assert.ok(report.violations.some((v) => v.value === 'Google'));
+    assert.ok(report.violations.some((v) => v.value === 'MIT'));
   });
 
   it('fabricated STAR stories and answers are dropped; too few survivors fall back to the baseline', async () => {
@@ -183,10 +239,11 @@ describe('grounding — match analysis and interview pack', () => {
     assert.equal(report.violations.length, 0);
   });
 
-  it('findViolations: résumé scope excludes the posting vocabulary, letter scope includes it', () => {
+  it('findViolations: résumé scope excludes the posting skills, letter scope includes them, neither admits the posting free text', () => {
     const corpus = buildCorpus(RESUME);
     const text = 'Maple Analytics uses Looker.';
     assert.equal(findViolations('x', text, corpus, allowedContext(JOB, RESUME, 'resume')).length, 1);
     assert.equal(findViolations('x', text, corpus, allowedContext(JOB, RESUME, 'letter')).length, 0);
+    assert.equal(findViolations('x', 'PhD from MIT', corpus, allowedContext(JOB, RESUME, 'letter')).length, 2);
   });
 });

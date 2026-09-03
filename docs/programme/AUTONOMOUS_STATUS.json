@@ -206,12 +206,13 @@
   "stage_03_progress": {
     "schema_and_migrations": "DONE locally — CareerEvidence, ApplicationQuestion, AiRun, PromptVersion (20260903090000), generated RLS (20260903090100, 85/85 forced), immutability trigger (20260903090200); seeded prompts approved/pending; NOT VERIFIED on Supabase (R-34)",
     "evidence_vault": "DONE — derivation with stable natural keys, supersede/revoke, draft→approved, revision as new version, immutable once approved (service + trigger), tenant isolation; /dashboard/evidence; 6 database tests",
-    "question_bank": "DONE — categories, risk, policy floors, sensitive pinned to NEVER_AUTOMATE with no evidence link, own-approved-evidence links only, resolveAutomation for Stage 12; 9 tests",
-    "prompt_registry_migration": "DONE — PromptRegistry removed from the CMS and prompt-engine.ts deleted; PromptVersion with admin-only + step-up (password re-entry, rate-limited, failures audited), approve, evaluation-gated promote, rollback recorded as rollback, retire rules, failed evaluation demotes the live default, audit row with content digest per change; /console/prompts; 10 tests",
-    "ai_gateway_policy_enforcement": "DONE — policy resolved before dispatch (missing org → PROHIBITED), RESTRICTED payload refused on every route, deterministic engine always runs, routes external/deterministic/degraded/refused with stable reasons, never silent, AiRun per run with evidence refs and prompt version; scanner/applicator/interview-prep switched; static tests confine the SDK and provider to the registry and the gateway; 12 tests",
+    "question_bank": "DONE — categories, risk, policy floors, sensitive pinned to NEVER_AUTOMATE with no evidence link and NO STORED ANSWER; only contact questions may AUTO_FILL, own-approved-evidence links only, resolveAutomation for Stage 12; 9 tests",
+    "prompt_registry_migration": "DONE — PromptRegistry removed from the CMS and prompt-engine.ts deleted; PromptVersion with admin-only + step-up (password re-entry, rate-limited, failures audited), approve, evaluation-gated promote, rollback recorded as rollback, retire rules, failed evaluation demotes the live default, audit row with content digest per change; /console/prompts; separation of duties (author cannot approve); any non-passed evaluation demotes the live default; advisory lock per slug; step-up tested; 13 tests",
+    "ai_gateway_policy_enforcement": "DONE — policy resolved before dispatch (missing org → PROHIBITED), RESTRICTED payload refused on every route, deterministic engine always runs, routes external/deterministic/degraded/refused with stable reasons, never silent, AiRun per run with evidence refs and prompt version; scanner/applicator/interview-prep switched; static tests confine the SDK and provider to the registry and the gateway; AiRun written on every path including a throwing provider; AiRun read-only for its subject; 14 tests",
     "grounding_in_code": "DONE — corpus from résumé + approved claims; numbers, entities, structure; per-section baseline fallback; résumé sections do not admit posting vocabulary (injection resistance); deterministic engine passes its own check with zero violations and no longer injects unevidenced keywords or quotes posting text; 17 pure tests + gateway live-path test with a fabricating fake provider",
     "truthfulness_live_model": "NOT VERIFIED against a real model — proven with a fake provider only; no key reaches the build",
-    "l3_cross_border": "BLOCKED (LEGAL_COMPLIANCE) — external generation off by construction until decided"
+    "l3_cross_border": "BLOCKED (LEGAL_COMPLIANCE) — external generation off by construction until decided",
+    "independent_review": "DONE — 21 findings (2 HIGH: posting free text admitted in letters/stories/answers; sensitive answers stored in a public table), all HIGH/MEDIUM fixed with tests in the same PR, LOW fixed or recorded; STAGE03_EVIDENCE.md §8"
   },
   "stage_03_exit_gate": {
     "met": [
@@ -219,7 +220,7 @@
       "Prompt registry under governed administration: admin-only, step-up, approval, evaluation-gated promotion, rollback, retirement rules, audit trail, exact version recorded per output",
       "Per-tenant AI policy enforced in the gateway before dispatch, failing closed on a missing policy; a prohibited tenant completes every flow with no data leaving and is told",
       "Truthfulness suite against the deterministic path (zero violations, no unevidenced injection) and against the live-model PATH with a fabricating fake provider (every fabricated employer, technology, credential, metric and role rejected before render)",
-      "Full gate set green: lint 0/8, typecheck 0, 843/843 tests (0 skipped), build 0; migrations applied fresh and incrementally, drift clean"
+      "Full gate set green: lint 0/8, typecheck 0, 853/853 tests (0 skipped), build 0; migrations applied fresh and incrementally, drift clean"
     ],
     "not_met": [
       "Truthfulness suite against a REAL model (NOT VERIFIED — no provider key reaches the build; PROMPT-EVALUATION external action)",

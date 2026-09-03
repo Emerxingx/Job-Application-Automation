@@ -1,9 +1,10 @@
 /**
  * The pure core of the prompt engine: variable validation and substitution.
  *
- * Kept separate from src/lib/prompt-engine.ts (which loads the CMS to fetch a
- * prompt) so this logic — the part with the security properties — has no
- * Payload dependency and is unit-testable in isolation.
+ * Kept separate from the registry read path (src/lib/ai/prompt-registry.ts,
+ * which fetches the deployed version from the database) so this logic — the
+ * part with the security properties — has no database dependency and is
+ * unit-testable in isolation.
  */
 
 export class MissingPromptVariablesError extends Error {

@@ -171,7 +171,10 @@ export const RLS_TABLES: Record<string, RlsKind> = {
   // A candidate may read the record of AI actions taken for them (own rows);
   // rows are written by the gateway on the system client. A null userId
   // (platform-level run) matches no tenant.
-  AiRun: { kind: 'user', column: 'userId' },
+  // Read-only for the tenant: every AiRun is written by the gateway on the
+  // system client, and a trace the subject could edit or delete is not a
+  // trace. `reference` with a `where` is SELECT-only (no write policy).
+  AiRun: { kind: 'reference', where: '"userId" = app_current_user_id()' },
   // Security-relevant configuration, staff-administered: never on the tenant path.
   PromptVersion: { kind: 'system' },
 

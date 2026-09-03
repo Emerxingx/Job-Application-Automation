@@ -12,7 +12,7 @@ task because no prompt version has passed evaluation. Evidence:
 
 ## What exists (preserve)
 - `AIProvider` abstraction with lazy adapter loading and a mock default.
-- `AnthropicAIProvider`: JSON-schema-constrained output, refusal handling, and a
+- `AnthropicAIProvider` (since Stage 03: `AnthropicModelProvider`, a transport only): JSON-schema-constrained output, refusal handling, and a
   **fallback to the deterministic engine** on failure.
 - A **deterministic keyword/semantic engine** that produces stable, explainable
   scores — used both as AI grounding and as the fallback. This is a genuine asset.

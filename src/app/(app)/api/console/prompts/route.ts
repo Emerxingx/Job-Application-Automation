@@ -6,11 +6,12 @@ import { requestMeta } from '@/lib/security-audit';
 import { promptGovernanceRoute, requireStepUp } from './step-up';
 
 /**
- * GET /api/console/prompts — every version of every prompt. Reading is a
- * support-level action: the text is INTERNAL configuration, not personal data.
+ * GET /api/console/prompts — every version of every prompt. Admin only, like
+ * the page: a system prompt is security-relevant configuration, and reading
+ * it is the first step of crafting a change to it.
  */
 export const GET = consoleRoute(async () => {
-  await requireStaff('support');
+  await requireStaff('admin');
   const versions = await listPromptVersions();
   return ok({ versions });
 });

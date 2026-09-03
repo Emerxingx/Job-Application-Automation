@@ -88,6 +88,8 @@ export function PromptAdmin({ versions, audit }: { versions: PromptVersionView[]
       const data = (await res.json()) as { error?: string; version?: { slug: string; version: number; deploymentStatus: string } };
       if (!res.ok) {
         setMessage({ ok: false, text: data.error ?? 'The change was refused.' });
+        // A refused step-up drops the password: the next attempt is typed again.
+        if (res.status === 403) setPassword('');
       } else {
         setMessage({ ok: true, text: `${data.version?.slug} v${data.version?.version} is now ${data.version?.deploymentStatus}.` });
         router.refresh();
@@ -160,7 +162,7 @@ export function PromptAdmin({ versions, audit }: { versions: PromptVersionView[]
                       <span className="text-xs text-muted">
                         {v.modelProvider} · {v.targetModel}
                       </span>
-                      <button type="button" className="ml-auto text-xs text-brand-500 hover:text-brand-600" onClick={() => setOpen(open === v.id ? null : v.id)} aria-expanded={open === v.id}>
+                      <button type="button" className="ml-auto text-xs text-brand-500 hover:text-brand-600" onClick={() => setOpen(open === v.id ? null : v.id)} aria-expanded={open === v.id} aria-controls={`prompt-${v.id}`} aria-label={`${open === v.id ? 'Hide' : 'Show'} prompt ${slug} v${v.version}`}>
                         {open === v.id ? 'Hide prompt' : 'Show prompt'}
                       </button>
                     </div>
@@ -170,7 +172,7 @@ export function PromptAdmin({ versions, audit }: { versions: PromptVersionView[]
                       {v.approvedByEmail ? ` · approved by ${v.approvedByEmail}` : ''}
                     </p>
                     {open === v.id && (
-                      <div className="mt-2 space-y-2 text-xs">
+                      <div id={`prompt-${v.id}`} className="mt-2 space-y-2 text-xs">
                         <p className="font-medium text-ink">System prompt</p>
                         <pre className="whitespace-pre-wrap rounded-lg bg-raised p-3 text-ink">{v.systemPrompt}</pre>
                         {v.userPromptTemplate && (
@@ -186,7 +188,7 @@ export function PromptAdmin({ versions, audit }: { versions: PromptVersionView[]
                     )}
                     <div className="mt-2 flex flex-wrap items-center gap-2">
                       {v.deploymentStatus === 'draft' && (
-                        <button type="button" className="btn-secondary px-3 py-1.5 text-xs" disabled={busy !== null} onClick={() => act(v.id, { action: 'approve' })}>
+                        <button type="button" className="btn-secondary px-3 py-1.5 text-xs" disabled={busy !== null} aria-label={`Approve ${slug} v${v.version}`} onClick={() => act(v.id, { action: 'approve' })}>
                           {busy === `${v.id}:approve` && <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />} Approve
                         </button>
                       )}
@@ -202,16 +204,16 @@ export function PromptAdmin({ versions, audit }: { versions: PromptVersionView[]
                               className="input w-72 max-w-full px-2 py-1 text-xs"
                             />
                           </label>
-                          <button type="button" className="btn-secondary px-3 py-1.5 text-xs" disabled={busy !== null} onClick={() => act(v.id, { action: 'evaluate', status: 'passed', note: evalNote[v.id] ?? '' })}>
+                          <button type="button" className="btn-secondary px-3 py-1.5 text-xs" disabled={busy !== null} aria-label={`Record evaluation pass for ${slug} v${v.version}`} onClick={() => act(v.id, { action: 'evaluate', status: 'passed', note: evalNote[v.id] ?? '' })}>
                             Record pass
                           </button>
-                          <button type="button" className="btn-secondary px-3 py-1.5 text-xs" disabled={busy !== null} onClick={() => act(v.id, { action: 'evaluate', status: 'failed', note: evalNote[v.id] ?? '' })}>
+                          <button type="button" className="btn-secondary px-3 py-1.5 text-xs" disabled={busy !== null} aria-label={`Record evaluation fail for ${slug} v${v.version}`} onClick={() => act(v.id, { action: 'evaluate', status: 'failed', note: evalNote[v.id] ?? '' })}>
                             Record fail
                           </button>
                         </>
                       )}
                       {canPromote && (
-                        <button type="button" className="btn-primary px-3 py-1.5 text-xs" disabled={busy !== null} onClick={() => act(v.id, { action: 'promote' })}>
+                        <button type="button" className="btn-primary px-3 py-1.5 text-xs" disabled={busy !== null} aria-label={`${isRollback ? 'Roll back' : 'Promote'} ${slug} to v${v.version}`} onClick={() => act(v.id, { action: 'promote' })}>
                           {busy === `${v.id}:promote` && <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />} {isRollback ? 'Roll back to this version' : 'Promote to default'}
                         </button>
                       )}
@@ -219,7 +221,7 @@ export function PromptAdmin({ versions, audit }: { versions: PromptVersionView[]
                         <span className="text-xs text-muted">Cannot promote until an evaluation pass is recorded.</span>
                       )}
                       {v.deploymentStatus !== 'default' && v.deploymentStatus !== 'retired' && (
-                        <button type="button" className="text-xs text-muted hover:text-danger" disabled={busy !== null} onClick={() => act(v.id, { action: 'retire' })}>
+                        <button type="button" className="text-xs text-muted hover:text-danger" disabled={busy !== null} aria-label={`Retire ${slug} v${v.version}`} onClick={() => act(v.id, { action: 'retire' })}>
                           Retire
                         </button>
                       )}

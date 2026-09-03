@@ -132,6 +132,13 @@ describe('Stage 03 — evidence vault', { skip: SKIP }, () => {
     assert.equal(bundle.ids.includes(live.id), false);
   });
 
+  it('deriving for a user with no profile row changes nothing (a transient empty read cannot wipe a vault)', async () => {
+    const before = await asA((tx) => vault.listEvidence(tx, A.id, 'approved'));
+    const report = await ctx.withTenant({ userId: B.id }, (tx) => vault.syncEvidenceFromProfile(tx, B.id));
+    assert.deepEqual(report, { created: 0, superseded: 0, revoked: 0, unchanged: 0 });
+    assert.equal((await asA((tx) => vault.listEvidence(tx, A.id, 'approved'))).length, before.length);
+  });
+
   it('another tenant sees none of it, with no application filter', async () => {
     const rows = await ctx.withTenant({ userId: B.id }, (tx) => tx.careerEvidence.findMany());
     assert.deepEqual(rows, []);

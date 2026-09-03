@@ -78,20 +78,24 @@ export function EvidenceVault({ evidence, questions }: { evidence: EvidenceView[
   const approvedCount = evidence.filter((e) => e.status === 'approved').length;
   const draftCount = evidence.filter((e) => e.status === 'draft').length;
 
-  async function call(label: string, url: string, init: RequestInit, done: string) {
+  /** Returns true on success so a form clears its input only when the save happened. */
+  async function call(label: string, url: string, init: RequestInit, done: string): Promise<boolean> {
     setBusy(label);
     setStatus(null);
     try {
       const res = await fetch(url, { headers: { 'Content-Type': 'application/json' }, ...init });
       const data = (await res.json().catch(() => ({}))) as { error?: string; report?: Record<string, number> };
-      if (!res.ok) setStatus({ ok: false, text: data.error ?? 'That did not work.' });
-      else {
-        const r = data.report;
-        setStatus({ ok: true, text: r ? `${done}: ${r.created} added, ${r.superseded} updated, ${r.revoked} removed, ${r.unchanged} unchanged.` : done });
-        router.refresh();
+      if (!res.ok) {
+        setStatus({ ok: false, text: data.error ?? 'That did not work.' });
+        return false;
       }
+      const r = data.report;
+      setStatus({ ok: true, text: r ? `${done}: ${r.created} added, ${r.superseded} updated, ${r.revoked} removed, ${r.unchanged} unchanged.` : done });
+      router.refresh();
+      return true;
     } catch {
       setStatus({ ok: false, text: 'The request could not be sent.' });
+      return false;
     } finally {
       setBusy(null);
     }
@@ -140,12 +144,23 @@ export function EvidenceVault({ evidence, questions }: { evidence: EvidenceView[
                     v{e.version} · {e.sourceType.replace('profile_', 'from profile: ')}
                   </span>
                   {e.status === 'draft' && (
-                    <button type="button" className="btn-secondary px-2 py-1 text-xs" disabled={busy !== null} onClick={() => call(e.id, `/api/evidence/${e.id}`, { method: 'PATCH', body: JSON.stringify({ action: 'approve' }) }, 'Approved')}>
+                    <button type="button" className="btn-secondary px-2 py-1 text-xs" disabled={busy !== null} aria-label={`Approve: ${e.claim}`} onClick={() => call(e.id, `/api/evidence/${e.id}`, { method: 'PATCH', body: JSON.stringify({ action: 'approve' }) }, 'Approved')}>
                       Approve
                     </button>
                   )}
                   {(e.status === 'draft' || e.status === 'approved') && (
-                    <button type="button" className="text-xs text-muted hover:text-danger" disabled={busy !== null} onClick={() => call(e.id, `/api/evidence/${e.id}`, { method: 'PATCH', body: JSON.stringify({ action: 'revoke' }) }, 'Revoked')}>
+                    <button
+                      type="button"
+                      className="text-xs text-muted hover:text-danger"
+                      disabled={busy !== null}
+                      aria-label={`Revoke: ${e.claim}`}
+                      onClick={() => {
+                        // Revocation is permanent: a revoked item never grounds a document again.
+                        if (window.confirm('Revoke this item? It will no longer support any document, and this cannot be undone.')) {
+                          void call(e.id, `/api/evidence/${e.id}`, { method: 'PATCH', body: JSON.stringify({ action: 'revoke' }) }, 'Revoked');
+                        }
+                      }}
+                    >
                       Revoke
                     </button>
                   )}
@@ -160,7 +175,9 @@ export function EvidenceVault({ evidence, questions }: { evidence: EvidenceView[
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            call('manual', '/api/evidence', { method: 'POST', body: JSON.stringify(manual) }, 'Added as a draft — approve it above when you are sure').then(() => setManual({ ...manual, claim: '' }));
+            void call('manual', '/api/evidence', { method: 'POST', body: JSON.stringify(manual) }, 'Added as a draft — approve it above when you are sure').then((ok) => {
+              if (ok) setManual({ ...manual, claim: '' });
+            });
           }}
         >
           <fieldset>
@@ -195,14 +212,16 @@ export function EvidenceVault({ evidence, questions }: { evidence: EvidenceView[
         <h2 className="text-base font-semibold text-ink">Application questions</h2>
         <p className="mt-1 text-sm text-muted">
           Answers you want to reuse across applications. JobPilot classifies each question and sets the least automation it permits: questions about
-          protected characteristics, health, age or a criminal record are never automated, whatever you choose, and nothing on this page submits
-          anything.
+          protected characteristics, health, age, family or a criminal record are never automated, whatever you choose, and their answers are never
+          stored here — you will always answer those live. Nothing on this page submits anything.
         </p>
         <form
           className="mt-3 grid gap-3 sm:grid-cols-2"
           onSubmit={(e) => {
             e.preventDefault();
-            call('question', '/api/questions', { method: 'POST', body: JSON.stringify({ question: q.question, answer: q.answer, policy: q.policy || null }) }, 'Question saved').then(() => setQ({ question: '', answer: '', policy: '' }));
+            void call('question', '/api/questions', { method: 'POST', body: JSON.stringify({ question: q.question, answer: q.answer, policy: q.policy || null }) }, 'Question saved').then((ok) => {
+              if (ok) setQ({ question: '', answer: '', policy: '' });
+            });
           }}
         >
           <label className="block text-sm sm:col-span-2">
@@ -240,11 +259,12 @@ export function EvidenceVault({ evidence, questions }: { evidence: EvidenceView[
                   <span className={cn('rounded-full px-2 py-0.5 text-xs', it.policy === 'NEVER_AUTOMATE' ? 'bg-danger/10 text-danger' : 'bg-brand-500/10 text-brand-600')}>
                     {POLICY_LABEL[it.policy] ?? it.policy}
                   </span>
-                  <button type="button" className="ml-auto text-xs text-muted hover:text-danger" disabled={busy !== null} onClick={() => call(it.id, `/api/questions/${it.id}`, { method: 'DELETE' }, 'Question removed')}>
+                  <button type="button" className="ml-auto text-xs text-muted hover:text-danger" disabled={busy !== null} aria-label={`Remove question: ${it.question}`} onClick={() => call(it.id, `/api/questions/${it.id}`, { method: 'DELETE' }, 'Question removed')}>
                     Remove
                   </button>
                 </div>
                 {it.answer && <p className="mt-1 whitespace-pre-wrap text-muted">{it.answer}</p>}
+                {it.category === 'sensitive' && <p className="mt-1 text-xs text-muted">Recognised as sensitive: no answer is stored and it is never filled for you.</p>}
               </li>
             ))}
           </ul>

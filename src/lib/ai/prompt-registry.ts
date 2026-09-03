@@ -196,9 +196,23 @@ function snapshot(v: PromptVersion) {
     version: v.version,
     deploymentStatus: v.deploymentStatus,
     evaluationStatus: v.evaluationStatus,
+    // The note is the evidence behind a pass; it is overwritten on the row by
+    // the next evaluation, so the audit trail keeps every version of it.
+    evaluationNote: v.evaluationNote,
     targetModel: v.targetModel,
     digest: promptDigest(v),
   };
+}
+
+/**
+ * Serialise every lifecycle change for one slug. Two concurrent promotes, or
+ * two concurrent creates, would otherwise both read the same "current"
+ * state and leave two defaults or collide on a version number. The lock is
+ * transaction-scoped (released at commit) and keyed on the slug.
+ */
+async function lockSlug(tx: Prisma.TransactionClient, slug: string): Promise<void> {
+  // $executeRaw: the function returns void, which $queryRaw cannot deserialise.
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'prompt:' + slug}::text))`;
 }
 
 async function audit(
@@ -243,6 +257,7 @@ export async function createPromptVersion(input: NewPromptVersionInput, actor: S
   const declared = [...new Set(input.requiredVariables.map((v) => v.trim()).filter(Boolean))];
 
   return db.$transaction(async (tx) => {
+    await lockSlug(tx, input.slug);
     const latest = await tx.promptVersion.findFirst({ where: { slug: input.slug }, orderBy: { version: 'desc' }, select: { version: true } });
     const created = await tx.promptVersion.create({
       data: {
@@ -273,11 +288,19 @@ async function load(tx: Prisma.TransactionClient, id: string): Promise<PromptVer
   return v;
 }
 
-/** draft → approved. Approval is a second person's reading, recorded by name. */
+/**
+ * draft → approved. Approval is a SECOND person's reading, recorded by name:
+ * the author of a version cannot approve it. (Seeded versions have no author
+ * and may be approved by any admin.)
+ */
 export async function approvePromptVersion(id: string, actor: StaffContext, reason: string | null = null) {
   return db.$transaction(async (tx) => {
     const before = await load(tx, id);
+    await lockSlug(tx, before.slug);
     if (before.deploymentStatus !== 'draft') throw new PromptGovernanceError(`Only a draft can be approved; this version is ${before.deploymentStatus}.`);
+    if (before.createdById && before.createdById === actor.id) {
+      throw new PromptGovernanceError('A version cannot be approved by the person who created it; a second admin must approve.', 403);
+    }
     const after = await tx.promptVersion.update({
       where: { id },
       data: { deploymentStatus: 'approved', approvedById: actor.id, approvedByEmail: actor.email, approvedAt: new Date() },
@@ -305,11 +328,14 @@ export async function recordPromptEvaluation(
   }
   return db.$transaction(async (tx) => {
     const before = await load(tx, id);
+    await lockSlug(tx, before.slug);
     if (before.deploymentStatus === 'retired') throw new PromptGovernanceError('A retired version cannot be evaluated.');
-    // A default that FAILS a fresh evaluation stops serving immediately: it
-    // is demoted to approved, and the gateway degrades to the deterministic
-    // engine until an operator promotes something that passes.
-    const demote = outcome.status === 'failed' && before.deploymentStatus === 'default';
+    // A default whose evaluation is no longer PASSED — failed, or reset to
+    // pending for re-evaluation — stops serving immediately: it is demoted to
+    // approved, and the gateway degrades to the deterministic engine until an
+    // operator promotes something that passes. "Cannot serve without a
+    // passed evaluation" holds at every moment, not only at promotion.
+    const demote = outcome.status !== 'passed' && before.deploymentStatus === 'default';
     const after = await tx.promptVersion.update({
       where: { id },
       data: {
@@ -339,6 +365,7 @@ export async function recordPromptEvaluation(
 export async function promotePromptVersion(id: string, actor: StaffContext, reason: string | null = null) {
   return db.$transaction(async (tx) => {
     const before = await load(tx, id);
+    await lockSlug(tx, before.slug);
     if (before.deploymentStatus === 'default') throw new PromptGovernanceError('This version is already the default.');
     if (before.deploymentStatus !== 'approved') {
       throw new PromptGovernanceError(`Only an approved version can be promoted; this version is ${before.deploymentStatus}.`);
@@ -371,6 +398,7 @@ export async function promotePromptVersion(id: string, actor: StaffContext, reas
 export async function retirePromptVersion(id: string, actor: StaffContext, reason: string | null = null) {
   return db.$transaction(async (tx) => {
     const before = await load(tx, id);
+    await lockSlug(tx, before.slug);
     if (before.deploymentStatus === 'default') throw new PromptGovernanceError('The default version cannot be retired; promote another version first.');
     if (before.deploymentStatus === 'retired') throw new PromptGovernanceError('This version is already retired.');
     const after = await tx.promptVersion.update({ where: { id }, data: { deploymentStatus: 'retired' } });

@@ -276,13 +276,10 @@ export class MockAIProvider implements AIProvider {
     const top = analysis.matchedKeywords.slice(0, 3);
     const recent = resume.experience[0];
     const proof = recent?.bullets[0] ?? 'delivered measurable results in my most recent role';
-    const today = new Date().toLocaleDateString('en-CA', { year: 'numeric', month: 'long', day: 'numeric' });
 
     return [
       `${resume.fullName}`,
       `${resume.location ?? ''}${resume.location ? ' | ' : ''}${resume.email}${resume.phone ? ` | ${resume.phone}` : ''}`,
-      ``,
-      today,
       ``,
       `Hiring Team`,
       `${job.company}`,
@@ -292,7 +289,7 @@ export class MockAIProvider implements AIProvider {
       ``,
       `I am writing to apply for the ${job.title} position at ${job.company}. ${resume.headline ? `As ${article(resume.headline)} ${resume.headline.toLowerCase()}, ` : ''}I bring direct experience in ${top.length ? top.join(', ') : 'the core areas this role calls for'} — the capabilities your posting places at the centre of the role.`,
       ``,
-      `In my most recent role at ${recent?.company ?? 'my current organization'}, I ${lowerFirst(proof)} That work maps closely to what this position requires: ${job.requirements[0] ? lowerFirst(job.requirements[0]) : 'delivering outcomes with measurable business impact'}.`,
+      `In my most recent role at ${recent?.company ?? 'my current organization'}, I ${lowerFirst(proof)} That work maps closely to what this position requires${top.length ? `: ${top.join(', ')}` : ''}.`,
       ``,
       // Nothing from the posting's free text is copied into the letter: a
       // description is untrusted input (it can carry instructions or claims),

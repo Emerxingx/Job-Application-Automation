@@ -17,7 +17,7 @@
 --    runs against. (Supabase's service_role keeps BYPASSRLS by design; its
 --    key is a secret this application never holds.)
 -- ---------------------------------------------------------------------------
--- AiRun (user)
+-- AiRun (reference)
 ALTER TABLE "AiRun" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "AiRun" FORCE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS system_full_access ON "AiRun";
@@ -25,7 +25,7 @@ DROP POLICY IF EXISTS tenant_access ON "AiRun";
 DROP POLICY IF EXISTS tenant_read ON "AiRun";
 DO $$ BEGIN EXECUTE format('CREATE POLICY system_full_access ON "AiRun" TO %I USING (true) WITH CHECK (true)', current_user); END $$;
 DROP POLICY IF EXISTS tenant_update ON "AiRun";
-CREATE POLICY tenant_access ON "AiRun" TO app_tenant USING ("userId" = app_current_user_id()) WITH CHECK ("userId" = app_current_user_id());
+CREATE POLICY tenant_read ON "AiRun" FOR SELECT TO app_tenant USING ("userId" = app_current_user_id());
 
 -- ApplicationQuestion (user)
 ALTER TABLE "ApplicationQuestion" ENABLE ROW LEVEL SECURITY;

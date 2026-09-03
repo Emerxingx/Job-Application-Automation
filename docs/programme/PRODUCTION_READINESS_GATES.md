@@ -96,7 +96,7 @@ Every gate needs **evidence**, not an assertion. Status: `PASS` · `PARTIAL` ·
 | Founder can run routine business changes | no deploy needed | CMS + console only | PARTIAL |
 | Platform admin | users, orgs, plans, sources, AI, flags | absent | FAIL |
 | Impersonation read-only, audited | enforced | model exists, unused | FAIL |
-| Runtime config (`PromptRegistry`, `AtsRulesets`, `FieldMappings`) under governed admin with versioning, approval and rollback | governed | in editorial CMS | **FAIL** |
+| Runtime config (`PromptRegistry`, `AtsRulesets`, `FieldMappings`) under governed admin with versioning, approval and rollback | governed | `PromptRegistry` governed since Stage 03 (`PromptVersion`, `/console/prompts`); `AtsRulesets` and `FieldMappings` still in the editorial CMS | **PARTIAL** |
 | Audit coverage | every privileged action | partial | PARTIAL |
 | Runbooks & on-call | present | none | FAIL |
 | Accessibility WCAG 2.2 AA | tested | untested | NOT VERIFIED |

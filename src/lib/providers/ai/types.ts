@@ -49,6 +49,7 @@ export interface CompletionRequest {
   schema: Record<string, unknown>;
   maxTokens?: number;
   effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+  temperature?: number;
 }
 
 /**
