@@ -35,6 +35,8 @@ against the staging project until the evidence section says so.
 | `20260903170000_document_versions` | Stage 09: `DocumentVersion` (hashed, versioned document files per owner × scope × kind × format) and the immutability trigger `document_version_guard_immutable` (a submitted row refuses UPDATE and direct DELETE; the owner's cascade passes) | Additive. Reversible (drop the triggers, the function and the table) |
 | `20260903170100_rls_document_table` | Generated policies (manifest `RLS_MANIFESTS[8]`): `DocumentVersion` user-owned (`userId`) | Reversible |
 | `20260903170200_document_versions_truncate_guard` | Stage 09 review: statement-level `BEFORE TRUNCATE` guard on `DocumentVersion` | Reversible (drop the trigger and the function) |
+| `20260903180000_application_folder` | Stage 10: `Application` outcome, rejection, offer and `lastActivityAt` columns (defaults; no backfill needed); six child tables (`ApplicationStatusHistory`, `ApplicationContact`, `ApplicationInterview`, `ApplicationAssessment`, `ApplicationFollowUp`, `ApplicationNote`) cascading from the application | Additive. Reversible (drop tables and columns) |
+| `20260903180100_rls_crm_tables` | Generated policies (manifest `RLS_MANIFESTS[9]`): the six folder tables user-owned (`userId`) | Reversible |
 
 
 `prisma/migrations/migration_lock.toml` pins the provider to PostgreSQL. There

@@ -1,38 +1,36 @@
-import { z } from 'zod';
 import { requireTenant } from '@/lib/tenancy/request';
-import { fail, ok, route } from '@/lib/api';
-
-const schema = z.object({
-  status: z
-    .enum(['submitted', 'interviewing', 'offer', 'rejected', 'withdrawn'])
-    .optional(),
-  notes: z.string().max(5000).optional(),
-});
+import { statusBodySchema } from '@/lib/applications/schemas';
+import { folderRoute } from '@/lib/applications/route';
+import { flushAudit, folderActor, transitionApplication } from '@/lib/applications/service';
+import type { ApplicationStatus } from '@/lib/types';
+import { fail, ok } from '@/lib/api';
 
 type Params = { params: Promise<{ id: string }> };
 
-/** Update the outcome of an application as the applicant hears back. */
-export const PATCH = route(async (request: Request, { params }: Params) => {
+/**
+ * PATCH /api/applications/:id — the applicant records what happened
+ * (interviewing, offer, not selected, withdrawn) and keeps the legacy summary
+ * note. Stage 10: the move goes through the status machine — refused with a
+ * reason when it is not an honest move — and writes a history row and an
+ * audit row in the same transaction.
+ */
+export const PATCH = folderRoute(async (request: Request, { params }: Params) => {
   const { user, run } = await requireTenant();
+  const actor = folderActor(user);
   const { id } = await params;
-  const body = schema.parse(await request.json());
+  const body = statusBodySchema.parse(await request.json());
 
   const application = await run(async (tx) => {
     const existing = await tx.application.findFirst({ where: { id, userId: user.id } });
     if (!existing) return null;
-    return tx.application.update({
-      where: { id },
-      data: {
-        ...body,
-        // Stamp the response date the first time the status moves past submitted.
-        respondedAt:
-          body.status && body.status !== 'submitted' && !existing.respondedAt
-            ? new Date()
-            : existing.respondedAt,
-      },
-    });
+    let current = existing;
+    if (body.status) {
+      current = await transitionApplication(tx, actor, id, body.status as ApplicationStatus, { actor: 'applicant', source: 'ui', reason: body.reason ?? null, rejectionReason: body.rejectionReason ?? null });
+    }
+    if (body.notes !== undefined) current = await tx.application.update({ where: { id }, data: { notes: body.notes, lastActivityAt: new Date() } });
+    return current;
   });
   if (!application) return fail('Application not found.', 404);
-
+  await flushAudit(actor);
   return ok({ application });
 });

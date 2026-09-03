@@ -226,3 +226,19 @@ never occurred.
   the same hashes; a submitted row immutable by the trigger (UPDATE, direct
   DELETE) while the owner's erasure cascades; assisted confirmation seals;
   RLS on the tenant path.
+
+## Stage 10 — application folder
+
+- `tests/application-status-machine.test.ts` (pure): every allowed move and
+  a table of refused ones, with the transition table's size asserted; terminal
+  statuses; the applicant's statuses; refusal wording; the folder completeness
+  checklist on sent, unsent and undisclosed-employer folders.
+- `tests/application-folder.test.ts` (database): a move writes the row, the
+  history row and the audit together and rolls back together; dishonest
+  moves refused; repeats idempotent; rejection settles the outcome; children
+  on the tenant path, audited without content (names, emails, notes and the
+  salary asserted absent from every audit row); the first interview moves the
+  application; the offer settles hired; a foreign drafted message refused;
+  confirmation through the machine; another tenant sees and touches nothing;
+  erasure cascades; completeness from real rows; the export carries the
+  structured outcome.

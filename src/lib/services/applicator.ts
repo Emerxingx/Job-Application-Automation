@@ -6,6 +6,7 @@ import type { ApplyChannel } from '@/lib/providers/apply';
 import { createApplicationFolder } from '@/lib/storage';
 import { writeApplicationDocuments } from '@/lib/documents/application-documents';
 import { sealApplicationDocuments } from '@/lib/documents/versions';
+import { flushAudit, folderActor, recordInitialStatus, transitionApplication } from '@/lib/applications/service';
 import { consumeQuota, refundQuota } from '@/lib/subscription';
 import { parseJson } from '@/lib/types';
 import type { MatchAnalysis } from '@/lib/types';
@@ -193,6 +194,10 @@ export async function applyToJobs(userId: string, jobIds: string[]): Promise<Bul
         },
       });
 
+      // Stage 10: the first row of the status history — how the record came
+      // into being — so the folder's timeline starts at creation.
+      await recordInitialStatus(db, userId, application.id, status, 'applicator', appliedAt);
+
       // Write the application folder even on failure, so the applicant can
       // still submit manually with the tailored documents in hand.
       const folderPath = await createApplicationFolder({
@@ -341,10 +346,11 @@ export async function confirmAssistedSubmission(
     return { ok: false, reason: 'This application is not awaiting confirmation.' };
   }
 
-  await db.application.update({
-    where: { id: application.id },
-    data: { status: 'submitted', appliedAt: new Date() },
-  });
+  // Stage 10: through the status machine, so the history row, the audit row
+  // and the row update commit together; appliedAt is stamped by the move.
+  const actor = folderActor({ id: userId });
+  await db.$transaction((tx) => transitionApplication(tx, actor, application.id, 'submitted', { actor: 'applicant', source: 'confirm', reason: 'confirmed on the employer form' }));
+  await flushAudit(actor);
   // Stage 09: what was prepared is now what was sent — seal it.
   await sealApplicationDocuments(db, userId, application.id);
 

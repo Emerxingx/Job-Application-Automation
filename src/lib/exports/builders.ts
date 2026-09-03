@@ -160,6 +160,12 @@ export interface ApplicationExportRecord {
   appliedAt: Date | null;
   respondedAt: Date | null;
   createdAt: Date;
+  // Stage 10: the structured outcome and the offer decision; interviews counted.
+  outcome?: string;
+  rejectionReason?: string | null;
+  offerDecision?: string | null;
+  lastActivityAt?: Date;
+  _count?: { interviews: number };
   job: ExportJobFields;
   agent: { name: string } | null;
 }
@@ -194,6 +200,11 @@ export const APPLICATION_COLUMNS: ExportColumn[] = [
   { key: 'postedAt', header: 'Posted', kind: 'date', csvOnly: true },
   { key: 'applyUrl', header: 'Job URL', csvOnly: true },
   { key: 'failureReason', header: 'Failure reason', csvOnly: true },
+  { key: 'outcome', header: 'Outcome', csvOnly: true },
+  { key: 'rejectionReason', header: 'Rejection reason', csvOnly: true },
+  { key: 'offerDecision', header: 'Offer decision', csvOnly: true },
+  { key: 'interviews', header: 'Interviews', kind: 'number', csvOnly: true },
+  { key: 'lastActivityAt', header: 'Last activity', kind: 'date', csvOnly: true },
   { key: 'notes', header: 'Notes', csvOnly: true },
 ];
 
@@ -219,6 +230,11 @@ export function applicationRow(record: ApplicationExportRecord): ExportRow {
     postedAt: record.job.postedAt,
     applyUrl: record.job.applyUrl,
     failureReason: record.failureReason ?? '',
+    outcome: humanizeToken(record.outcome ?? 'pending'),
+    rejectionReason: record.rejectionReason ? humanizeToken(record.rejectionReason) : '',
+    offerDecision: record.offerDecision ? humanizeToken(record.offerDecision) : '',
+    interviews: record._count?.interviews ?? 0,
+    lastActivityAt: record.lastActivityAt ?? record.createdAt,
     notes: record.notes,
   };
 }
@@ -288,7 +304,7 @@ export async function buildApplicationsExport(
           OR: [{ appliedAt: window }, { AND: [{ appliedAt: null }, { createdAt: window }] }],
         }
       : { userId },
-    include: { job: true, agent: { select: { name: true } } },
+    include: { job: true, agent: { select: { name: true } }, _count: { select: { interviews: true } } },
     orderBy: [{ appliedAt: { sort: 'desc', nulls: 'last' } }, { createdAt: 'desc' }],
     // One past the cap, so the note can say truthfully whether anything was cut.
     take: resolved.limit + 1,

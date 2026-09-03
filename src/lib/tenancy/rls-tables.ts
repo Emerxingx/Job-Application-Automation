@@ -214,6 +214,13 @@ export const RLS_TABLES: Record<string, RlsKind> = {
   MatchWeightVersion: { kind: 'system' },
   // Stage 09: the candidate's own document versions (bytes in the object store).
   DocumentVersion: { kind: 'user', column: 'userId' },
+  // Stage 10: the canonical application record's children, all the applicant's own.
+  ApplicationStatusHistory: { kind: 'user', column: 'userId' },
+  ApplicationContact: { kind: 'user', column: 'userId' },
+  ApplicationInterview: { kind: 'user', column: 'userId' },
+  ApplicationAssessment: { kind: 'user', column: 'userId' },
+  ApplicationFollowUp: { kind: 'user', column: 'userId' },
+  ApplicationNote: { kind: 'user', column: 'userId' },
   AtsRuleset: { kind: 'system' },
   PlanPrice: { kind: 'reference', where: `"active" = true` },
   Job: { kind: 'reference' },
@@ -298,6 +305,7 @@ export const STAGE_06_TABLES = ['JobProvenance'];
 export const STAGE_07_TABLES = ['EligibilityResult'];
 export const STAGE_08_TABLES = ['MatchDimension', 'MatchWeightVersion'];
 export const STAGE_09_TABLES = ['DocumentVersion'];
+export const STAGE_10_TABLES = ['ApplicationStatusHistory', 'ApplicationContact', 'ApplicationInterview', 'ApplicationAssessment', 'ApplicationFollowUp', 'ApplicationNote'];
 
 export const RLS_MANIFESTS: RlsManifest[] = [
   { migration: '20260903073000_row_level_security', preamble: true, tables: STAGE_01_TABLES },
@@ -309,4 +317,5 @@ export const RLS_MANIFESTS: RlsManifest[] = [
   { migration: '20260903150100_rls_eligibility_table', preamble: false, tables: STAGE_07_TABLES },
   { migration: '20260903160100_rls_matching_tables', preamble: false, tables: STAGE_08_TABLES },
   { migration: '20260903170100_rls_document_table', preamble: false, tables: STAGE_09_TABLES },
+  { migration: '20260903180100_rls_crm_tables', preamble: false, tables: STAGE_10_TABLES },
 ];

@@ -22,6 +22,10 @@ import { AssistedApply, type AssistedField } from '@/components/assisted-apply';
 import { ApplicationDocuments, type DocumentVersionView } from '@/components/application-documents';
 import { ApplicationMessages } from '@/components/application-messages';
 import { KIND_LABELS, MESSAGE_KINDS, type DocumentKind } from '@/lib/documents/kinds';
+import { folderInclude } from '@/lib/applications/service';
+import { folderCompleteness } from '@/lib/applications/folder';
+import { ApplicationFolder } from '@/components/application-folder';
+import type { ApplicationStatus } from '@/lib/types';
 import { atsDisplayName } from '@/lib/providers/apply';
 import type { AtsVendor } from '@/lib/providers/apply';
 
@@ -39,7 +43,7 @@ export default async function ApplicationDetailPage({
   const application = await run((tx) =>
     tx.application.findFirst({
       where: { id, userId: user.id },
-      include: { job: true, interviewPrep: true, documents: { orderBy: [{ kind: 'asc' }, { format: 'asc' }, { version: 'desc' }] } },
+      include: folderInclude(),
     }),
   );
   if (!application) notFound();
@@ -88,6 +92,50 @@ export default async function ApplicationDetailPage({
   const messageViews = application.documents
     .filter((d) => messageKinds.has(d.kind))
     .map((d) => ({ id: d.id, kind: d.kind, version: d.version, createdLabel: d.createdAt.toLocaleString('en-CA', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) }));
+
+  // Stage 10: the folder — timeline, people, interviews, assessments,
+  // follow-ups, notes, offer and outcome — and whether it answers "what was
+  // sent, to whom, when, how, and what happened" on its own.
+  const fmt = (d: Date) => d.toLocaleString('en-CA', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  const fmtDay = (d: Date) => d.toLocaleDateString('en-CA', { year: 'numeric', month: 'short', day: 'numeric' });
+  const completeness = folderCompleteness({
+    status: application.status as ApplicationStatus,
+    appliedAt: application.appliedAt,
+    applyChannel: application.applyChannel,
+    confirmation: application.confirmation,
+    company: application.job.company,
+    sealedDocuments: application.documents.filter((d) => d.status === 'submitted').length,
+    hasTextCopies: Boolean(application.tailoredResume.trim() || application.coverLetter.trim()),
+    contacts: application.contacts.length,
+    historyEntries: application.statusHistory.length,
+    interviews: application.interviews.length,
+    assessments: application.assessments.length,
+    followUps: application.followUps.length,
+    outcome: application.outcome,
+    respondedAt: application.respondedAt,
+  });
+  const folderProps = {
+    applicationId: application.id,
+    status: application.status,
+    outcome: application.outcome,
+    rejectionReason: application.rejectionReason,
+    offer: {
+      receivedLabel: application.offerReceivedAt ? fmtDay(application.offerReceivedAt) : null,
+      deadlineLabel: application.offerDeadline ? fmtDay(application.offerDeadline) : null,
+      salaryMin: application.offerSalaryMin,
+      salaryMax: application.offerSalaryMax,
+      currency: application.offerCurrency,
+      decision: application.offerDecision,
+    },
+    history: application.statusHistory.map((h) => ({ id: h.id, fromStatus: h.fromStatus, toStatus: h.toStatus, actor: h.actor, source: h.source, reason: h.reason, atLabel: fmt(h.at) })),
+    contacts: application.contacts.map((c) => ({ id: c.id, role: c.role, name: c.name, email: c.email, phone: c.phone, organisation: c.organisation, notes: c.notes })),
+    interviews: application.interviews.map((i) => ({ id: i.id, kind: i.kind, scheduledLabel: fmt(i.scheduledAt), scheduledIso: i.scheduledAt.toISOString(), location: i.location, interviewers: parseJson<string[]>(i.interviewers, []), outcome: i.outcome, result: i.result, notes: i.notes })),
+    assessments: application.assessments.map((a) => ({ id: a.id, kind: a.kind, dueLabel: a.dueAt ? fmt(a.dueAt) : null, submittedLabel: a.submittedAt ? fmt(a.submittedAt) : null, result: a.result, notes: a.notes })),
+    followUps: application.followUps.map((f) => ({ id: f.id, dueLabel: fmtDay(f.dueAt), doneLabel: f.doneAt ? fmtDay(f.doneAt) : null, channel: f.channel, note: f.note, documentVersionId: f.documentVersionId })),
+    notes: application.crmNotes.map((n) => ({ id: n.id, body: n.body, atLabel: fmt(n.createdAt) })),
+    messages: messageViews.map((m) => ({ id: m.id, label: `${KIND_LABELS[m.kind as DocumentKind] ?? m.kind} v${m.version}` })),
+    answers: completeness.answers,
+  };
   // Fall back to the database copies when the filesystem folder is unavailable.
   const fileList = files.length
     ? files
@@ -188,6 +236,7 @@ export default async function ApplicationDetailPage({
           {/* Stage 09: versioned files and drafted messages */}
           <ApplicationDocuments documents={documentViews} sealed={sent} />
           <ApplicationMessages applicationId={application.id} existing={messageViews} />
+          <ApplicationFolder {...folderProps} />
 
           {/* Tailoring report */}
           <Card className="p-5">
