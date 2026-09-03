@@ -213,6 +213,9 @@ export const RLS_TABLES: Record<string, RlsKind> = {
   MatchDimension: { kind: 'user', column: 'userId' },
   MatchWeightVersion: { kind: 'system' },
   FieldMappingVersion: { kind: 'system' },
+  CandidateOutcomeMart: { kind: 'user', column: 'userId' },
+  CandidateMatchMart: { kind: 'user', column: 'userId' },
+  CandidateBenchmarkMart: { kind: 'system' },
   // Stage 09: the candidate's own document versions (bytes in the object store).
   DocumentVersion: { kind: 'user', column: 'userId' },
   // Stage 10: the canonical application record's children, all the applicant's own.
@@ -317,6 +320,7 @@ export const STAGE_09_TABLES = ['DocumentVersion'];
 export const STAGE_10_TABLES = ['ApplicationStatusHistory', 'ApplicationContact', 'ApplicationInterview', 'ApplicationAssessment', 'ApplicationFollowUp', 'ApplicationNote'];
 export const STAGE_11_TABLES = ['MailboxConnection', 'MailboxSecret', 'EmailThread', 'EmailMessageRef', 'CalendarEventRef', 'IntegrationEvent'];
 export const STAGE_12_TABLES = ['FieldMappingVersion'];
+export const STAGE_13_TABLES = ['CandidateOutcomeMart', 'CandidateMatchMart', 'CandidateBenchmarkMart'];
 
 export const RLS_MANIFESTS: RlsManifest[] = [
   { migration: '20260903073000_row_level_security', preamble: true, tables: STAGE_01_TABLES },
@@ -331,4 +335,5 @@ export const RLS_MANIFESTS: RlsManifest[] = [
   { migration: '20260903180100_rls_crm_tables', preamble: false, tables: STAGE_10_TABLES },
   { migration: '20260903190100_rls_mailbox_tables', preamble: false, tables: STAGE_11_TABLES },
   { migration: '20260903200100_rls_field_mapping_table', preamble: false, tables: STAGE_12_TABLES },
+  { migration: '20260903210100_rls_candidate_marts', preamble: false, tables: STAGE_13_TABLES },
 ];

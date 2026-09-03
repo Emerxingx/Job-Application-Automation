@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { FolderTree, MapPin } from 'lucide-react';
 import { requireTenant } from '@/lib/tenancy/request';
+import { readCandidateTotals } from '@/lib/analytics/candidate/read';
 import {
   Card,
   EmptyState,
@@ -17,19 +18,23 @@ export const dynamic = 'force-dynamic';
 export default async function ApplicationsPage() {
   const { user, run } = await requireTenant();
 
-  const applications = await run((tx) =>
-    tx.application.findMany({
-      where: { userId: user.id },
-      orderBy: { createdAt: 'desc' },
-      include: { job: true },
-    }),
+  // The LIST is the candidate's own rows (operational); the three NUMBERS are
+  // dictionary metrics from the outcome mart (Stage 13, ADR-0027) - the same
+  // definitions the overview and the analytics page use, never a variant
+  // counted here.
+  const [applications, totals] = await run((tx) =>
+    Promise.all([
+      tx.application.findMany({
+        where: { userId: user.id },
+        orderBy: { createdAt: 'desc' },
+        include: { job: true },
+      }),
+      readCandidateTotals(tx, user.id),
+    ]),
   );
-
-  const submitted = applications.filter((a) => a.status === 'submitted').length;
-  const interviewing = applications.filter((a) =>
-    ['interviewing', 'offer'].includes(a.status),
-  ).length;
-  const needsAttention = applications.filter((a) => a.status === 'failed').length;
+  const sent = totals.sent;
+  const interviews = totals.interviews;
+  const needsAttention = totals.failed;
 
   return (
     <>
@@ -52,8 +57,8 @@ export default async function ApplicationsPage() {
       ) : (
         <>
           <div className="mb-6 grid gap-4 sm:grid-cols-3">
-            <Stat label="Submitted" value={submitted} tone="brand" />
-            <Stat label="In interviews" value={interviewing} tone="success" />
+            <Stat label="Sent" value={sent} hint="Reached an employer" tone="brand" />
+            <Stat label="Reached interview" value={interviews} hint="At any point, whatever happened after" tone="success" />
             <Stat
               label="Needs attention"
               value={needsAttention}

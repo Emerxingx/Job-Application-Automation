@@ -55,6 +55,8 @@ export const LIMITS = {
   interviewPrep: { limit: 15, windowSeconds: 60 * 10 },
   /** Auth endpoints, to blunt credential stuffing. */
   auth: { limit: 10, windowSeconds: 60 * 5 },
+  /** Stage 13: a candidate rebuilding their own analytics marts — bounded to their rows, but a scan of them. */
+  analyticsRefresh: { limit: 3, windowSeconds: 60 * 10 },
 } as const satisfies Record<string, RateLimitRule>;
 
 /**

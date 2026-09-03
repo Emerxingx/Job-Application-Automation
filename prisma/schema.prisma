@@ -40,6 +40,11 @@ model User {
   // `approved_auto_apply` is modelled and REFUSED by parseApplicationMode —
   // it cannot be stored here by any route.
   applicationMode   String    @default("review_submit")
+  // Stage 13: when this candidate's analytics marts were last rebuilt for them
+  // (their refresh, the sweep, or the one bounded first-visit rebuild). Null
+  // means never — the analytics page rebuilds once and sets it, so a candidate
+  // with no applications does not trigger a rebuild on every visit.
+  analyticsBuiltAt  DateTime?
   onboardedAt       DateTime?
   // Staff identity. Staff reach /console; customers never do. There is no
   // separate staff table on purpose — one identity keeps requireUser() and
@@ -79,6 +84,8 @@ model User {
   applicationFollowUps   ApplicationFollowUp[]
   applicationNotes       ApplicationNote[]
   mailboxConnections     MailboxConnection[]
+  candidateOutcomeMarts CandidateOutcomeMart[]
+  candidateMatchMarts   CandidateMatchMart[]
   emailThreads           EmailThread[]
   emailMessageRefs       EmailMessageRef[]
   calendarEventRefs      CalendarEventRef[]
@@ -2015,6 +2022,94 @@ model DailyRevenueRollup {
 
   @@unique([day, currency])
   @@index([currency, day])
+}
+
+// Stage 13 (ADR-0012, ADR-0027): the candidate outcome marts — what the
+// candidate dashboards READ, instead of the transactional tables. One row per
+// (user, day, dimension, key); `all` is the undimensioned total. Counts are
+// CUMULATIVE reach ("reached at least this stage", from the status history),
+// never the current status alone, so a funnel needs no further arithmetic.
+// Recomputed by replacing whole (days × user) scopes — never incremented.
+// Every metric shown has exactly one definition, in
+// src/lib/analytics/candidate/dictionary.ts (docs/governance/METRIC_DICTIONARY.md).
+model CandidateOutcomeMart {
+  id              String   @id @default(cuid())
+  userId          String
+  day             String // YYYY-MM-DD, UTC — the application's creation day
+  // all | title | company | seniority | geography | source | resume_version | score_band
+  dimension       String   @default("all")
+  key             String   @default("all")
+  applications    Int      @default(0)
+  sent            Int      @default(0)
+  responded       Int      @default(0)
+  screens         Int      @default(0)
+  interviews      Int      @default(0)
+  offers          Int      @default(0)
+  hires           Int      @default(0)
+  rejected        Int      @default(0)
+  withdrawn       Int      @default(0)
+  ghosted         Int      @default(0)
+  expired         Int      @default(0)
+  failed          Int      @default(0)
+  sumMatchScore   Int      @default(0)
+  // Hours from sending to the first response, summed over the sampled rows.
+  responseSamples Int      @default(0)
+  sumResponseHrs  Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, day, dimension, key])
+  @@index([userId, dimension, day])
+}
+
+// Stage 13: match quality per user per day — counts, score bands and the
+// top matched / missing keywords of the day (JSON [{keyword,count}], at most
+// twenty each), so the keyword panels read a mart rather than every JobMatch.
+model CandidateMatchMart {
+  id              String   @id @default(cuid())
+  userId          String
+  day             String
+  matches         Int      @default(0)
+  sumMatchScore   Int      @default(0)
+  band0to49       Int      @default(0)
+  band50to69      Int      @default(0)
+  band70to84      Int      @default(0)
+  band85to100     Int      @default(0)
+  matchedKeywords String   @default("[]")
+  missingKeywords String   @default("[]")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, day])
+  @@index([userId, day])
+}
+
+// Stage 13: platform-wide benchmarks per (day, dimension, key) ACROSS users,
+// so a candidate can compare their own rate with everyone applying to the
+// same kind of role. `users` is the cohort size; the read path suppresses
+// any cut below MIN_COHORT (small-cohort suppression, ADR-0012). No userId
+// — system-only; never read on the tenant path.
+model CandidateBenchmarkMart {
+  id           String   @id @default(cuid())
+  day          String
+  dimension    String
+  key          String
+  users        Int      @default(0)
+  applications Int      @default(0)
+  sent         Int      @default(0)
+  responded    Int      @default(0)
+  interviews   Int      @default(0)
+  offers       Int      @default(0)
+  hires        Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([day, dimension, key])
+  @@index([dimension, key, day])
 }
 
 // Bookkeeping for the rollup jobs. Without it, a silently skipped night looks

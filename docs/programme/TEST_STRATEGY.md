@@ -287,3 +287,25 @@ never occurred.
   mandatory reason, served by the read path, audited; rollback recorded as
   rollback with the demoted version approved; retirement rules; an invalid
   stored row falls back to the built-in set and is not cached.
+
+## Stage 13 — candidate analytics
+
+- `tests/candidate-marts.test.ts` (pure): the dictionary is complete, sources
+  only marts, and is mirrored key-for-key and definition-for-definition in
+  `docs/governance/METRIC_DICTIONARY.md`; every rate and value computed one
+  way and never `NaN`; bands and seniority total; reach inferred from the
+  history (an interview later rejected still counts; a withdrawal is not a
+  send); the builders deterministic and order-independent; every dimension
+  sums to `all` on every day; the assembled dashboard shape (totals, series
+  zero-filled, cuts, rates); the match mart's bands and keyword tallies; the
+  benchmark counts DISTINCT people and a cohort under five is suppressed; a
+  static scan proves the read module, the analytics page and the overview
+  query no transactional table for a metric.
+- `tests/candidate-analytics.test.ts` (database): six applications with real
+  histories, an interview, résumé versions and a match; the rollup writes
+  the marts and a `RollupRun`; PARITY between the tenant-path read and the
+  pre-existing pure engine over the same rows on every shared metric, with
+  the deliberate differences (reach from history) named; a second run
+  changes nothing; a single-user refresh does not shrink the benchmark;
+  another tenant reads nothing and cannot reach the benchmark table; the
+  benchmark suppresses a one-person cohort.

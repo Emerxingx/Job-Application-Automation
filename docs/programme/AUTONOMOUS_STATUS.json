@@ -2,12 +2,12 @@
   "$comment": "Machine-readable controller for the autonomous build programme. Authoritative over any chat transcript: if this file and a conversation disagree, this file wins. Updated at every stage checkpoint.",
   "schema_version": 1,
   "updated_at": "2026-09-03",
-  "current_stage": "12",
+  "current_stage": "13",
   "last_completed_stage": "00",
-  "current_branch": "claude/stage-12-assisted-application",
-  "current_head": "902228ee530a6c5f3a313c61271f3d64f9569cf0",
+  "current_branch": "claude/stage-13-candidate-analytics",
+  "current_head": "131ac795c12b9be6e99c51a4f6c0bef92bc37679",
   "current_head_meaning": "SHA of the last commit whose full gate set was verified locally (lint, typecheck, tests, build). Set by the status-sync commit that immediately follows it, so it names a real, verified commit rather than the one it is written in.",
-  "current_pr": "https://github.com/Emerxingx/Job-Application-Automation/pull/24",
+  "current_pr": "https://github.com/Emerxingx/Job-Application-Automation/pull/25",
   "main_head": "d6ae8b3a9180b529abe06f23417515432c0a7f0e",
   "run_complete": false,
   "stage_status": {
@@ -24,7 +24,7 @@
     "10": "PASS_ENGINEERING_EXIT_PARTIAL",
     "11": "PASS_ENGINEERING_EXIT_BLOCKED_CREDENTIALS",
     "12": "PASS_ENGINEERING_EXIT_BLOCKED_CREDENTIALS",
-    "13": "NOT_STARTED",
+    "13": "PASS_ENGINEERING_EXIT_PARTIAL",
     "14": "NOT_STARTED",
     "15": "NOT_STARTED",
     "16": "NOT_STARTED",
@@ -513,5 +513,31 @@
       "Staging rehearsal (NOT VERIFIED — R-34)"
     ],
     "verdict": "Stage 12 passes every engineering gate that can be run here and is BLOCKED at its exit on a sandbox ATS credential, stated rather than approximated; the submission channel stays IMPLEMENTED-NOT-VALIDATED in the register. Merge posture inherited from the stack."
+  },
+  "stage_13_progress": {
+    "schema_and_migrations": "DONE locally — CandidateOutcomeMart, CandidateMatchMart (user-owned), CandidateBenchmarkMart (system) (20260903210000); generated RLS (20260903210100); thirty-five applied fresh, drift clean; NOT VERIFIED on Supabase (R-34)",
+    "dictionary": "DONE — twelve counts, seven rates, two values in src/lib/analytics/candidate/dictionary.ts with one computation each; mirrored in docs/governance/METRIC_DICTIONARY.md; a test fails on any drift; every source is a mart column",
+    "marts_and_rollup": "DONE — pure builders (reach from the status history; deterministic; every dimension sums to all); rollup.ts the only transactional reader, replacing whole (days × user) scopes in a transaction, RollupRun per run; benchmark rebuilt from the whole mart on a single-user refresh",
+    "dashboards": "DONE — /dashboard/analytics and the overview's three numbers read the marts on the tenant path; static test refuses a transactional metric query there; seven cut tables; freshness shown with a rate-limited refresh; first-visit bounded rebuild. Stated exceptions: the overview's lists (operational), the export endpoint (data export)",
+    "suppression": "DONE — benchmark counts DISTINCT people; under 5 → no number with the reason; benchmark system-only and unreadable on the tenant path (tested)",
+    "parity": "DONE — database test: equal on every shared metric with the pre-existing engine; the one deliberate difference (interviews from history) named in the evidence",
+    "not_built": "No event stream feeds the marts (ADR-0011 not built); no scheduler (sweep, refresh, first visit only); no industry dimension exists",
+    "independent_review": "DONE — adversarial pass: 2 HIGH (an every-visit rebuild for candidates with no applications; the applications page counting a metric variant in memory), 3 MEDIUM (tenure-wide benchmark rebuild from a refresh, an unwired benchmark with range-differencing exposure, pipeline labels, an unlocked three-transaction rollup) and 1 LOW — all fixed with tests (STAGE13_EVIDENCE.md §12)"
+  },
+  "stage_13_exit_gate": {
+    "met": [
+      "Every metric has one documented definition and one source (test-enforced)",
+      "Candidate dashboards read marts, not transactional tables (static test), with the stated exceptions",
+      "Cuts by title, company, seniority, geography, source, résumé version, score band",
+      "Small-cohort suppression on the benchmark",
+      "Parity with the transactional truth, differences named",
+      "Full gate set green with the documented command only: lint 0/8, typecheck 0, 1070/1070 tests (0 skipped), build 0"
+    ],
+    "not_met": [
+      "Industry cut — NOT AVAILABLE (no classification exists)",
+      "Marts fed incrementally from an event stream (ADR-0011 not built) and a scheduled refresh",
+      "Staging rehearsal (NOT VERIFIED — R-34)"
+    ],
+    "verdict": "Stage 13 passes every engineering gate that can be run here and is PARTIAL at its exit on the inherited absence of an event stream and a scheduler, and on the absence of an industry classification, all stated. Merge posture inherited from the stack."
   }
 }
