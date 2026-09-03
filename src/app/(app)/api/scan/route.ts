@@ -39,8 +39,9 @@ export const POST = route(async (request: Request) => {
       scanned: acc.scanned + r.scanned,
       newMatches: acc.newMatches + r.newMatches,
       aboveThreshold: acc.aboveThreshold + r.aboveThreshold,
+      excluded: acc.excluded + r.excluded,
     }),
-    { scanned: 0, newMatches: 0, aboveThreshold: 0 },
+    { scanned: 0, newMatches: 0, aboveThreshold: 0, excluded: 0 },
   );
 
   return ok({ results, totals, errors });

@@ -23,6 +23,8 @@ export interface JobFeedItem {
   matchedKeywords: string[];
   missingKeywords: string[];
   agentName: string;
+  /** Stage 07: `unknown` when an eligibility rule left a question open (never an exclusion). */
+  eligibility?: 'eligible' | 'unknown';
 }
 
 type SortKey = 'score' | 'recent' | 'salary';
@@ -265,6 +267,11 @@ export function JobFeed({ items, remaining }: { items: JobFeedItem[]; remaining:
                       {formatSalary(item.salaryMin, item.salaryMax, item.salaryCurrency)}
                     </span>
                     <span>Posted {formatRelative(item.postedAt)}</span>
+                    {item.eligibility === 'unknown' && (
+                      <span className="chip text-warning" title="An eligibility rule left a question open; nothing here excludes you. See the posting for details.">
+                        Eligibility unconfirmed
+                      </span>
+                    )}
                   </div>
 
                   <p className="mt-2.5 line-clamp-2 text-sm text-muted">{item.rationale}</p>

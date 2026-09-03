@@ -66,6 +66,7 @@ model User {
   resumes        Resume[]
   applications   Application[]
   savedJobs      SavedJob[]
+  eligibilityResults EligibilityResult[]
   interviewPreps InterviewPrep[]
   events         ActivityEvent[]
 
@@ -322,6 +323,7 @@ model Job {
   jobSource    JobSource?    @relation(fields: [sourceId], references: [id], onDelete: SetNull)
   snapshots    JobSnapshot[]
   provenance   JobProvenance[]
+  eligibility  EligibilityResult[]
 
   @@unique([source, externalId])
   @@index([title])
@@ -331,6 +333,34 @@ model Job {
   @@index([canonicalHash])
   // For Stage 08's search; nothing reads it yet.
   @@index([normalizedTitle])
+}
+
+/// Stage 07: the eligibility verdict for one candidate on one canonical job,
+/// evaluated BEFORE and apart from fit (JOB_INTELLIGENCE_ARCHITECTURE
+/// "Eligibility engine"). `outcome` is eligible | ineligible | unknown and
+/// `rules` is the JSON list of every rule evaluated with its status
+/// (pass | fail | unknown) and a human-readable reason — never a number.
+/// `unknown` never excludes. Re-evaluated when the candidate's work
+/// authorisation or preferences change (`profileVersion`) or the rules do
+/// (`rulesVersion`). Classification: user-owned (userId).
+model EligibilityResult {
+  id             String   @id @default(cuid())
+  userId         String
+  jobId          String
+  outcome        String
+  rules          String   @default("[]")
+  rulesVersion   String
+  // The candidate profile state the verdict was computed from (max updatedAt
+  // of work authorisation and preferences, as an ISO string), so a change
+  // invalidates it without a join.
+  profileVersion String   @default("")
+  evaluatedAt    DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  job  Job  @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, jobId])
+  @@index([userId, outcome])
 }
 
 /// Stage 06: one row per (source, external id) that carries a canonical
@@ -374,7 +404,8 @@ model JobMatch {
   matchedKeywords String   @default("[]")
   missingKeywords String   @default("[]")
   rationale       String   @default("")
-  // new | reviewed | queued | applied | dismissed
+  // new | reviewed | queued | applied | dismissed | ineligible (Stage 07: demoted by
+  // an ineligible eligibility verdict; restored to new when the verdict lifts)
   status          String   @default("new")
   createdAt       DateTime @default(now())
 

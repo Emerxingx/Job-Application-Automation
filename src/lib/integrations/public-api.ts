@@ -31,6 +31,7 @@
  */
 
 import { db } from '../db';
+import { notIneligibleFor } from '../eligibility/service';
 import { parseJson } from '../types';
 import type { Pagination } from './http';
 
@@ -419,6 +420,8 @@ export async function listJobsForApi(
     // is visible on the job's `activeState`.
     job: {
       activeState: { not: 'closed' },
+      // Stage 07: never a posting the candidate has an ineligible verdict for.
+      ...notIneligibleFor(userId),
       ...(filters.country ? { country: filters.country } : {}),
       ...(filters.workMode ? { workMode: filters.workMode } : {}),
     },

@@ -20,6 +20,13 @@ interface JobTemplate {
   skills: string[];
   requirements: string[];
   summary: string;
+  /**
+   * Stage 07: statements a real posting makes about eligibility, in the
+   * words real postings use, so the eligibility gate can be seen working on
+   * the synthetic source (a candidate needing sponsorship is excluded from
+   * a posting that says it does not sponsor, with the reason).
+   */
+  eligibility?: string[];
 }
 
 const CATALOGUE: JobTemplate[] = [
@@ -43,6 +50,7 @@ const CATALOGUE: JobTemplate[] = [
       'Strong stakeholder communication across product and finance',
       'Python (pandas) for analysis and automation',
     ],
+    eligibility: ['Must be legally authorized to work in Canada.', 'We are unable to sponsor visas at this time.'],
     summary:
       'Own analytics for a core commerce surface, partnering with product and finance to turn behavioural data into merchant-facing decisions.',
   },
@@ -327,6 +335,7 @@ const CATALOGUE: JobTemplate[] = [
       '2+ years acute care experience preferred',
       'Ability to work rotating shifts',
     ],
+    eligibility: ['Must be legally authorized to work in Canada.', 'Bilingual (English/French) required.'],
     summary:
       'Deliver patient-centred care on a busy medical-surgical unit within a large provincial health network.',
   },
@@ -349,6 +358,7 @@ const CATALOGUE: JobTemplate[] = [
       'Advanced Excel modelling',
       'Bilingual English/French an asset',
     ],
+    eligibility: ['Canadian citizenship or permanent residence is required.'],
     summary:
       'Support budgeting, forecasting and variance analysis for a major operating division.',
   },
@@ -536,6 +546,7 @@ function buildDescription(t: JobTemplate): string {
     `What we're looking for`,
     ``,
     ...t.requirements.map((r) => `- ${r}`),
+    ...(t.eligibility?.length ? [``, `Eligibility`, ``, ...t.eligibility] : []),
     ``,
     `Core skills`,
     ``,
