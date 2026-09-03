@@ -7,7 +7,7 @@
   "current_branch": "claude/stage-09-document-engine",
   "current_head": "4ad09af03250802179c2bfaa907a4047504fa3e1",
   "current_head_meaning": "SHA of the last commit whose full gate set was verified locally (lint, typecheck, tests, build). Set by the status-sync commit that immediately follows it, so it names a real, verified commit rather than the one it is written in.",
-  "current_pr": null,
+  "current_pr": "https://github.com/Emerxingx/Job-Application-Automation/pull/21",
   "main_head": "d6ae8b3a9180b529abe06f23417515432c0a7f0e",
   "run_complete": false,
   "stage_status": {

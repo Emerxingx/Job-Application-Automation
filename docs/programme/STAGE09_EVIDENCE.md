@@ -1,6 +1,6 @@
 # Stage 09 — Resume, cover letter and document engine — evidence
 
-Recorded 2026-09-03 on branch `claude/stage-09-document-engine`, stacked on
+Recorded 2026-09-03 on branch `claude/stage-09-document-engine` ([PR #21](https://github.com/Emerxingx/Job-Application-Automation/pull/21), draft), stacked on
 Stage 08 (PR #20) → 07 (#19) → 06 (#18) → 05 (#17) → 04 (#16) → 03 (#15) →
 02 (#14) → 01 (#13, PARTIAL). Every line was run or read; nothing is PASS on
 the strength of a mock, a skipped test or a document. This stage's honest
