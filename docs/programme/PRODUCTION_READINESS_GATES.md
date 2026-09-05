@@ -5,7 +5,8 @@ Every gate needs **evidence**, not an assertion. Status: `PASS` · `PARTIAL` ·
 legal decision, an environment this programme cannot reach).
 
 **Overall: NOT READY FOR PRODUCTION.** Re-measured row by row in Stage 23
-(2026-09-05, ADR-0037) against the stacked head of Stages 00-23. "Current"
+(ADR-0037) and again in Stage 24 (2026-09-05, ADR-0038) against the stacked
+head of Stages 00-24. "Current"
 names the evidence; a stage number in brackets is where it was proven. The
 Stage 00 baseline this table replaced is in git history.
 
@@ -15,10 +16,10 @@ Stage 00 baseline this table replaced is in git history.
 | --- | --- | --- | --- |
 | Install from lockfile | exit 0 | exit 0 (`npm ci`, retried once for ETXTBSY, R-32) | PASS |
 | Typecheck | exit 0 | exit 0 | PASS |
-| Unit + integration tests | all pass | 1302 / 1302 with `CI=true` against migrated PostgreSQL; database suites THROW when the URLs are unset in CI | PASS |
+| Unit + integration tests | all pass | 1325 / 1325 with `CI=true` against migrated PostgreSQL; database suites THROW when the URLs are unset in CI | PASS |
 | Production build | exit 0 | exit 0, 102 routes | PASS |
 | Lint | configured, non-interactive, clean | flat config, `eslint` directly; 0 errors, 8 warnings locked by `--max-warnings=8` (`LINT_BASELINE.md`) | PASS |
-| CI enforcing all of the above | required on `main` | `ci.yml` verify · mobile · generated-files · line-endings · accessibility · sbom, all green on the stacked branches; **branch protection is an EXTERNAL ACTION** (`AUTONOMOUS_STATUS.json`) | PARTIAL |
+| CI enforcing all of the above | required on `main` | `ci.yml` verify · mobile · generated-files · line-endings · accessibility (with the smoke suite and the CSP browser proof, Stage 24) · sbom, all green on the stacked branches; **branch protection is an EXTERNAL ACTION** (`AUTONOMOUS_STATUS.json`) | PARTIAL |
 | E2E on critical journeys | present | the accessibility suite drives 42 rendered pages signed in (Stage 23); the contract suite validates every `/api/v1` response (Stage 14); no browser journey through apply → submit exists | PARTIAL |
 
 ## G2 — Security
@@ -32,17 +33,17 @@ Stage 00 baseline this table replaced is in git history.
 | Session revocation | immediate | sessions are rows; refused on revoke, expiry, password epoch, per request, no cache (Stage 01) | PASS |
 | MFA | available; required for staff | absent; step-up re-authentication on every staff write (Stage 20); OIDC SSO for organisations (Stage 20) | PARTIAL |
 | Webhook idempotency | enforced | `WebhookEvent` replay and ordering (Stage 01, 15) | PASS |
-| Secret management | managed store; no placeholders in prod | placeholder rejected by value; no secret-shaped string tracked (static test, Stage 23); a managed store is Stage 24 | PARTIAL |
+| Secret management | managed store; no placeholders in prod | placeholder rejected by value; no secret-shaped string tracked (static test); `env:check` judges every secret's shape without printing one (Stage 24); the managed store is the host's and is an EXTERNAL ACTION | PARTIAL |
 | Password storage | modern hashing | bcrypt cost 10 | PASS |
 | API key storage | hashed, constant-time compare | SHA-256 + `timingSafeEqual`; device keys capped and revoked with sessions (Stage 14) | PASS |
 | Path traversal | defended | basename + resolve + containment; signed ten-minute links (Stage 09) | PASS |
 | SSRF on outbound | defended | blocked ranges + no redirects; DNS-rebinding gap documented (R-24) | PARTIAL |
 | CSRF | tokens on state-changing routes | `sameSite: lax` AND an explicit cross-site refusal on every write carrying the session or the CMS cookie (`Sec-Fetch-Site` same-origin only; `Origin` against `Host`, Stage 23); no token, stated | PASS |
-| Response headers | CSP, HSTS, framing, sniffing | one header list on every route; CSP without `script-src` (nonce policy is Stage 24, ADR-0037); HSTS `includeSubDomains` requires TLS on every subdomain, stated | PARTIAL |
+| Response headers | CSP, HSTS, framing, sniffing | one header list on every route (the CSP base directives as a static floor) plus a per-request `script-src` nonce policy with `'strict-dynamic'` set by the edge gate on every response (Stage 24, ADR-0038), proven in a real browser over public, candidate, console and CMS pages with no violation; **script-src only** (no `default-src`, `style-src`, `connect-src`, `img-src`); HSTS `includeSubDomains` requires TLS on every subdomain, stated | PASS (script policy) / PARTIAL (the other directives) |
 | Penetration test | independent, remediated | none; four independent adversarial code reviews (Stages 19-21) are not one; **EXTERNAL ACTION** | NOT VERIFIED |
 | Upload malware scanning | present | structural scan only (`scan.ts`); **no antivirus engine, never claimed** | PARTIAL |
 | Log PII redaction | enforced | every server-side error log goes through `redactError`, enforced by a static scan of every `console.error`/`warn` under `src` (review M2); client components excluded | PASS |
-| Rate limiting | shared store | in-process, per instance (R-16); correct for a single instance | PARTIAL |
+| Rate limiting | shared store | a shared PostgreSQL store exists (`RATE_LIMIT_STORE=postgres`, one atomic upsert on the database's clock, exact under twenty concurrent callers - database test), OPT-IN before a second instance; in-process by default; degrades to per instance and says so in the health check; **never run with two instances** (Stage 24, R-16 closed as a mechanism, not as an operation) | PARTIAL |
 | Impersonation | read-only, time-boxed, audited | `route()` refuses every write; 60 minutes; reason; both cookies bound; sensitive reads refused (Stage 20) | PASS |
 
 ## G3 — Data
@@ -64,16 +65,16 @@ Stage 00 baseline this table replaced is in git history.
 
 | Gate | Required | Current | Status |
 | --- | --- | --- | --- |
-| Background processing | queue + workers + DLQ | **none**; every sweep is an operator command; freshness lines say when one has not run | FAIL |
-| Rate limiting | shared store | in-process (R-16) | PARTIAL |
+| Background processing | queue + workers + DLQ | a scheduler with leased runs (`WorkerRun`, one window once however many workers) and `npm run worker` running freshness, rollups, retention, case retention hourly to daily (Stage 24); the health check reports overdue work; NO queue, no retries beyond the next window, no dead-letter queue | PARTIAL |
+| Rate limiting | shared store | shared PostgreSQL store, opt-in, never run with two instances (Stage 24) | PARTIAL |
 | Caching | shared, invalidating | abstraction with memory and Redis backends; Redis optional | PARTIAL |
 | Durable artefact storage | object storage | S3-compatible provider with residency check, local by default; never run against a real bucket | PARTIAL |
-| Health checks | app, DB, cache, queue, connectors | `/api/health`: database, migrations, cache, storage, job sources, marts (Stage 23); fixed words only, memoised, budgeted per address AND per instance (review M3); no queue exists | PARTIAL |
-| Monitoring & alerting | present with on-call | none; the health check is what a monitor would poll | FAIL |
-| SLOs | defined | none (Stage 24) | FAIL |
-| DR plan with RPO/RTO | documented + rehearsed | `DISASTER_RECOVERY.md`: proposed objectives, six scenarios; rehearsed locally (scenario 2); provider PITR and rollback NOT REHEARSED | PARTIAL |
-| Rollback | rehearsed | forward-only migrations with a written recovery; not rehearsed | FAIL |
-| Incident response | runbook | `INCIDENT_RESPONSE.md` (Stage 23); never exercised; no on-call | PARTIAL |
+| Health checks | app, DB, cache, queue, connectors | `/api/health`: database, migrations, cache, limiter store, storage, job sources, marts, worker (Stages 23-24); fixed words only, memoised, budgeted per address AND per instance; no queue exists | PARTIAL |
+| Monitoring & alerting | present with on-call | eleven alert rules DEFINED against `/api/health` and the request log (`SLOS.md`, Stage 24); **no monitor connected, no alert has fired, nobody on call** - EXTERNAL ACTION | PARTIAL |
+| SLOs | defined | proposed in `SLOS.md` (availability 99.5 %, p95 budgets, mart freshness, scheduled work, erasure, backups) with an error budget; not founder-approved, not measured in production | PARTIAL |
+| DR plan with RPO/RTO | documented + rehearsed | `DISASTER_RECOVERY.md`: proposed objectives, six scenarios; scenarios 2 and 5 rehearsed locally (restore; rollback); provider PITR NOT REHEARSED | PARTIAL |
+| Rollback | rehearsed | `ROLLBACK.md`: rehearsed locally - a pre-migration dump restored, the new code sees exactly the two migrations pending, the previous version's tenant path green on the rolled-back database (Stage 24); not on the provider, not at production size | PARTIAL (local) |
+| Incident response | runbook | `INCIDENT_RESPONSE.md` (Stage 23), `BREAK_GLASS.md` with an audited command, `SUPPORT.md` (Stage 24); never exercised; no on-call; contacts empty | PARTIAL |
 
 ## G5 — Product integrity
 
@@ -87,7 +88,7 @@ Stage 00 baseline this table replaced is in git history.
 | Consent model | granular, revocable, audited | `ConsentRecord` per purpose and version; case, disclosure and representation consents; draft wording refused in production (L-5) | PASS (engineering) / BLOCKED (wording, L-5) |
 | Integration status accuracy | no overstatement | `INTEGRATION_REGISTER.md`: every external integration IMPLEMENTED-NOT-VALIDATED | PASS |
 | Accessibility WCAG 2.2 AA | tested | 42 rendered pages pass axe A/AA (light theme) in CI (Stage 23); dark theme and interactions not measured | PASS (axe, light) |
-| Performance budgets | defined and measured | budgets per route and per batch job; measured locally within budget (Stage 23); production NOT measured | PARTIAL |
+| Performance budgets | defined and measured | budgets per route and per batch job; measured locally within budget (Stage 23; the health row re-measured at Stage 24 with 429s excluded); production NOT measured | PARTIAL |
 
 ## G6 — Commercial
 
@@ -108,7 +109,7 @@ Stage 00 baseline this table replaced is in git history.
 | Impersonation read-only, audited | enforced | enforced in `route()`, tested (Stage 20) | PASS |
 | Runtime config under governed admin with versioning, approval and rollback | governed | `PromptVersion`, `AtsRuleset`, `FieldMappingVersion`, `MatchWeightVersion` governed with versions and approval | PASS |
 | Audit coverage | every privileged action | every staff write, consent, sensitive read, sign-in outcome, erasure, retention sweep, export. **NOT hash-chained**: the `prevHash`/`hash` columns exist and no code writes them (corrected in the Stage 23 review; Stage 24+) | PASS (coverage) / NOT IMPLEMENTED (chain) |
-| Runbooks & on-call | present | migrations, backup/restore, DR and incident runbooks (Stage 23); **no on-call** | PARTIAL |
+| Runbooks & on-call | present | `RUNBOOKS.md` indexes migrations, backup/restore, rollback, DR, incident, SLOs, break-glass, support and the deploy sequence (Stage 24), each saying what is rehearsed; **no on-call** | PARTIAL |
 | Reporting reads marts only | enforced | static tests on every reporting surface (Stages 13, 21) | PASS |
 
 ## Minimum bar for a first production release
@@ -117,9 +118,12 @@ G1 all PASS · G2 no FAIL · G3 database, migrations, backups **and a rehearsed
 restore** PASS · G4 background processing and durable storage PASS · G5 all
 PASS · G6 payment validated · G7 admin sufficient for routine operation.
 
-**Where it stands after Stage 23:** G1 two PARTIAL (branch protection,
-browser journeys); G2 no FAIL, six PARTIAL and one NOT VERIFIED (the
-penetration test); G3 backups PARTIAL until the provider's PITR is
-exercised; G4 background processing, monitoring, SLOs and rollback FAIL —
-Stage 24 items; G5 consent wording BLOCKED on counsel; G6 payment BLOCKED on
-a credential; G7 PARTIAL. The bar is not met, and the reasons are named.
+**Where it stands after Stage 24:** G1 two PARTIAL (branch protection,
+browser journeys); G2 no FAIL, PARTIAL on advisories, MFA, secret store,
+SSRF, upload scanning, rate limiting and the non-script CSP directives, and one NOT VERIFIED (the penetration test); G3
+backups PARTIAL until the provider's PITR is exercised; G4 no FAIL any
+more - background processing, monitoring, SLOs, DR and rollback are
+PARTIAL because each has code or a rehearsal and none has a production
+environment; G5 consent wording BLOCKED on counsel; G6 payment BLOCKED on a
+credential; G7 PARTIAL (no on-call). **The bar is not met**, every reason is
+named, and `RELEASE_VERDICT.md` lists the actions that would meet it.

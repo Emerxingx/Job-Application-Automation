@@ -4702,3 +4702,40 @@ model SubscriptionCohortMart {
   @@index([currency, cohortMonth])
 }
 
+
+// ---------------------------------------------------------------------------
+// Stage 24 (ADR-0038) - operations. Both SYSTEM-only: the tenant role has no
+// policy on either, and neither carries anything about a person beyond an
+// opaque limiter key.
+// ---------------------------------------------------------------------------
+
+// The shared rate-limit store (RATE_LIMIT_STORE=postgres): one row per
+// bucket × actor, consumed by one atomic upsert so N instances share one
+// ceiling (R-16). The id is `<bucket>:<key>`; the key is a user id, an API
+// key id, a digest or an address - never an email in clear.
+model RateLimitBucket {
+  id      String   @id
+  count   Int      @default(0)
+  resetAt DateTime
+
+  @@index([resetAt])
+}
+
+// One leased run of a scheduled job per window: the worker claims
+// (job, windowStart) by inserting it, so a second worker or a restart can
+// never run the same window twice. `summary` is counts in words, never a
+// value. Read by /api/health to say whether scheduled work is overdue.
+model WorkerRun {
+  id          String    @id @default(cuid())
+  job         String
+  windowStart DateTime
+  status      String    @default("running") // running | succeeded | failed
+  workerId    String
+  startedAt   DateTime  @default(now())
+  finishedAt  DateTime?
+  error       String?
+  summary     String?
+
+  @@unique([job, windowStart])
+  @@index([job, status, startedAt])
+}

@@ -774,3 +774,31 @@ never occurred.
   interaction-level accessibility; the mobile app; production latency and
   bundle weight; the provider's PITR; a restore at production size.
 
+### Stage 24 - production readiness
+
+- **Static and pure (`tests/operations-static.test.ts`):** the
+  configuration check passes a production-shaped environment and prints no
+  value, fails seventeen broken shapes each with a reason, warns on the
+  single-instance shapes; the smoke suite passes a behaving deployment and
+  names the failing check of an open, unpoliced or dark one; the
+  scheduler's windows and overdue rule; every `rateLimit` call site awaits;
+  the health check reports the worker and the store with fixed words; the
+  operator commands exist; the two tables are system-only; the CSP spec
+  and the CI smoke step exist.
+- **Database (`tests/operations.test.ts`):** the shared limiter store is
+  exact under twenty concurrent callers and starts a fresh window; the
+  bucket sweep; a window leased once under five concurrent ticks, skipped
+  inside the window, run again in the next; a failing job as a failed row
+  with the redacted error; an abandoned run marked after its timeout; the
+  health check overdue → current → overdue; a break-glass session recorded
+  before and after.
+- **Rendered (`npm run a11y`):** `a11y/csp.spec.ts` loads public, candidate,
+  console and CMS-admin pages with the console watched and fails on any
+  policy report - the only proof a script policy can have.
+- **Rehearsed (`ROLLBACK.md`):** the pre-migration dump restored, the new
+  code seeing the two migrations pending, the previous version's tenant
+  path green on the rolled-back database.
+- **NOT covered, by honesty:** a production deploy, a canary, a monitor
+  firing, a rollback on the provider, the worker under a real load, a
+  queue (none exists).
+

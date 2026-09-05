@@ -20,6 +20,7 @@ import { performance } from 'node:perf_hooks';
 import { db } from '@/lib/db';
 import { rollupOrganizations } from '@/lib/analytics/organization/rollup';
 import { exportMarts } from '@/lib/analytics/warehouse/export';
+import { redactError } from '@/lib/log';
 
 const N = Math.max(100, Number.parseInt(process.env.PERF_SUBMISSIONS ?? '20000', 10) || 20000);
 const S = randomBytes(3).toString('hex');
@@ -80,7 +81,7 @@ async function main() {
 }
 
 main().catch(async (error) => {
-  console.error(error);
+  console.error(redactError(error).message);
   await db.organization.deleteMany({ where: { id: `perf_org_${S}` } }).catch(() => undefined);
   await db.user.deleteMany({ where: { id: `perf_u_${S}` } }).catch(() => undefined);
   process.exit(1);

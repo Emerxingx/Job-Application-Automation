@@ -140,8 +140,8 @@ export async function assignableMembers(tx: Client, actor: CaseActor) {
 export async function inviteClient(actor: CaseActor, input: { email: string; caseManagerId?: string | null; employmentGoal?: string }) {
   mustManage(actor);
   const email = input.email.trim().toLowerCase();
-  if (!rateLimit('cases:invite', actor.user.id, LIMITS.caseInvite).ok) throw new CaseError('Too many invitations from this account; try again later.', 429);
-  if (!rateLimit('cases:invite:org', actor.organizationId, LIMITS.caseInviteOrganization).ok) throw new CaseError('This organisation has reached its invitation limit for today.', 429);
+  if (!(await rateLimit('cases:invite', actor.user.id, LIMITS.caseInvite)).ok) throw new CaseError('Too many invitations from this account; try again later.', 429);
+  if (!(await rateLimit('cases:invite:org', actor.organizationId, LIMITS.caseInviteOrganization)).ok) throw new CaseError('This organisation has reached its invitation limit for today.', 429);
   const existing = await db.case.findMany({ where: { organizationId: actor.organizationId, invitedEmail: email, status: { in: ['invited', 'open', 'declined'] } }, select: { status: true } });
   if (existing.some((c) => c.status === 'invited' || c.status === 'open')) throw new CaseError('This organisation already has a case for that address.', 409);
   if (existing.some((c) => c.status === 'declined')) throw new CaseError('That person declined an earlier invitation from this organisation; the platform does not re-invite them.', 409);
@@ -462,7 +462,7 @@ export async function setRetentionPolicy(actor: CaseActor, input: { caseNoteDays
  * everything under it; the children the cascade removes are counted so
  * the audit row states what was destroyed. An organisation WITHOUT a
  * policy is untouched - a public-body contract may require records kept,
- * and nothing is destroyed on a platform default. No scheduler runs this;
+ * and nothing is destroyed on a platform default. The worker runs this daily (Stage 24) and the operator's command remains;
  * `npm run cases:retention` does.
  */
 export async function purgeExpiredCaseRecords(now = new Date()): Promise<{ organizations: number; notes: number; assessments: number; cases: number; children: number }> {

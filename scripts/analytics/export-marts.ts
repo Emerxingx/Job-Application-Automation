@@ -17,6 +17,7 @@ import { DEFAULT_EXPORT_MARTS, exportMarts } from '@/lib/analytics/warehouse/exp
 import { MART_REGISTRY, type MartName } from '@/lib/analytics/platform/dictionary';
 import { parseDayKey, rangeOfDays } from '@/lib/analytics/time';
 import { recordSecurityEvent } from '@/lib/security-audit';
+import { redactError } from '@/lib/log';
 
 function arg(name: string): string | null {
   const i = process.argv.indexOf(`--${name}`);
@@ -55,6 +56,6 @@ async function main() {
 }
 
 main().catch((error) => {
-  console.error(error);
+  console.error(redactError(error).message);
   process.exit(1);
 });

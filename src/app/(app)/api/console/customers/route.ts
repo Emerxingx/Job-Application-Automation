@@ -42,7 +42,7 @@ const querySchema = z.object({
 export const GET = consoleRoute(async (request: Request) => {
   const staff = await requireStaff('support');
 
-  const limit = rateLimit('console-customers', staff.id, LIST_LIMIT);
+  const limit = await rateLimit('console-customers', staff.id, LIST_LIMIT);
   if (!limit.ok) {
     return tooMany(
       `Too many console queries. Try again in ${describeWait(limit.retryAfterSeconds)}.`,

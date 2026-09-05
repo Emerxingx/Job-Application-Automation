@@ -8,7 +8,7 @@ import { MART_REGISTRY, type MartName } from './platform/dictionary';
  * ran least recently, and one that never ran leaves it never rebuilt). A page
  * shows that instant and says STALE when it is older than the mart's SLA - a
  * stale dashboard must say so rather than silently show old numbers. There is
- * no scheduler (ADR-0011 is not built): staleness is the honest signal that
+ * ADR-0011's queue is not built; since Stage 24 the worker runs the rollups nightly, and staleness is the honest signal that
  * the operator's sweep has not run.
  */
 export interface MartFreshness {

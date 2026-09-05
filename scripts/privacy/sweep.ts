@@ -9,6 +9,7 @@
  */
 import { db } from '@/lib/db';
 import { sweepRetention } from '@/lib/privacy/retention';
+import { redactError } from '@/lib/log';
 
 async function main() {
   const report = await sweepRetention();
@@ -18,6 +19,6 @@ async function main() {
 }
 
 main().catch((error) => {
-  console.error(error);
+  console.error(redactError(error).message);
   process.exit(1);
 });

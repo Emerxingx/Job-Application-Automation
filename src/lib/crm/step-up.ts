@@ -33,7 +33,7 @@ export class StepUpError extends Error {
 }
 
 export async function requireStepUp(staff: StaffContext, currentPassword: string, meta: RequestMeta): Promise<void> {
-  const limit = rateLimit('auth', `stepup:${staff.id}`, LIMITS.auth);
+  const limit = await rateLimit('auth', `stepup:${staff.id}`, LIMITS.auth);
   if (!limit.ok) throw new StepUpError('Too many re-authentication attempts. Try again later.');
 
   const user = await db.user.findUnique({ where: { id: staff.id }, select: { passwordHash: true, email: true } });

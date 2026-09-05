@@ -349,6 +349,9 @@ export const RLS_TABLES: Record<string, RlsKind> = {
   CrmNote: { kind: 'system' },
   CrmTask: { kind: 'system' },
   ImpersonationSession: { kind: 'system' },
+  // Stage 24 (ADR-0038): the shared limiter store and the worker's leased runs - operational, never a person's data.
+  RateLimitBucket: { kind: 'system' },
+  WorkerRun: { kind: 'system' },
 };
 
 /** The role request handlers assume inside a tenant transaction. */
@@ -420,6 +423,7 @@ export const STAGE_18_TABLES = ['Requisition', 'Disclosure', 'TalentPool', 'Tale
 export const STAGE_19_TABLES = ['StaffingJurisdictionRule', 'ClientContract', 'FeeStructure', 'Engagement', 'RepresentationConsent', 'Placement', 'PlacementInvoice'];
 export const STAGE_20_TABLES = ['SsoConnection', 'ScimToken'];
 export const STAGE_21_TABLES = ['OrganizationDailyMart', 'SubscriptionCohortMart'];
+export const STAGE_24_TABLES = ['RateLimitBucket', 'WorkerRun'];
 
 export const RLS_MANIFESTS: RlsManifest[] = [
   { migration: '20260903073000_row_level_security', preamble: true, tables: STAGE_01_TABLES },
@@ -442,4 +446,5 @@ export const RLS_MANIFESTS: RlsManifest[] = [
   { migration: '20260905190100_rls_staffing', preamble: false, tables: STAGE_19_TABLES },
   { migration: '20260905200100_rls_enterprise', preamble: false, tables: STAGE_20_TABLES },
   { migration: '20260905210100_rls_reporting_marts', preamble: false, tables: STAGE_21_TABLES },
+  { migration: '20260905220100_rls_operations', preamble: false, tables: STAGE_24_TABLES },
 ];
