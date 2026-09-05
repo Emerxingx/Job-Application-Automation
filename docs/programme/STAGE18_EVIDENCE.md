@@ -1,7 +1,7 @@
 # Stage 18 - Corporate / talent acquisition OS - evidence
 
 Recorded 2026-09-05 on branch `claude/stage-18-talent-acquisition`
-(PR __PR__), stacked on Stage 17 (PR #29) - 16 (#28) - 15 (#27) - 14 (#26) -
+(PR #30), stacked on Stage 17 (PR #29) - 16 (#28) - 15 (#27) - 14 (#26) -
 13 (#25) - 12 (#24) - 11 (#23) - 10 (#22) - 09 (#21) - 08 (#20) - 07 (#19) -
 06 (#18) - 05 (#17) - 04 (#16) - 03 (#15) - 02 (#14) - 01 (#13, PARTIAL).
 Every line was run or read; nothing is PASS on the strength of a mock, a
