@@ -65,6 +65,8 @@ export default async function LandingPage() {
     <div className="min-h-screen bg-bg">
       <SiteHeader signedIn={Boolean(user)} />
 
+      <main>
+
       {/* Hero */}
       <section className="relative overflow-hidden px-4 pb-20 pt-16 sm:pt-24">
         <div
@@ -317,6 +319,8 @@ export default async function LandingPage() {
           </ul>
         </div>
       </section>
+
+      </main>
 
       <footer className="border-t border-line px-4 py-10">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 text-sm text-muted">

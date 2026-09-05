@@ -86,6 +86,8 @@ const PUBLIC_PREFIXES = [
   // The public API authenticates with a bearer API key (SHA-256 hashed,
   // constant-time compared), not a session cookie. Gating it on a cookie would
   // break every server-to-server client.
+  // Stage 23: the health check a load balancer reads; rate-limited by address and says nothing sensitive.
+  '/api/health',
   '/api/v1',
   // Payload CMS carries its own independent auth and its own editor identity
   // domain. Do not gate it on the application's session.
@@ -147,8 +149,47 @@ async function hasValidSession(request: NextRequest): Promise<boolean> {
   }
 }
 
+/** Methods a browser sends without a preflight and that change state: the CSRF surface. */
+const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+
+/** Prefixes authenticated by a bearer credential rather than the cookie, which a cross-site page cannot attach - no CSRF surface. */
+const BEARER_PREFIXES = ['/api/v1', '/api/scim', '/api/webhooks'];
+
+/**
+ * Stage 23 (ADR-0037) - CSRF: is this a state-changing request that a
+ * cross-site page made with the victim's cookie? `sameSite: lax` on the
+ * cookie already blocks the classic cross-site POST in current browsers; this
+ * is the second, explicit check (readiness gate G2 "CSRF: tokens on
+ * state-changing routes" was PARTIAL) so the defence does not rest on one
+ * cookie attribute. The browser's own `Sec-Fetch-Site` is authoritative when
+ * present; an `Origin` that names another host is refused; a request with
+ * neither header (an old browser, a non-browser client with the cookie) is
+ * allowed, because a cross-site attacker cannot strip `Origin` from a
+ * browser-made request. Pure, so the static test can enumerate the cases.
+ */
+export function isCrossSiteWrite(method: string, headers: { get(name: string): string | null }, host: string | null, pathname: string): boolean {
+  if (SAFE_METHODS.has(method.toUpperCase())) return false;
+  if (BEARER_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + '/'))) return false;
+  const fetchSite = headers.get('sec-fetch-site');
+  if (fetchSite) return !(fetchSite === 'same-origin' || fetchSite === 'same-site' || fetchSite === 'none');
+  const origin = headers.get('origin');
+  if (!origin || !host) return false;
+  try {
+    return new URL(origin).host.toLowerCase() !== host.toLowerCase();
+  } catch {
+    return true;
+  }
+}
+
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
+
+  // A cross-site write carrying the session cookie is refused before anything
+  // else looks at it - the cookie is the only thing an attacker's page can
+  // borrow, so the check applies only when it is present.
+  if (request.cookies.get('jobpilot_session') && isCrossSiteWrite(request.method, request.headers, request.headers.get('host'), pathname)) {
+    return NextResponse.json({ error: 'Cross-site request refused.' }, { status: 403 });
+  }
 
   if (isPublicPath(pathname)) return NextResponse.next();
 

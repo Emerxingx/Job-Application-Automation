@@ -39,6 +39,20 @@ export class LocalStorageProvider implements StorageProvider {
       return null;
     }
   }
+  async delete(key: string): Promise<boolean> {
+    try {
+      await fs.rm(this.resolve(key));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  async deletePrefix(prefix: string): Promise<number> {
+    const dir = this.resolve(prefix);
+    const count = await countFiles(dir);
+    await fs.rm(dir, { recursive: true, force: true });
+    return count;
+  }
   async list(prefix: string): Promise<StoredObject[]> {
     try {
       const dir = this.resolve(prefix);
@@ -50,5 +64,16 @@ export class LocalStorageProvider implements StorageProvider {
     } catch {
       return [];
     }
+  }
+}
+
+async function countFiles(dir: string): Promise<number> {
+  try {
+    const entries = await fs.readdir(dir, { withFileTypes: true });
+    let n = 0;
+    for (const e of entries) n += e.isDirectory() ? await countFiles(path.join(dir, e.name)) : 1;
+    return n;
+  } catch {
+    return 0;
   }
 }

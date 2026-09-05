@@ -16,18 +16,18 @@
   --line: 231 229 228;
   --ink: 28 25 23;
   --muted: 87 83 78;
-  --faint: 138 132 127;
+  --faint: 107 101 95; /* Stage 23: was 138 132 127 (3.7:1 on white); tertiary text must still reach WCAG AA 4.5:1 - 5.7:1 now */
 
   --brand-50: 240 249 255;
   --brand-100: 224 242 254;
   --brand-400: 56 152 248;
-  --brand-500: 14 116 233;
+  --brand-500: 11 102 207; /* Stage 23: was 14 116 233 (4.47:1 with white text, just under AA); 5.5:1 now */
   --brand-600: 8 92 197;
   --brand-700: 12 74 158;
 
   --maple: 220 68 55;
-  --success: 22 143 92;
-  --warn: 202 138 4;
+  --success: 18 120 77; /* Stage 23: was 22 143 92 (4.1:1); 5.5:1 on white, 4.9:1 on the tinted pill */
+  --warn: 133 88 0; /* Stage 23: was 202 138 4 (2.9:1 on white); 6.2:1 on white, 5.4:1 on the tinted pill */
   --danger: 220 38 38;
 
   --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;

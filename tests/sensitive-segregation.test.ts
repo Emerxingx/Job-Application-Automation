@@ -32,6 +32,9 @@ const ALLOWED_TO_REFERENCE = new Set([
   'src/lib/sensitive/self-identification.ts',
   'src/app/(app)/api/profile/self-identification/route.ts',
   'src/components/self-identification-form.tsx',
+  // Stage 23 (ADR-0037): account erasure must erase the RESTRICTED schema too, and it
+  // does so ONLY by calling the sensitive module's own erase function - never the schema.
+  'src/lib/privacy/erasure.ts',
   'src/app/(app)/dashboard/settings/self-identification/page.tsx',
   'src/app/(app)/dashboard/settings/page.tsx', // the link to the page, nothing else
   'src/lib/security-audit.ts', // the event names
@@ -77,7 +80,7 @@ describe('ADR-0007 — static: nothing outside the sensitive path names the sens
       if (rel.startsWith('src/lib/sensitive/')) continue;
       if (/from '@\/lib\/sensitive\//.test(readFileSync(f, 'utf8'))) importers.push(rel);
     }
-    assert.deepEqual(importers.sort(), ['src/app/(app)/api/profile/self-identification/route.ts']);
+    assert.deepEqual(importers.sort(), ['src/app/(app)/api/profile/self-identification/route.ts', 'src/lib/privacy/erasure.ts']);
   });
 });
 

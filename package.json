@@ -25,6 +25,12 @@
     "mailbox:sync": "tsx scripts/mailbox/sync.ts",
     "analytics:rollup": "node scripts/db/with-encoded-env.mjs tsx scripts/analytics/rollup-all.ts",
     "analytics:rollup:candidates": "tsx scripts/analytics/rollup-candidates.ts",
+    "a11y": "playwright test -c a11y/playwright.config.ts",
+    "perf:load": "tsx scripts/perf/load.ts",
+    "perf:rollup": "node scripts/db/with-encoded-env.mjs tsx scripts/perf/rollup-throughput.ts",
+    "db:backup": "bash scripts/db/backup.sh",
+    "db:restore": "bash scripts/db/restore.sh",
+    "retention:sweep": "node scripts/db/with-encoded-env.mjs tsx scripts/privacy/sweep.ts",
     "analytics:export": "node scripts/db/with-encoded-env.mjs tsx scripts/analytics/export-marts.ts",
     "api:freeze": "tsx scripts/api/freeze-contract.ts",
     "db:reset": "node scripts/db/with-encoded-env.mjs prisma migrate reset --force",
@@ -62,6 +68,8 @@
     "zod": "^3.24.1"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
+    "@playwright/test": "^1.63.0",
     "@types/bcryptjs": "^2.4.6",
     "@types/node": "^22.10.5",
     "@types/pdfkit": "^0.17.6",

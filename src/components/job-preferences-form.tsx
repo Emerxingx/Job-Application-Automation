@@ -147,7 +147,7 @@ export function JobPreferencesForm({ initial }: { initial: PreferencesValues }) 
           <legend className="label">Employment type</legend>
           {(['full_time', 'part_time', 'contract', 'internship'] as const).map((t) => (
             <label key={t} className="flex items-center gap-2 text-sm text-ink">
-              <input type="checkbox" checked={v.employmentTypes.includes(t)} onChange={() => toggle('employmentTypes', t)} />
+              <input type="checkbox" className="h-6 w-6 shrink-0" checked={v.employmentTypes.includes(t)} onChange={() => toggle('employmentTypes', t)} />
               {t.replace('_', '-')}
             </label>
           ))}
@@ -156,7 +156,7 @@ export function JobPreferencesForm({ initial }: { initial: PreferencesValues }) 
           <legend className="label">Work mode</legend>
           {(['onsite', 'hybrid', 'remote'] as const).map((m) => (
             <label key={m} className="flex items-center gap-2 text-sm text-ink">
-              <input type="checkbox" checked={v.workModes.includes(m)} onChange={() => toggle('workModes', m)} />
+              <input type="checkbox" className="h-6 w-6 shrink-0" checked={v.workModes.includes(m)} onChange={() => toggle('workModes', m)} />
               {m}
             </label>
           ))}
@@ -171,7 +171,7 @@ export function JobPreferencesForm({ initial }: { initial: PreferencesValues }) 
           <legend className="label">Countries</legend>
           {(['CA', 'US'] as const).map((c) => (
             <label key={c} className="flex items-center gap-2 text-sm text-ink">
-              <input type="checkbox" checked={v.countries.includes(c)} onChange={() => toggle('countries', c)} />
+              <input type="checkbox" className="h-6 w-6 shrink-0" checked={v.countries.includes(c)} onChange={() => toggle('countries', c)} />
               {c === 'CA' ? 'Canada' : 'United States'}
             </label>
           ))}
@@ -324,7 +324,7 @@ export function WorkAuthorizationForm({ initial }: { initial: WorkAuthorizationV
           <input id="wa-expires" type="date" className="input" value={v.permitExpiresAt} onChange={(e) => set('permitExpiresAt', e.target.value)} />
         </div>
         <label className="flex items-center gap-2 text-sm text-ink sm:col-span-2">
-          <input type="checkbox" checked={v.sponsorshipNeeded} onChange={(e) => set('sponsorshipNeeded', e.target.checked)} />
+          <input type="checkbox" className="h-6 w-6 shrink-0" checked={v.sponsorshipNeeded} onChange={(e) => set('sponsorshipNeeded', e.target.checked)} />
           I would need employer sponsorship
         </label>
       </div>

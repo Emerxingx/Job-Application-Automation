@@ -738,3 +738,39 @@ never occurred.
   extraction throughput at production volume; the browser rendering of the
   freshness line; a scheduler (none exists).
 
+## Stage 23 — hardening
+
+- **Pure and static (`tests/hardening-static.test.ts`):** the header list
+  `next.config.mjs` ships is the one the test reads, and it carries
+  `frame-ancestors 'none'`, `object-src 'none'`, `base-uri`, `form-action`,
+  HSTS, `nosniff`, referrer and permissions policies and deliberately no
+  `script-src`; `isCrossSiteWrite` over eleven cases (safe methods, bearer
+  prefixes, `Sec-Fetch-Site` values, `Origin` host, port, opaque and absent
+  origins, no Host); the proxy applies it only with the cookie and before the
+  public-path decision; `/api/health` is public, rate-limited, and its source
+  names no host or environment; the redactor over eleven inputs and
+  `redactError` never logs the object; the secret scan over every tracked
+  file (documented AWS example keys and the redaction fixture allow-listed
+  by name), no tracked `.env`, placeholders only in `.env.example`; the
+  erasure routine scrubs rather than deletes the user row and never touches
+  the statutory tables; the sweep never deletes audit, consent, invoice,
+  payment, document or application rows and is audited; the account route
+  is wrapped and the person's own.
+- **Database (`tests/privacy.test.ts`):** the erasure lifecycle (scheduled
+  fourteen days out, idempotent, cancellable, refused early, blocked by a
+  live subscription); execution across fourteen models with a submitted
+  document version leaving through the cascade and its file and the folder
+  removed from a temporary storage root, the user scrubbed, other parties'
+  records scrubbed to ids, the invoice, payment, consent and placement
+  kept, the audit row free of the person, another person untouched, a
+  second run refused; the retention sweep removing exactly the expired
+  rows; the health check answering without a session and naming no host.
+- **Rendered (`npm run a11y`, its own CI job):** 43 pages with axe-core
+  WCAG 2.0/2.1/2.2 A and AA rules, a title and exactly one `main` on each.
+- **Measured (`npm run perf:load`, `npm run perf:rollup`):** p95 per route
+  and error rate against budgets; rollup and extraction throughput at 20 000
+  submissions. Local numbers, recorded as such.
+- **NOT covered, by honesty:** a penetration test; the dark theme and
+  interaction-level accessibility; the mobile app; production latency and
+  bundle weight; the provider's PITR; a restore at production size.
+

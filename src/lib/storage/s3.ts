@@ -52,7 +52,7 @@ export interface SignedRequest {
 }
 
 /** Build a SigV4-signed request. Pure given `now`, so it is testable. */
-export function signS3Request(config: S3Config, method: 'GET' | 'PUT', key: string, body: string | Buffer, now = new Date(), query = '', contentType = 'text/plain; charset=utf-8'): SignedRequest {
+export function signS3Request(config: S3Config, method: 'GET' | 'PUT' | 'DELETE', key: string, body: string | Buffer, now = new Date(), query = '', contentType = 'text/plain; charset=utf-8'): SignedRequest {
   const base = new URL(config.endpoint);
   const host = config.pathStyle === false ? `${config.bucket}.${base.host}` : base.host;
   // An endpoint may carry a path prefix (Supabase's gateway is
@@ -118,6 +118,18 @@ export class S3StorageProvider implements StorageProvider {
     if (res.status === 404) return null;
     if (!res.ok) throw new Error(`object store responded ${res.status} on get`);
     return Buffer.from(await res.arrayBuffer());
+  }
+  async delete(key: string): Promise<boolean> {
+    const req = signS3Request(this.config, 'DELETE', key, '', new Date());
+    const res = await this.fetchImpl(req.url, { method: 'DELETE', headers: req.headers });
+    if (res.status === 404) return false;
+    if (!res.ok && res.status !== 204) throw new Error(`object store responded ${res.status} on delete`);
+    return true;
+  }
+  async deletePrefix(prefix: string): Promise<number> {
+    let n = 0;
+    for (const o of await this.list(prefix)) if (await this.delete(o.key)) n += 1;
+    return n;
   }
   async list(prefix: string): Promise<StoredObject[]> {
     const query = `list-type=2&prefix=${encodeURIComponent(prefix.replace(/\/?$/, '/'))}`;

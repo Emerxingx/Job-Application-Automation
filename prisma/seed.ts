@@ -184,8 +184,12 @@ async function main() {
       linkedinUrl: 'https://linkedin.com/in/alexmorgan-demo',
       workAuth: 'Canadian Citizen',
       onboardedAt: new Date(),
+      // Stage 23: the demo account is the staff account of a local install and
+      // of the accessibility run over the console. The console two-lock still
+      // holds: the role means nothing unless STAFF_EMAILS lists the address.
+      role: 'admin',
     },
-    update: { passwordHash },
+    update: { passwordHash, role: 'admin' },
   });
 
   // Stage 01: every user owns a personal workspace, and the demo account has

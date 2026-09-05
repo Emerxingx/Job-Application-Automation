@@ -14,6 +14,7 @@ import { DisclosureRequests } from '@/components/disclosure-requests';
 import { listCandidateRepresentations } from '@/lib/staffing/service';
 import { RepresentationRequests } from '@/components/representation-requests';
 import { SCOPE_INVENTORY } from '@/lib/mailbox/providers/types';
+import { AccountErasure } from '@/components/account-erasure';
 
 export const metadata = { title: 'Settings' };
 export const dynamic = 'force-dynamic';
@@ -107,9 +108,9 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
         <h2 className="font-semibold text-ink">Your data</h2>
         <p className="mt-1.5 text-sm text-muted">
           Every application folder — job descriptions, tailored resumes and cover letters — is
-          stored against your account and downloadable from the application detail page. Deleting
-          your account removes all of it.
+          stored against your account and downloadable from the application detail page.
         </p>
+        <AccountErasure />
       </Card>
     </>
   );

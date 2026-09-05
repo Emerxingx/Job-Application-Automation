@@ -23,4 +23,8 @@ export interface StorageProvider {
   putBytes(key: string, body: Buffer, contentType: string): Promise<void>;
   getBytes(key: string): Promise<Buffer | null>;
   list(prefix: string): Promise<StoredObject[]>;
+  /** Stage 23: remove one object; true when something was removed. Erasure and the warehouse boundary need it. */
+  delete(key: string): Promise<boolean>;
+  /** Stage 23: remove every object under a prefix (a person's folder on erasure); returns how many. */
+  deletePrefix(prefix: string): Promise<number>;
 }

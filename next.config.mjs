@@ -1,4 +1,5 @@
 import { withPayload } from '@payloadcms/next/withPayload';
+import { SECURITY_HEADERS } from './security-headers.mjs';
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
@@ -20,6 +21,13 @@ const nextConfig = {
   // once CI gained a blocking lint job (ADR-0018) it stopped meaning anything,
   // and Next 16 no longer recognises the key — it warned on every production
   // build. Lint runs as its own gate, not as part of `next build`.
+
+  // Stage 23 (ADR-0037): the same header list on every route, including the
+  // Payload admin and the API. The list lives in security-headers.mjs so the
+  // static test reads exactly what ships.
+  async headers() {
+    return [{ source: '/(.*)', headers: SECURITY_HEADERS }];
+  },
 };
 
 export default withPayload(nextConfig);

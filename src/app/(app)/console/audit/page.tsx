@@ -21,13 +21,13 @@ export default async function ConsoleAuditPage({ searchParams }: { searchParams:
     <>
       <PageHeader title="Audit log" description="Append-only. Every staff change, every consent, every sensitive read, every sign-in outcome. Rows carry ids, kinds and reasons - never a secret, a token, a body or a note; a failed sign-in names only a digest, while a row a person acted on carries their address as its actor. An export is itself an audit row." />
       <form method="get" className="mb-4 grid gap-2 md:grid-cols-6">
-        <input name="action" defaultValue={p.action ?? ''} placeholder="action prefix (e.g. staffing.)" className="rounded-md border border-line bg-surface px-3 py-2 text-sm" />
-        <input name="entityType" defaultValue={p.entityType ?? ''} placeholder="entity type" className="rounded-md border border-line bg-surface px-3 py-2 text-sm" />
-        <input name="entityId" defaultValue={p.entityId ?? ''} placeholder="entity id" className="rounded-md border border-line bg-surface px-3 py-2 text-sm" />
-        <input name="actorEmail" defaultValue={p.actorEmail ?? ''} placeholder="actor email" className="rounded-md border border-line bg-surface px-3 py-2 text-sm" />
-        <input name="from" type="date" defaultValue={p.from ?? ''} className="rounded-md border border-line bg-surface px-3 py-2 text-sm" />
+        <input name="action" aria-label="Action prefix" defaultValue={p.action ?? ''} placeholder="action prefix (e.g. staffing.)" className="rounded-md border border-line bg-surface px-3 py-2 text-sm" />
+        <input name="entityType" aria-label="Entity type" defaultValue={p.entityType ?? ''} placeholder="entity type" className="rounded-md border border-line bg-surface px-3 py-2 text-sm" />
+        <input name="entityId" aria-label="Entity id" defaultValue={p.entityId ?? ''} placeholder="entity id" className="rounded-md border border-line bg-surface px-3 py-2 text-sm" />
+        <input name="actorEmail" aria-label="Actor email" defaultValue={p.actorEmail ?? ''} placeholder="actor email" className="rounded-md border border-line bg-surface px-3 py-2 text-sm" />
+        <input name="from" type="date" aria-label="From date" defaultValue={p.from ?? ''} className="rounded-md border border-line bg-surface px-3 py-2 text-sm" />
         <div className="flex gap-2">
-          <input name="to" type="date" defaultValue={p.to ?? ''} className="flex-1 rounded-md border border-line bg-surface px-3 py-2 text-sm" />
+          <input name="to" type="date" aria-label="To date" defaultValue={p.to ?? ''} className="flex-1 rounded-md border border-line bg-surface px-3 py-2 text-sm" />
           <button type="submit" className="btn-secondary text-sm">
             Filter
           </button>

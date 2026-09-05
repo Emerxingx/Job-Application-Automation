@@ -354,7 +354,7 @@ export async function destroySession(meta?: RequestMeta): Promise<void> {
   store.delete(COOKIE_NAME);
 }
 
-export type RevokeReason = 'logout' | 'password_change' | 'user_revoke' | 'staff_revoke';
+export type RevokeReason = 'logout' | 'password_change' | 'user_revoke' | 'staff_revoke' | 'account_erasure';
 
 /**
  * Revoke one session belonging to `userId`. Scoped by owner so a session id

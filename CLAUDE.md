@@ -26,7 +26,7 @@ remediation has begun.**
 npm ci                # install from the lockfile
 npm run dev           # http://localhost:3000
 npx tsc --noEmit      # typecheck  — PASSES
-npm test              # 1277 tests  — PASSES with the two database URLs below set; the
+npm test              # 1296 tests  — PASSES with the two database URLs below set; the
                       #   database suites skip WITH A REASON without them and THROW
                       #   when CI=true, so CI cannot pass by skipping them
 npm run build         # production — PASSES
@@ -49,6 +49,13 @@ npm run db:seed            # plans + demo account (+ its personal workspace and 
 npm run db:push            # LOCAL prototyping only — never staging or production
 npm run cms:importmap      # regenerate the tracked Payload import map
 npm run cms:types          # regenerate payload-types.ts
+
+# Stage 23 (ADR-0037): measurements and operator commands
+npm run a11y               # WCAG 2.2 AA (axe) over 43 rendered pages of a BUILT, STARTED app on :3000 (A11Y_CHROMIUM=/opt/pw-browsers/chromium here)
+npm run perf:load          # p95 per route vs docs/operations/PERFORMANCE_BUDGETS.md, against a running app (local numbers only)
+npm run perf:rollup        # Stage 21 rollup + extraction throughput at 20k submissions, against DATABASE_URL
+npm run retention:sweep    # DATA_RETENTION_MATRIX rows marked ENFORCED BY SWEEP + due account erasures; audited
+npm run db:backup -- <dir> # pg_dump custom format + checksum from DIRECT_URL; npm run db:restore -- <dump> into an EMPTY target
 
 # The mobile app (Stage 14) is its own package: cd mobile && npm ci && npm run verify
 #   (api:types diff · typecheck · 24 node:test suites · Metro web bundle). Never run on a device here.
@@ -530,6 +537,33 @@ npm run cms:types          # regenerate payload-types.ts
     `warehouse/export.ts` (`npm run analytics:export`, CSV per mart per
     day, user-scoped marts opt-in); no warehouse, event stream or load test
     exists — say so.
+
+33. **Hardening is measured, not asserted, and every gap is named** (Stage 23,
+    ADR-0037). `security-headers.mjs` is the ONE header list (`next.config.mjs`
+    and the static test read it; there is deliberately no `script-src` until
+    a nonce policy lands at Stage 24). `src/proxy.ts` `isCrossSiteWrite`
+    refuses a cookie-bearing write whose `Sec-Fetch-Site` is cross-site or
+    whose `Origin` is another host, before the public-path decision; bearer
+    prefixes are exempt. `/api/health` is public, rate-limited and says
+    nothing that locates anything - keep it that way. Every unhandled error
+    is logged through `redactError` (`src/lib/log.ts`); never log an error
+    object or a request body. **Erasure is `src/lib/privacy/erasure.ts`**:
+    scheduled fourteen days out, scrub-in-place (the `User` row stays -
+    invoices, payments and placements RESTRICT it), the person's tables
+    deleted (a submitted `DocumentVersion` leaves only through the
+    Application cascade), the sensitive schema through its own module,
+    mailbox connections through their revocation, other parties' records
+    scrubbed to ids; NEVER `AuditLog`, `ConsentRecord`, `Invoice`,
+    `Payment`, `Refund`, `CreditNote`, `Placement`. **Retention is
+    `retention:sweep`** and the matrix's enforcement column is the truth;
+    a row marked NOT AUTOMATED is a statement, not a gap to paper over.
+    `npm run a11y` must stay green (the four darkened colour tokens in
+    `globals.css` are why; do not lighten `--faint`, `--brand-500`,
+    `--success`, `--warn` below 4.5:1); the dark theme is NOT measured.
+    Performance numbers are LOCAL and say so. The demo account is seeded
+    `admin` for the console audit; `STAFF_EMAILS` still decides staff. A
+    penetration test is an EXTERNAL action - never describe a code review
+    as one.
 
 ## Conventions worth preserving
 

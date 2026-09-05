@@ -19,7 +19,7 @@ export default async function LoginPage({
   const showSso = await isFlagEnabled('auth.sso_start_button', null);
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-bg px-4 py-12">
+    <main className="flex min-h-screen flex-col items-center justify-center bg-bg px-4 py-12">
       <Link href="/" className="mb-8" aria-label="JobPilot AI home">
         <Logo />
       </Link>
@@ -48,6 +48,6 @@ export default async function LoginPage({
           <code className="rounded bg-surface px-1.5 py-0.5">demo1234</code>
         </p>
       </div>
-    </div>
+    </main>
   );
 }

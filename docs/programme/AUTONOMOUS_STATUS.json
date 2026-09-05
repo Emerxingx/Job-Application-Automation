@@ -2,12 +2,12 @@
   "$comment": "Machine-readable controller for the autonomous build programme. Authoritative over any chat transcript: if this file and a conversation disagree, this file wins. Updated at every stage checkpoint.",
   "schema_version": 1,
   "updated_at": "2026-09-05",
-  "current_stage": 22,
-  "last_completed_stage": 21,
-  "current_branch": "claude/stage-22-autonomous-gate",
+  "current_stage": 23,
+  "last_completed_stage": 22,
+  "current_branch": "claude/stage-23-hardening",
   "current_head": "c90bf9c82d611fa49893f6368a31ddeb7783683f",
   "current_head_meaning": "SHA of the last commit whose full gate set was verified locally (lint, typecheck, tests, build). Set by the status-sync commit that immediately follows it, so it names a real, verified commit rather than the one it is written in.",
-  "current_pr": "https://github.com/Emerxingx/Job-Application-Automation/pull/34",
+  "current_pr": "pending (draft PR on base claude/stage-22-autonomous-gate; recorded in the status-sync commit)",
   "main_head": "d6ae8b3a9180b529abe06f23417515432c0a7f0e",
   "run_complete": false,
   "stage_status": {
@@ -34,7 +34,7 @@
     "20": "PASS (engineering) — exit gate PARTIAL; SSO/SCIM IMPLEMENTED-NOT-VALIDATED; independent review processed",
     "21": "PASS (engineering) — exit gate PARTIAL (no event stream, scheduler or warehouse; throughput NOT VERIFIED); independent review processed",
     "22": "BLOCKED_BY_DESIGN — gate recorded (STAGE22_GATE.md), nothing built",
-    "23": "NOT_STARTED",
+    "23": "PASS (engineering) — exit gate PARTIAL (penetration test EXTERNAL; provider PITR, production performance, monitoring/on-call, nonce CSP, shared rate-limit store open); independent review pending",
     "24": "NOT_STARTED"
   },
   "stage_01_progress": {
@@ -83,7 +83,7 @@
     ],
     "verdict": "Stage 01 is PARTIAL, not PASS. Every unmet item traces to the staging project being unreachable from the build environment, except tenant-path adoption, which is engineering and continues in Stage 02 alongside the schema work that touches those handlers."
   },
-  "next_requirement": "Stage 23 (security, performance, accessibility and operational hardening) on a stacked branch from the Stage 22 head: the §20 audit with evidence per item, WCAG 2.2 AA, performance budgets and a load measurement (the Stage 21 rollup and extraction throughput included), backup/restore rehearsal, DR with RPO/RTO, incident response, retention/erasure end to end; a third-party penetration test is an external action.",
+  "next_requirement": "Stage 23 independent adversarial review (fix HIGH/MEDIUM), then Stage 24 (production deployment and readiness) on a stacked branch from the Stage 23 head: DEPLOYMENT.md against ADR-0015, runbooks, monitoring/alerting/SLOs, status page, smoke suite, rollback rehearsal; then the consolidated release verdict.",
   "blockers": [
     {
       "id": "ATS-SANDBOX-CREDENTIAL",
@@ -261,6 +261,12 @@
       "type": "CREDENTIAL",
       "action": "Provide a Stripe TEST-mode secret key and webhook signing secret in the deployment environment (never in the repository); run checkout → webhook → entitlement end to end, replay an event, fail a payment, refund one; record the traces in STAGE15_EVIDENCE.md §7. Then decide the matrix-versus-seed quantities (30/100/300 vs 25/120/400) and USD PlanPrice rows.",
       "status": "OPEN"
+    },
+    {
+      "id": "PEN-TEST",
+      "action": "Commission an independent third-party penetration test of the staging deployment (web application, API v1, SCIM, SSO, the console) and remediate its findings before public go-live.",
+      "why": "MASTER_BUILD_PLAN Stage 23 and readiness gate G2 require an independent test; the programme's adversarial code reviews are not one and no code change can substitute.",
+      "status": "REQUIRED"
     }
   ],
   "invariants_never_to_break": [
@@ -815,5 +821,31 @@
       "Every precondition P1–P10 (by design: no design work is permitted before counsel and the founder decide)"
     ],
     "verdict": "Stage 22 BLOCKED BY DESIGN, as the plan states. Nothing was built. The programme continues to Stage 23."
+  },
+  "stage_23_progress": {
+    "security": "DONE — security-headers.mjs on every route (no script-src, stated); isCrossSiteWrite in src/proxy.ts before the public-path decision; /api/health (public, rate-limited, booleans only); src/lib/log.ts redactError at the one error log; secret-hygiene static test; CI sbom job (CycloneDX, 486 components locally)",
+    "privacy": "DONE — src/lib/privacy/erasure.ts (DeletionRequest lifecycle, 14-day grace, scrub in place, cascade deletes, sensitive + mailbox through their modules, files removed, audited), /api/account/erasure + Settings control; src/lib/privacy/retention.ts + npm run retention:sweep; DATA_RETENTION_MATRIX enforcement column",
+    "accessibility": "DONE — a11y/ (Playwright + axe-core, WCAG 2.0/2.1/2.2 A+AA, 43 pages, one stored session), CI accessibility job; five runs, real defects fixed (four colour tokens, combobox role/controls, main landmarks, labels, 24px targets, underlined inline links, access-denied landmark); 43/43 green; dark theme NOT measured",
+    "performance": "DONE (local) — docs/operations/PERFORMANCE_BUDGETS.md; scripts/perf/load.ts and rollup-throughput.ts; all 11 routes within p95 budget, 0 errors; rollup 58 446 rows in 1.17 s, export 806 rows in 0.12 s; production NOT measured; bundle weight NOT measured",
+    "operations": "DONE (local) — scripts/db/backup.sh + restore.sh rehearsed (56 migrations, 157 forced tables, counts, no drift); docs/operations/BACKUP_RESTORE.md, DISASTER_RECOVERY.md (proposed RPO/RTO), INCIDENT_RESPONSE.md; provider PITR NOT VERIFIED",
+    "audit": "DONE — PRODUCTION_READINESS_GATES.md re-measured row by row (G1–G7) against Stages 00–23; SECURITY_PRIVACY_ARCHITECTURE \"not yet assessed\" resolved item by item",
+    "tests": "DONE — tests/hardening-static.test.ts (14), tests/privacy.test.ts (5); sensitive-segregation allow-lists the erasure module by name; 1296/1296 on a fresh database",
+    "not_done": "STATED — penetration test (external action PEN-TEST), nonce CSP, shared rate-limit store, provider PITR and production-size restore, monitoring/on-call/SLOs/status page, production performance and Core Web Vitals, dark-theme and interaction accessibility, retention automation for employer pipelines and staffing records, staging rehearsal (R-34)"
+  },
+  "stage_23_exit_gate": {
+    "met": [
+      "Every readiness-gate row has a measurement, a rehearsal or a named reason it cannot be measured from here",
+      "WCAG 2.2 AA (axe) green over 43 rendered pages in CI",
+      "Performance budgets defined and met locally with a repeatable measurement",
+      "Backup and restore rehearsed with a verified log; DR and incident procedures written",
+      "Erasure and retention enforced end to end with database proof",
+      "Full gate set green: lint 0/8, typecheck 0, tests 1296/1296 (0 skipped), build 0, a11y 43/43, perf 11/11"
+    ],
+    "not_met": [
+      "Third-party penetration test (EXTERNAL ACTION)",
+      "Every §20 item PASS or accepted-with-compensating-control: G4 background processing, monitoring, SLOs, rollback remain FAIL (Stage 24 items); provider PITR NOT VERIFIED; production performance NOT MEASURED",
+      "Staging rehearsal (R-34)"
+    ],
+    "verdict": "Stage 23 engineering PASS; the plan's exit gate PARTIAL on the stated items. Independent review pending."
   }
 }

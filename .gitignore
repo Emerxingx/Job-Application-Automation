@@ -33,3 +33,6 @@ next-env.d.ts
 
 # Sibling git worktrees used during stage work (never part of the tree)
 scratchpad/
+
+# Stage 23: accessibility run output (json report, traces)
+a11y/report/
