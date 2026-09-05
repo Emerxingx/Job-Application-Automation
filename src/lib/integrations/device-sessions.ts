@@ -125,7 +125,7 @@ export async function issueDeviceSession(
     const email = signIn.email.toLowerCase().trim();
     // Budgeted per account as well as per address: the address is only as
     // trustworthy as the proxy in front (rate-limit.ts), the account is not.
-    const budget = rateLimit('auth_account', hashEmail(email), LIMITS.authAccount);
+    const budget = await rateLimit('auth_account', hashEmail(email), LIMITS.authAccount);
     if (!budget.ok) throw new ApiRequestError('rate_limited', 'Too many sign-in attempts for this account. Try again later.', 429);
     const found = await db.user.findUnique({ where: { email }, select: { id: true, email: true, role: true, onboardedAt: true, passwordHash: true } });
     if (!found || !(await verifyPassword(signIn.password, found.passwordHash))) {

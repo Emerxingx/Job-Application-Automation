@@ -1,262 +1,170 @@
 # Deploying JobPilot AI
 
-The app runs locally with no third-party accounts: every provider falls back to
-a mock implementation. Going to production means replacing three of those mocks
-and changing two things that only work on a machine with a persistent disk.
+**Status of this page (Stage 24, ADR-0038):** the procedure below is what
+the code supports and what was rehearsed on a local build. **No production
+environment exists**; nothing here has run on a production host, and the
+managed staging project is not reachable from the build environment
+(`CLAUDE.md` item 8). The readiness gates (`docs/programme/PRODUCTION_READINESS_GATES.md`)
+say which rows are proven and which are not. Every operator procedure is
+indexed in `docs/operations/RUNBOOKS.md`.
 
-The headless CMS (section 3) runs inside this same app and needs no extra
-service — only its own secret and, for multi-instance deployments, its own
-database.
+The app runs locally with no third-party accounts: every provider falls
+back to a mock. Going to production means a PostgreSQL database with the
+migration history applied, an object store in Canada, two generated
+secrets, one long-running worker process, and a monitor polling
+`/api/health`.
+
+## 0. The deploy sequence
+
+Every deploy, in this order, and nothing skipped:
+
+```bash
+npm run env:check                       # 1. the configuration is production-shaped (prints no value)
+npm run db:backup -- <backup dir>       # 2. a restore point BEFORE the schema moves
+npm run db:migrate:deploy               # 3. the versioned history, against DIRECT_URL, as a SEPARATE gated step
+npm run db:migrate:status               # 4. nothing pending or failed
+# 5. roll the application (blue/green or canary on the host; the previous version stays deployable)
+npm run smoke -- https://<origin>       # 6. the production smoke suite against the new version
+# 7. restart the worker on the new version (npm run worker)
+# 8. watch /api/health and the request log for fifteen minutes (SLOS.md A1-A6)
+```
+
+A failing step stops the deploy. Rolling back is `docs/operations/ROLLBACK.md`:
+the application rolls back by redeploying the previous commit; a schema that
+must be reversed is a restore from the step-2 backup, never a hand-written
+down migration.
+
+Migrations are **never applied at boot** and never by `db:push`
+(`docs/operations/DATABASE_MIGRATIONS.md`).
 
 ## 1. Database — required
 
-The transactional store is **PostgreSQL only** (`ADR-0002`); SQLite was removed
-in Stage 01 because the tenancy backstop is row-level security, which SQLite
-does not have. Two connection strings are required:
+The transactional store is **PostgreSQL 16 only** (ADR-0002). Two
+connection strings:
 
-| Variable | Used by | On Supabase |
+| Variable | Used by | On the managed provider |
 | --- | --- | --- |
-| `DATABASE_URL` | the application at runtime | the **transaction-mode pooler**, port 6543, with `?pgbouncer=true` |
-| `DIRECT_URL` | `prisma migrate` | the session-mode pooler or direct host, port 5432 |
+| `DATABASE_URL` | the application at runtime | the **transaction-mode pooler** (port 6543, `?pgbouncer=true`) |
+| `DIRECT_URL` | `prisma migrate`, backups, a break-glass session (the worker runs on `DATABASE_URL` like the app; its leases are rows, never a session lock) | the session-mode endpoint (port 5432) |
 
-**Both URLs must authenticate as the same database role.** The row-level
-security migration binds the system client's access to the role that ran the
-migration (`system_full_access … TO <that role>`); with RLS forced on every
-table, an application role that differs from the migration role has no policy
-and sees nothing. On Supabase both are `postgres.<ref>`; keep it that way
-until a dedicated application role is introduced together with its own policy.
-
-A password containing URL-reserved characters is percent-encoded for you by
-the application (`src/lib/db-url.ts`) and by every `npm run db:*` script
-(`scripts/db/with-encoded-env.mjs`). Calling `npx prisma …` directly bypasses
-the wrapper — encode `DIRECT_URL` yourself if you do.
-
-Schema changes are **versioned migrations**, never `db push`:
+**Both must authenticate as the same database role** (the RLS migration
+binds the system policy to the role that ran it; a different application
+role sees nothing). A password with URL-reserved characters is
+percent-encoded for you (`src/lib/db-url.ts`, `scripts/db/with-encoded-env.mjs`).
+`npm run env:check` verifies the shape of both (pooler vs session, same
+role, same host) **without printing either** - they are confidential and
+never appear in a log, an evidence document or a chat.
 
 ```bash
-DIRECT_URL="postgresql://…:5432/…" npm run db:migrate:deploy   # apply the history
-DIRECT_URL="postgresql://…:5432/…" npm run db:migrate:check    # fail on drift
-DATABASE_URL="postgresql://…" npm run db:seed                  # seeds the three plans + demo account
+DIRECT_URL="..." npm run db:migrate:deploy   # apply the history
+DIRECT_URL="..." npm run db:migrate:check    # fail on drift
+DATABASE_URL="..." npm run db:seed           # the three plans (+ the demo account: NOT on production)
 ```
 
-Take a restore point before every `migrate deploy`; the full procedure,
-review standard and recovery plan are in
-`docs/operations/DATABASE_MIGRATIONS.md`. The seed is what creates the
-Starter / Professional / Executive plan rows. A deployment without it has no
-plans for checkout to reference.
+The seed creates the Starter / Professional / Executive plan rows AND the
+demo account (`demo@jobpilot.ai`, a published password, `admin` role).
+**Do not run the seed as-is against production**: create the plans through
+it on a copy and load them, or set the plans by hand, and never let the
+demo account exist where `STAFF_EMAILS` could name it.
 
-## 2. Application folders — decide before launch
+The CMS keeps its **own** database (`PAYLOAD_DATABASE_URI`, a separate
+logical database on the same instance, never the same one; §4).
 
-`createApplicationFolder` writes each application's files to local disk under
-`STORAGE_ROOT`. On a serverless host those files disappear when the instance
-does.
+## 2. Object storage — required
 
-This is already partly mitigated: the tailored resume, cover letter and job
-description are also stored as database columns, and both the detail page and
-the download route fall back to them when the folder is missing. So the
-**content survives** — what is lost on a restart is `README.md` and
-`tailoring-report.md`, which are rendered from data the database still holds.
+`STORAGE_PROVIDER=s3` with `STORAGE_S3_ENDPOINT`, `STORAGE_S3_REGION`
+(`ca-central-1` or `ca-west-1`; anything else is refused at start,
+ADR-0015), `STORAGE_S3_BUCKET`, `STORAGE_S3_ACCESS_KEY_ID`,
+`STORAGE_S3_SECRET_ACCESS_KEY`. Bucket versioning on; private; the
+application serves every file through a signed ten-minute link (Stage 09).
+`local` (the default) writes under `STORAGE_ROOT` and is for a host with a
+persistent disk only; `env:check` warns when production runs on it.
 
-Two workable options:
+## 3. Secrets — required
 
-- **Persistent disk** (a VM, a container with a volume, Railway, Fly, Render):
-  set `STORAGE_ROOT` to the mounted path and everything works as it does
-  locally.
-- **Object storage** (S3, R2, Vercel Blob): replace the `fs` calls in
-  `src/lib/storage.ts`. The module already has a narrow interface —
-  `createApplicationFolder`, `listFolder`, `readFolderFile` — so this is a
-  contained change.
+| Variable | What | Rule |
+| --- | --- | --- |
+| `AUTH_SECRET` | signs session cookies | `openssl rand -base64 32`; the `.env.example` value is refused by value at server start |
+| `PAYLOAD_SECRET` | signs CMS editor sessions | a different generated value; the two must never be equal |
+| `MAILBOX_ENCRYPTION_KEY` | OAuth tokens at rest (Stage 11) | 32 random bytes; only if mailbox connections are offered |
+| `SSO_ENCRYPTION_KEY` | SSO client secrets at rest (Stage 20) | 32 random bytes, distinct from the mailbox key |
+| `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` | payments | only when `PAYMENT_PROVIDER=stripe`; never validated from this codebase |
+| `DATABASE_URL`, `DIRECT_URL` | above | never printed |
 
-Until one of those is done, prefer a host with a real filesystem.
+They live in the host's secrets manager and reach the process as
+environment variables. Nothing is read from a file in the repository;
+`tests/hardening-static.test.ts` fails the build if a secret-shaped string
+or a `.env` is ever tracked. Rotation: `AUTH_SECRET` signs everyone out
+(accepted); the encryption keys carry a key version so re-encryption is a
+sweep; `DISASTER_RECOVERY.md` scenario 6.
 
-## 3. Headless CMS (Payload)
+## 4. The application, the CMS, the worker
 
-The CMS runs **inside this same Next.js app** — there is no second service to
-deploy:
+**One deployable** serves the web app, the API and the CMS (`/admin`,
+`/api/cms`). Build with `npm run build`, run with `npm run start` behind
+TLS; `NEXT_PUBLIC_APP_URL` is the real origin (every signed link and
+checkout return is built from it, never from the request's `Host`);
+`TRUSTED_PROXY_HOPS` is how many proxies append to `X-Forwarded-For`
+(default 1). `STAFF_EMAILS` names the staff allow-list; unset, the console
+denies everyone.
 
-| Surface | Path |
-| --- | --- |
-| Admin UI | `/admin` |
-| REST API | `/api/cms/*` |
-| GraphQL | `/api/cms/graphql` |
+**The worker** is the same codebase started as `npm run worker`
+(`scripts/ops/worker.ts`): one long-running process that runs job-source
+freshness (every 6 h), the analytics rollups (daily), the retention sweep
+and due erasures (daily) and case retention (daily) on **leased runs**
+(`WorkerRun` rows: a second worker, or a restart, can never run the same
+window twice). Run exactly one; a second is harmless but idle.
+`/api/health` reports `checks.worker` and `SLOS.md` A4 fires when a job is
+overdue. There is no queue and no dead-letter queue; a failed run is a row
+with the error and is retried at the next tick.
 
-It is mounted at `/api/cms` rather than Payload's default `/api` specifically
-so its catch-all route can never shadow the application's own endpoints
-(`/api/apply`, `/api/auth/*`, `/api/webhooks/stripe`, …). Verified: with the
-CMS mounted, `/api/apply` still returns 401 rather than a CMS 404.
+**Rate limiting and cache across instances.** One instance needs nothing.
+Before a second instance: `RATE_LIMIT_STORE=postgres` (the shared counter
+table, Stage 24) so the limits are per platform and not per instance
+(R-16), and `REDIS_URL` with `ioredis` installed for the shared cache
+(optional; the in-memory cache is correct but not shared).
 
-### Two databases, on purpose
+**Response headers** are `security-headers.mjs` on every route plus a
+per-request `script-src` nonce policy set by the edge gate
+(`src/proxy.ts`); the Playwright run asserts no CSP violation on any
+rendered page.
 
-`PAYLOAD_DATABASE_URI` is separate from `DATABASE_URL`:
+## 5. Providers
 
-- **Prisma** owns transactional product data — users, jobs, applications,
-  subscriptions. The tables that drive billing and quota enforcement.
-- **Payload** owns editorial content — pages, blog posts, learning paths,
-  career guides, certifications.
+| Variable | Effect | Validated live? |
+| --- | --- | --- |
+| `JOB_PROVIDER` | names a `JobSource` register row; the source must also be ENABLED at `/console/sources` with its policy record complete | Adzuna: NO (registered disabled) |
+| `AI_PROVIDER=anthropic` + `ANTHROPIC_API_KEY` | reaches the gateway; a task is served by a model only once a `PromptVersion` is promoted after an evaluation (`/console/prompts`) | NO |
+| `PAYMENT_PROVIDER=stripe` + keys + `STRIPE_PRICE_MAP` | checkout and the webhook at `POST /api/webhooks/stripe` | NO |
+| `MAILBOX_CONNECTOR` | Google/Microsoft metadata-scope connectors need their OAuth client ids and secrets; `mock` is refused in production | NO |
 
-Different lifecycles and different restore stories: rolling back a bad content
-edit should never risk customer subscription records. Nothing in the CMS reads
-or writes a Prisma table.
+`docs/governance/INTEGRATION_REGISTER.md` is the truth for every one of
+these; each is IMPLEMENTED-NOT-VALIDATED until a live run is recorded there.
 
-One deliberate consequence: **pricing numbers are not in the CMS.** Plan
-prices, quotas and features live in Prisma's `Plan` table because they drive
-real checkout and quota enforcement. The `pricing-copy` global holds only the
-surrounding heading and FAQ text. If the amounts lived in both places, a
-content edit could silently disagree with what a customer is charged.
+**Apply mode.** `APPLY_MODE` is `mock`, `auto` or `assisted`; preparation
+never submits under any of them (ADR-0026); `auto` permits the applicant's
+own instructed submission through an employer-authorised ATS credential
+and behaves as `assisted` without one. There is no autonomous submission
+(ADR-0016, Stage 22 gate).
 
-### First run
+## 6. Monitoring, on-call, status page
 
-Visit `/admin`. Payload prompts to create the first editor account, then that
-account manages the rest (`Editors` collection, roles: admin / editor).
+`docs/operations/SLOS.md`: the signals `/api/health` exposes, the proposed
+objectives, eleven alert rules a hosted monitor can implement, and the
+status-page decision. **None is connected; nobody is on call.**
 
-The public site does not depend on the CMS having content. Every accessor in
-`src/lib/cms.ts` returns `null` rather than throwing, and the landing page
-falls back to its built-in copy — so an empty CMS, or an unreachable one,
-never takes the front page down. Verified both directions: publishing a `home`
-page overrides the hero live, and deleting it restores the built-in copy.
+## 7. Pre-launch checklist
 
-### Production notes
-
-- `PAYLOAD_SECRET` must be a generated value. It is validated the same way as
-  `AUTH_SECRET`, including rejecting the `.env.example` placeholder by value —
-  the placeholder is long enough to pass a naive length check. The two secrets
-  are deliberately distinct so a single leak cannot compromise both editor and
-  job-seeker sessions.
-- The guard intentionally does **not** fire during `next build`
-  (`NEXT_PHASE=phase-production-build`), so CI can build without runtime
-  secrets. It fires at server start, which is what actually matters.
-- **No email adapter is configured.** Editor password-reset emails are written
-  to the server console. Add a Payload email adapter before real editors rely
-  on self-service password resets.
-- Uploaded media is written to `media/` on local disk — the same
-  persistent-storage caveat as `storage/` in section 2 applies.
-- The CMS adapter is chosen from `PAYLOAD_DATABASE_URI`'s scheme: a `file:`
-  path selects SQLite (local only); a `postgres://` / `postgresql://` URL
-  selects PostgreSQL. Production uses a **separate logical database** on the
-  same managed instance as `DATABASE_URL` — never the same database.
-
-### Regenerating CMS artifacts
-
-After changing collections or fields:
-
-```bash
-npm run cms:types      # regenerate src/payload-types.ts
-npm run cms:importmap  # regenerate the admin import map
-```
-
-Both run through `scripts/payload-cli.mjs`. Payload's CLI requires an ESM
-project, while this app builds and runs correctly as CommonJS — the wrapper
-toggles `"type": "module"` for the duration of the command and restores
-`package.json` afterwards, including on failure or Ctrl-C. Converting the whole
-project to ESM purely to satisfy a codegen tool would have meant rewriting the
-lazy `require()` provider loads for no runtime benefit.
-
-## 4. Providers
-
-| Variable | Effect |
-| --- | --- |
-| `AI_PROVIDER=anthropic` + `ANTHROPIC_API_KEY` | Real resume tailoring, match scoring and interview prep. Without it, the local scoring engine runs — which works, but is not the product's selling point. |
-| `JOB_PROVIDER=adzuna` + `ADZUNA_APP_ID` / `ADZUNA_APP_KEY` | Live Canadian and US postings. Free tier at <https://developer.adzuna.com>. |
-| `PAYMENT_PROVIDER=stripe` + `STRIPE_SECRET_KEY` | Real checkout. |
-
-Each falls back to its mock with a warning if the credential is missing, so a
-partial configuration degrades rather than crashes.
-
-### Stripe
-
-1. Create a Price for every plan and interval you sell (three plans × three
-   intervals = nine).
-2. Map them, either individually or as one JSON blob:
-
-   ```bash
-   STRIPE_PRICE_PROFESSIONAL_MONTHLY=price_…
-   # or
-   STRIPE_PRICE_MAP='{"professional:monthly":"price_…","executive:annual":"price_…"}'
-   ```
-
-3. Add a webhook endpoint pointing at `POST /api/webhooks/stripe`, subscribed to
-   `checkout.session.completed`, `customer.subscription.updated`,
-   `customer.subscription.deleted` and `invoice.payment_failed`. Put its signing
-   secret in `STRIPE_WEBHOOK_SECRET`.
-
-The webhook — not the browser redirect — is what activates a subscription. A
-customer who closes the tab after paying still gets their plan, and a customer
-who edits the success URL gets nothing. The handler returns 500 on failure so
-Stripe retries rather than dropping the event.
-
-### Apply mode
-
-`APPLY_MODE` controls how applications reach employers:
-
-- `mock` — simulated; the default while `JOB_PROVIDER=mock`.
-- `auto` — submit through an authorized ATS API where one is available, prepare
-  an assisted application everywhere else. The default once a live job source is
-  configured.
-- `assisted` — never submit on the applicant's behalf.
-
-Programmatic submission additionally requires a credential the **employer**
-issues for their board (`ATS_GREENHOUSE_<BOARD>`, `ATS_LEVER_<BOARD>`). Without
-one, `auto` behaves exactly like `assisted`. This is deliberate: the major job
-boards prohibit automated submission and enforce it against the *applicant's*
-account, so the engine does not drive their forms.
-
-## 5. Secrets
-
-`AUTH_SECRET` signs session cookies. The committed default is a development
-placeholder — **replace it**, or every session token is forgeable by anyone who
-has read the repository.
-
-```bash
-AUTH_SECRET=$(openssl rand -base64 32)
-```
-
-Also set `NEXT_PUBLIC_APP_URL` to the real origin; Stripe's success and cancel
-URLs are built from it.
-
-### Redis — optional
-
-The CMS fast-read cache (`src/lib/cache/`) backs the ATS-ruleset and prompt
-lookups on the automation engine's hot path. With no configuration it uses a
-process-local TTL map, which is correct for a single instance and needs nothing
-installed.
-
-To share the cache across instances, set `REDIS_URL` **and** install the client,
-which is deliberately not a package.json dependency:
-
-```bash
-npm install ioredis
-```
-
-The two go together. `ioredis` is loaded through Node's resolver at runtime, so
-an install without it builds and boots normally; but if `REDIS_URL` is set while
-the package is missing, cache construction throws and the app logs
-`[cache] REDIS_URL set but Redis init failed` and falls back to the in-memory
-map — working, but not shared. Check that line in the logs after a deploy that
-turns Redis on.
-
-## 6. Known limits at scale
-
-- **Rate limiting is per instance.** `src/lib/rate-limit.ts` keeps counters in
-  process memory, so with N instances the effective ceiling is N × the
-  configured limit. Correct for a single instance; move the store to Redis
-  before scaling horizontally. The exported interface is what a shared
-  implementation has to satisfy.
-- **Adzuna returns snippets, not full postings.** Tailoring is sharper when the
-  complete description is available; fetching it from `applyUrl` is a worthwhile
-  follow-up.
-- **Scans are synchronous.** A user with many agents waits for the whole fan-out.
-  Moving scans to a queue is the first thing to do when scan latency starts
-  showing up in support requests.
-
-## Pre-launch checklist
-
-- [ ] `provider = "postgresql"` and `DATABASE_URL` set
-- [ ] `npm run db:push && npm run db:seed` run against production
-- [ ] `AUTH_SECRET` replaced with a generated value
-- [ ] `NEXT_PUBLIC_APP_URL` set to the real origin
-- [ ] Storage decision made (persistent disk or object storage)
-- [ ] `PAYLOAD_SECRET` replaced with a generated value (distinct from `AUTH_SECRET`)
-- [ ] First CMS editor account created at `/admin`
-- [ ] Stripe prices created, mapped, and the webhook registered
-- [ ] `APPLY_MODE` set deliberately
-- [ ] `npm run check` passes (types + tests)
+- [ ] `npm run env:check` passes on the production configuration
+- [ ] `DATABASE_URL` (pooler) and `DIRECT_URL` (session) set, same role; `npm run db:migrate:deploy` and `db:migrate:status` clean
+- [ ] Plans loaded; the demo account does NOT exist; `STAFF_EMAILS` names real staff only
+- [ ] `AUTH_SECRET` and `PAYLOAD_SECRET` generated and distinct; the encryption keys generated if their features are on
+- [ ] `NEXT_PUBLIC_APP_URL` is the real HTTPS origin; `TRUSTED_PROXY_HOPS` matches the host
+- [ ] `STORAGE_PROVIDER=s3` in a Canadian region with versioning
+- [ ] `PAYLOAD_DATABASE_URI` is a separate PostgreSQL database; first CMS editor created at `/admin`
+- [ ] The worker is running; `/api/health` says `ok` or names why it is `degraded`
+- [ ] A monitor polls `/api/health` with at least rules A1, A2 and A4; someone receives them
+- [ ] `npm run db:backup` scheduled daily; a restore rehearsed on the provider (NOT yet)
+- [ ] `npm run smoke -- <origin>` passes
+- [ ] The consent wording for every purpose is counsel's (L-5); the `-draft` versions are refused in production
+- [ ] The founder has read `docs/programme/RELEASE_VERDICT.md` and the external actions it lists

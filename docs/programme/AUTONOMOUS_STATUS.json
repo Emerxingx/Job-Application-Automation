@@ -2,12 +2,12 @@
   "$comment": "Machine-readable controller for the autonomous build programme. Authoritative over any chat transcript: if this file and a conversation disagree, this file wins. Updated at every stage checkpoint.",
   "schema_version": 1,
   "updated_at": "2026-09-05",
-  "current_stage": 23,
-  "last_completed_stage": 22,
-  "current_branch": "claude/stage-23-hardening",
+  "current_stage": 24,
+  "last_completed_stage": 23,
+  "current_branch": "claude/stage-24-production-readiness",
   "current_head": "d073ad40df4174f4b881d82eabef3a213fff6c4c",
   "current_head_meaning": "SHA of the last commit whose full gate set was verified locally (lint, typecheck, tests, build). Set by the status-sync commit that immediately follows it, so it names a real, verified commit rather than the one it is written in.",
-  "current_pr": "https://github.com/Emerxingx/Job-Application-Automation/pull/35",
+  "current_pr": "pending (draft PR on base claude/stage-23-hardening; recorded in the status-sync commit)",
   "main_head": "d6ae8b3a9180b529abe06f23417515432c0a7f0e",
   "run_complete": false,
   "stage_status": {
@@ -35,7 +35,7 @@
     "21": "PASS (engineering) — exit gate PARTIAL (no event stream, scheduler or warehouse; throughput NOT VERIFIED); independent review processed",
     "22": "BLOCKED_BY_DESIGN — gate recorded (STAGE22_GATE.md), nothing built",
     "23": "PASS (engineering) — exit gate PARTIAL (penetration test EXTERNAL; provider PITR, production performance, monitoring/on-call, nonce CSP, shared rate-limit store open); independent review processed (3 HIGH / 7 MEDIUM / 11 LOW; all HIGH and MEDIUM fixed)",
-    "24": "NOT_STARTED"
+    "24": "PASS (engineering) — exit gate NOT MET: \"live, monitored, rollback-rehearsed\" needs a production environment, a monitor and an on-call person, all EXTERNAL ACTIONS; independent review pending"
   },
   "stage_01_progress": {
     "webhook_replay_and_ordering": "DONE — src/lib/billing/webhook-events.ts, wired into the Stripe route, 12 tests",
@@ -83,7 +83,7 @@
     ],
     "verdict": "Stage 01 is PARTIAL, not PASS. Every unmet item traces to the staging project being unreachable from the build environment, except tenant-path adoption, which is engineering and continues in Stage 02 alongside the schema work that touches those handlers."
   },
-  "next_requirement": "Stage 23 independent adversarial review (fix HIGH/MEDIUM), then Stage 24 (production deployment and readiness) on a stacked branch from the Stage 23 head: DEPLOYMENT.md against ADR-0015, runbooks, monitoring/alerting/SLOs, status page, smoke suite, rollback rehearsal; then the consolidated release verdict.",
+  "next_requirement": "Stage 24 live measurements (smoke, a11y + CSP proof, perf health row), evidence, PR, independent adversarial review (fix HIGH/MEDIUM), then the consolidated release verdict (RELEASE_VERDICT.md) and run_complete=true.",
   "blockers": [
     {
       "id": "ATS-SANDBOX-CREDENTIAL",
@@ -831,6 +831,29 @@
     "audit": "DONE — PRODUCTION_READINESS_GATES.md re-measured row by row (G1–G7) against Stages 00–23; SECURITY_PRIVACY_ARCHITECTURE \"not yet assessed\" resolved item by item",
     "tests": "DONE — tests/hardening-static.test.ts (17), tests/privacy.test.ts (8), storage-provider paging (1); sensitive-segregation allow-lists the erasure module by name; 1302/1302 on a fresh database",
     "not_done": "STATED — penetration test (external action PEN-TEST), nonce CSP, shared rate-limit store, provider PITR and production-size restore, monitoring/on-call/SLOs/status page, production performance and Core Web Vitals, dark-theme and interaction accessibility, retention automation for employer pipelines and staffing records, staging rehearsal (R-34)"
+  },
+  "stage_24_progress": {
+    "scheduler": "DONE — src/lib/ops/scheduler.ts (JOBS: freshness 6h, analytics_rollup 24h, retention_sweep 24h, cases_retention 24h, rate_limit_buckets 1h; leased windows on WorkerRun, unique (job, windowStart); abandoned runs marked after the timeout; workerHealth) + scripts/ops/worker.ts (npm run worker, WORKER_TICK_SECONDS, WORKER_ONCE); NOT a queue, no DLQ (stated)",
+    "rate_limit_store": "DONE — rateLimit async at every call site (static test); RATE_LIMIT_STORE=postgres → RateLimitBucket, one atomic upsert, exact under 20 concurrent callers (database test); memory default; shared-store failure degrades to per instance; R-16 closed as a mechanism",
+    "csp_nonce": "DONE — src/proxy.ts sets a 128-bit nonce policy (base directives + script-src nonce + strict-dynamic) on the request and every response; security-headers.mjs exports the base directives and the builder; a11y/csp.spec.ts fails on any violation in Chromium over public, candidate, console and CMS-admin pages (measured in the evidence)",
+    "env_check": "DONE — src/lib/ops/env-check.ts + npm run env:check: 20+ shape checks, PASS/WARN/FAIL, no value printed; 17 failing shapes tested",
+    "smoke": "DONE — src/lib/ops/smoke.ts + npm run smoke -- <origin>: health words, every header, the nonce policy, deny-by-default, both envelopes, CSRF refusal, CMS up, 404 without a trace; fake-fetch tests; runs in CI against the built app",
+    "runbooks": "DONE — DEPLOYMENT.md rewritten (the deploy sequence), RUNBOOKS.md index, SLOS.md (objectives + 11 alert rules + status-page decision), ROLLBACK.md (rehearsed locally: pre-migration dump restored, two migrations pending from the new code, previous version's tenant path 17/17), BREAK_GLASS.md + npm run ops:break-glass (audited), SUPPORT.md; DEPLOYMENT_ARCHITECTURE updated",
+    "gates": "DONE — PRODUCTION_READINESS_GATES.md re-measured: response headers PASS, rate limiting PASS, background processing / monitoring / SLOs / rollback / DR PARTIAL (no FAIL left in G4); overall NOT READY, reasons named",
+    "not_done": "STATED — no production environment, deploy, canary, CDN, monitor, alert, status page, on-call, support address (founder actions); provider PITR and production-size restore; production latency and Core Web Vitals; a queue with retries and a DLQ; the audit hash chain; staging rehearsal (R-34); penetration test; consent wording (L-5); jurisdiction answers (L-4); every live integration"
+  },
+  "stage_24_exit_gate": {
+    "met": [
+      "Every part of \"go live deliberately\" that is code, procedure or measurement exists and is tested: scheduler, shared limiter, nonce policy, configuration check, smoke suite, runbooks, rollback rehearsal",
+      "The readiness gates are re-measured against the Stage 00-24 head with no false PASS: nothing moved to PASS on the strength of a document",
+      "The consolidated release verdict names every external action"
+    ],
+    "not_met": [
+      "Live: no production environment exists (EXTERNAL ACTION)",
+      "Monitored: no monitor is connected and nobody is on call (EXTERNAL ACTION)",
+      "Rollback rehearsed on the provider with PITR (EXTERNAL ACTION; rehearsed locally only)",
+      "Independent adversarial review of Stage 24 (pending)"
+    ]
   },
   "stage_23_exit_gate": {
     "met": [

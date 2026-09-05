@@ -13,7 +13,7 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, it } from 'node:test';
-import { SECURITY_HEADERS } from '../security-headers.mjs';
+import { CSP_BASE_DIRECTIVES, SECURITY_HEADERS, contentSecurityPolicy } from '../security-headers.mjs';
 import { isCrossSiteWrite, isPublicPath } from '../src/proxy';
 import { redact, redactError } from '../src/lib/log';
 
@@ -26,11 +26,17 @@ describe('Stage 23 - security headers', () => {
     assert.match(config, /import \{ SECURITY_HEADERS \} from '\.\/security-headers\.mjs'/);
     assert.match(config, /source: '\/\(\.\*\)', headers: SECURITY_HEADERS/);
     const byKey = new Map(SECURITY_HEADERS.map((h) => [h.key, h.value]));
-    assert.match(byKey.get('Content-Security-Policy') ?? '', /frame-ancestors 'none'/);
-    assert.match(byKey.get('Content-Security-Policy') ?? '', /object-src 'none'/);
-    assert.match(byKey.get('Content-Security-Policy') ?? '', /base-uri 'self'/);
-    assert.match(byKey.get('Content-Security-Policy') ?? '', /form-action 'self'/);
-    assert.ok(!/script-src/.test(byKey.get('Content-Security-Policy') ?? ''), 'a script-src the app violates is worse than none: it is Stage 24 with a nonce, stated');
+    // Stage 24 (ADR-0038): the policy is per request (a nonce), built by the
+    // edge gate from the base directives; it is no longer a static header.
+    assert.equal(byKey.get('Content-Security-Policy'), undefined, 'a static header cannot carry a per-request nonce');
+    const csp = contentSecurityPolicy('n0nce', false);
+    for (const d of ["frame-ancestors 'none'", "object-src 'none'", "base-uri 'self'", "form-action 'self'"]) assert.ok(CSP_BASE_DIRECTIVES.includes(d) && csp.includes(d), d);
+    assert.match(csp, /script-src 'nonce-n0nce' 'strict-dynamic'/);
+    assert.ok(!/unsafe-eval|unsafe-inline/.test(csp), 'production never gets an unsafe source');
+    assert.match(contentSecurityPolicy('n0nce', true), /'unsafe-eval'/, 'development needs eval for source maps');
+    const proxy = read('src', 'proxy.ts');
+    assert.match(proxy, /requestHeaders\.set\('Content-Security-Policy', csp\)/, 'the policy reaches Next on the request so it stamps the nonce');
+    assert.equal((proxy.match(/withCsp\(/g) ?? []).length, 5, 'every response the gate returns (next, 403, 401, redirect) carries the policy');
     assert.equal(byKey.get('X-Frame-Options'), 'DENY');
     assert.equal(byKey.get('X-Content-Type-Options'), 'nosniff');
     assert.match(byKey.get('Strict-Transport-Security') ?? '', /max-age=\d{7,}; includeSubDomains/);
@@ -71,7 +77,7 @@ describe('Stage 23 - the edge gate: CSRF and the health check', () => {
   it('the proxy applies the check only when the session cookie is present, before the public-path decision', () => {
     const proxy = read('src', 'proxy.ts');
     const check = proxy.indexOf("(request.cookies.get('jobpilot_session') || request.cookies.get('payload-token')) && isCrossSiteWrite(");
-    const publicDecision = proxy.indexOf('if (isPublicPath(pathname)) return NextResponse.next();');
+    const publicDecision = proxy.indexOf('if (isPublicPath(pathname)) return next();');
     assert.ok(check > 0 && publicDecision > check, 'a cross-site write to a public route (login, signup) is refused too');
     assert.match(proxy, /status: 403/);
   });

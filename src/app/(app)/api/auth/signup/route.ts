@@ -25,7 +25,7 @@ const schema = z.object({
 });
 
 export const POST = route(async (request: Request) => {
-  const limit = rateLimit('auth', clientAddress(request), LIMITS.auth);
+  const limit = await rateLimit('auth', clientAddress(request), LIMITS.auth);
   if (!limit.ok) {
     return tooMany(
       `Too many sign-up attempts. Try again in ${describeWait(limit.retryAfterSeconds)}.`,

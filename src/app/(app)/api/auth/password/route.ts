@@ -20,7 +20,7 @@ export const POST = route(async (request: Request) => {
   const user = await requireUser();
   // Keyed by USER, not address: the threat is a stolen session guessing the
   // current password online, and the attacker's address is not the owner's.
-  const limit = rateLimit('auth', `password:${user.id}`, LIMITS.auth);
+  const limit = await rateLimit('auth', `password:${user.id}`, LIMITS.auth);
   if (!limit.ok) {
     return tooMany(`Too many attempts. Try again in ${describeWait(limit.retryAfterSeconds)}.`, limit.retryAfterSeconds);
   }

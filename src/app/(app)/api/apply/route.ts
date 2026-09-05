@@ -20,7 +20,7 @@ export const POST = route(async (request: Request) => {
 
   // The plan quota caps applications per month; this caps how fast they can be
   // requested, so a runaway client cannot burn the AI budget in a loop.
-  const limit = rateLimit('apply', user.id, LIMITS.apply);
+  const limit = await rateLimit('apply', user.id, LIMITS.apply);
   if (!limit.ok) {
     return tooMany(
       `That is a lot of applications at once. Try again in ${describeWait(limit.retryAfterSeconds)}.`,

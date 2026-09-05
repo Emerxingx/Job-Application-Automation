@@ -3,9 +3,13 @@
 **Residency:** `../adr/ADR-0015-data-residency.md` · **CI:** `../adr/ADR-0018-ci-quality-gates.md`
 
 ## Current state
-`DEPLOYMENT.md` documents the intended deployment. Measured reality: **no CI, no
-production environment, no runbooks, no on-call, no status page.** The
-application builds cleanly (exit 0, ~79 routes) and boots with zero configuration.
+`DEPLOYMENT.md` is the deploy sequence against the code as it is (Stage 24,
+ADR-0038): `env:check` → backup → `db:migrate:deploy` → roll → `smoke` →
+worker. Measured reality: CI on every push (verify, mobile, generated files,
+line endings, accessibility with the smoke suite and the CSP browser proof,
+SBOM); runbooks indexed in `../operations/RUNBOOKS.md` and rehearsed locally
+where they can be; **no production environment, no monitor, no on-call, no
+status page** - the founder's actions in `../programme/RELEASE_VERDICT.md`.
 
 ## Target topology (founder stage)
 ```
@@ -100,13 +104,16 @@ transactional store at any tier.
 | --- | --- | --- |
 | SQLite | No RLS, no concurrent writes | 01 |
 | No migrations | No reproducible schema | 01 |
-| In-process rate limiting | Ceiling × instance count | 01 |
-| In-process cache | Invalidation does not propagate | 01 (Redis) |
-| Local filesystem storage | Artefacts lost on restart | 05 |
-| No workers | Everything on the request path | 01/05 |
+| In-process rate limiting | Ceiling × instance count | **Removed in 24** (`RATE_LIMIT_STORE=postgres`, opt-in) |
+| In-process cache | Invalidation does not propagate | 01 (Redis, optional; not shared until `REDIS_URL` is set) |
+| Local filesystem storage | Artefacts lost on restart | 05 (S3 provider; `env:check` warns on `local`) |
+| No workers | Everything on the request path | **Reduced in 24** (`npm run worker`: the sweeps on leased windows; scans are still synchronous) |
 
 ## Operational readiness (Stage 24)
-Runbooks · on-call · monitoring and alerting · SLOs · status page · incident
-response · **rehearsed restore from backup** · documented RPO/RTO · production
-smoke suite. None exists today; each is a gate in
-`../programme/PRODUCTION_READINESS_GATES.md`.
+Runbooks (written, indexed) · on-call (NONE) · monitoring and alerting
+(rules defined, no monitor connected) · SLOs (proposed) · status page (NONE)
+· incident response (written, never exercised) · restore from backup
+(rehearsed locally, twice) · rollback (rehearsed locally) · RPO/RTO
+(proposed) · production smoke suite (built, runs in CI against the built
+app). Each is a gate in `../programme/PRODUCTION_READINESS_GATES.md` with
+its honest status.

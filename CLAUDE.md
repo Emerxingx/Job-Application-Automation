@@ -51,11 +51,17 @@ npm run cms:importmap      # regenerate the tracked Payload import map
 npm run cms:types          # regenerate payload-types.ts
 
 # Stage 23 (ADR-0037): measurements and operator commands
-npm run a11y               # WCAG 2.2 AA (axe) over 43 rendered pages of a BUILT, STARTED app on :3000 (A11Y_CHROMIUM=/opt/pw-browsers/chromium here)
+npm run a11y               # WCAG 2.2 AA (axe) over 42 rendered pages + the CSP nonce proof (a11y/csp.spec.ts) of a BUILT, STARTED app on :3000 (A11Y_CHROMIUM=/opt/pw-browsers/chromium here)
 npm run perf:load          # p95 per route vs docs/operations/PERFORMANCE_BUDGETS.md, against a running app (local numbers only)
 npm run perf:rollup        # Stage 21 rollup + extraction throughput at 20k submissions, against DATABASE_URL
 npm run retention:sweep    # DATA_RETENTION_MATRIX rows marked ENFORCED BY SWEEP + due account erasures; audited
 npm run db:backup -- <dir> # pg_dump custom format + checksum from DIRECT_URL; npm run db:restore -- <dump> into an EMPTY target
+
+# Stage 24 (ADR-0038): the deploy sequence and the worker
+npm run env:check          # is this configuration production-shaped? prints NO value; exit 1 on any FAIL (first step of every deploy)
+npm run smoke -- <origin>  # the production smoke suite against a deployed origin (anonymous; also runs in CI against the built app)
+npm run worker             # the scheduler: freshness, rollups, retention, case retention on leased windows (WorkerRun); one per deployment
+npm run ops:break-glass    # records a direct production session in AuditLog before it opens (--actor --reason --ticket) and on --close
 
 # The mobile app (Stage 14) is its own package: cd mobile && npm ci && npm run verify
 #   (api:types diff · typecheck · 24 node:test suites · Metro web bundle). Never run on a device here.
@@ -64,7 +70,7 @@ npm run db:backup -- <dir> # pg_dump custom format + checksum from DIRECT_URL; n
 ## Things that will surprise you
 
 1. **The database is PostgreSQL with a versioned migration history** since
-   Stage 01 (`ADR-0002`). Fifty-six migrations under `prisma/migrations/`; CI applies
+   Stage 01 (`ADR-0002`). Fifty-eight migrations under `prisma/migrations/`; CI applies
    them to an empty database and fails on drift. `DATABASE_URL` is the
    transaction pooler, `DIRECT_URL` the session endpoint for migrations. The RLS
    migration is **generated** from `src/lib/tenancy/rls-tables.ts` — regenerate
@@ -573,6 +579,33 @@ npm run db:backup -- <dir> # pg_dump custom format + checksum from DIRECT_URL; n
     proves the tenant path - a restore that only checks the system client
     is the false PASS the review caught. A penetration test is an EXTERNAL
     action - never describe a code review as one.
+
+34. **There is a scheduler now, a shared limiter, a per-request script
+    policy, and still no production environment** (Stage 24, ADR-0038).
+    `src/lib/ops/scheduler.ts` + `npm run worker`: the sweeps run on LEASED
+    windows (`WorkerRun`, unique on job × window start; the insert is the
+    lease; an unfinished run is abandoned after its timeout) - never add a
+    `pg_advisory_lock` on the runtime connection (the pooler). It is not a
+    queue; say so. **`rateLimit` is async** - every call site awaits (a
+    static test refuses one that does not); `RATE_LIMIT_STORE=postgres`
+    selects the shared `RateLimitBucket` store (one atomic upsert), unset
+    is per instance; a shared-store failure degrades to per instance,
+    never open or closed. **The CSP lives in `src/proxy.ts`**: a 128-bit
+    nonce per request, the base directives from `security-headers.mjs`
+    plus `script-src 'nonce-…' 'strict-dynamic'`, on the REQUEST (Next
+    stamps the nonce) and on EVERY response the gate returns; production
+    never gets `unsafe-eval`; an inline script must read `x-nonce`;
+    `a11y/csp.spec.ts` fails on any violation in a real browser, CMS admin
+    included. `npm run env:check` judges shapes and prints no value -
+    keep it that way; `npm run smoke` is anonymous by design. `/api/health`
+    now reports `worker` (`current` / `overdue` / `never ran`) and
+    `rateLimitStore` (`local` / `shared`), fixed words only. Runbooks are
+    indexed in `docs/operations/RUNBOOKS.md` and each says what is
+    rehearsed; `ROLLBACK.md` is rehearsed locally. **No production
+    environment, monitor, on-call, status page or support address exists**;
+    `docs/programme/RELEASE_VERDICT.md` is the consolidated answer and the
+    founder's action list - never write "live", "monitored" or "on call"
+    anywhere until those actions are recorded as done.
 
 ## Conventions worth preserving
 

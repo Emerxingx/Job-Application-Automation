@@ -140,8 +140,8 @@ export async function assignableMembers(tx: Client, actor: CaseActor) {
 export async function inviteClient(actor: CaseActor, input: { email: string; caseManagerId?: string | null; employmentGoal?: string }) {
   mustManage(actor);
   const email = input.email.trim().toLowerCase();
-  if (!rateLimit('cases:invite', actor.user.id, LIMITS.caseInvite).ok) throw new CaseError('Too many invitations from this account; try again later.', 429);
-  if (!rateLimit('cases:invite:org', actor.organizationId, LIMITS.caseInviteOrganization).ok) throw new CaseError('This organisation has reached its invitation limit for today.', 429);
+  if (!(await rateLimit('cases:invite', actor.user.id, LIMITS.caseInvite)).ok) throw new CaseError('Too many invitations from this account; try again later.', 429);
+  if (!(await rateLimit('cases:invite:org', actor.organizationId, LIMITS.caseInviteOrganization)).ok) throw new CaseError('This organisation has reached its invitation limit for today.', 429);
   const existing = await db.case.findMany({ where: { organizationId: actor.organizationId, invitedEmail: email, status: { in: ['invited', 'open', 'declined'] } }, select: { status: true } });
   if (existing.some((c) => c.status === 'invited' || c.status === 'open')) throw new CaseError('This organisation already has a case for that address.', 409);
   if (existing.some((c) => c.status === 'declined')) throw new CaseError('That person declined an earlier invitation from this organisation; the platform does not re-invite them.', 409);

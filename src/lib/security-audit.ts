@@ -131,7 +131,10 @@ export type SecurityEvent =
   | 'scim.token.revoked'
   | 'scim.user.provisioned'
   | 'scim.user.deactivated'
-  | 'scim.user.reactivated';
+  | 'scim.user.reactivated'
+  // Stage 24 (ADR-0038): a direct production session, recorded before it opens and when it closes - never a credential, never a value.
+  | 'ops.break_glass.opened'
+  | 'ops.break_glass.closed';
 
 export interface RequestMeta {
   ip?: string | null;

@@ -14,7 +14,7 @@ const schema = z.object({
 export const POST = route(async (request: Request) => {
   // Limited by address, since there is no authenticated user yet. This blunts
   // credential stuffing without locking a legitimate user out of their account.
-  const limit = rateLimit('auth', clientAddress(request), LIMITS.auth);
+  const limit = await rateLimit('auth', clientAddress(request), LIMITS.auth);
   if (!limit.ok) {
     return tooMany(
       `Too many sign-in attempts. Try again in ${describeWait(limit.retryAfterSeconds)}.`,
@@ -27,7 +27,7 @@ export const POST = route(async (request: Request) => {
   const meta = requestMeta(request);
   // Stage 14 review: a per-ACCOUNT budget too, keyed by the digest of the
   // address, so a caller rotating X-Forwarded-For still runs out of guesses.
-  const account = rateLimit('auth_account', hashEmail(email), LIMITS.authAccount);
+  const account = await rateLimit('auth_account', hashEmail(email), LIMITS.authAccount);
   if (!account.ok) {
     return tooMany(`Too many sign-in attempts for this account. Try again in ${describeWait(account.retryAfterSeconds)}.`, account.retryAfterSeconds);
   }
