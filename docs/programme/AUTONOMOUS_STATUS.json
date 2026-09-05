@@ -5,7 +5,7 @@
   "current_stage": "14",
   "last_completed_stage": "00",
   "current_branch": "claude/stage-14-candidate-api-contract",
-  "current_head": "aa317c8a025081556eed65832fa7c935f749c979",
+  "current_head": "70577bfd776f669d51c45e55ef15d5a51f01d9b7",
   "current_head_meaning": "SHA of the last commit whose full gate set was verified locally (lint, typecheck, tests, build). Set by the status-sync commit that immediately follows it, so it names a real, verified commit rather than the one it is written in.",
   "current_pr": "https://github.com/Emerxingx/Job-Application-Automation/pull/26",
   "main_head": "d6ae8b3a9180b529abe06f23417515432c0a7f0e",
@@ -564,7 +564,7 @@
       "Mobile consumes only the published contract — generated types diffed in CI, path parity, no direct fetch (test-enforced)",
       "Same auth as web, platform-secure storage, no privileged endpoints — ADR-0029 (engineering; the secure-store write is NOT VERIFIED on a device)",
       "Offline behaviour: read-only cache, no offline submission (policy tested; a real drop NOT VERIFIED)",
-      "Full gate set green with the documented command only: lint 0/8, typecheck 0, 1087/1087 tests (0 skipped), build 0; mobile: typecheck 0, 24/24, web bundle 0 errors"
+      "Full gate set green with the documented command only: lint 0/8, typecheck 0, 1089/1089 tests (0 skipped), build 0; mobile: typecheck 0, 24/24, web bundle 0 errors"
     ],
     "not_met": [
       "Device matrix — NOT VERIFIED: no device or emulator in this environment",

@@ -197,7 +197,7 @@ support it; no provider is configured anywhere), document editing, billing
 | --- | --- |
 | Lint | 0 errors, 8 warnings (baseline) |
 | Typecheck | 0 (root; `mobile/` excluded and typechecked on its own: 0) |
-| Tests | **1087 / 1087**, 0 skipped (Stage 13: 1070) - `candidate-api-contract` 17 (was 8); `mobile/` **24 / 24** |
+| Tests | **1089 / 1089**, 0 skipped (Stage 13: 1070) - `candidate-api-contract` 17 (was 8), `rate-limit` +2; `mobile/` **24 / 24** |
 | Build | passes; twenty-two `/api/v1/*` routes present; `mobile/` web bundle 0 errors |
 | Migrations | **thirty-six** (one new, additive); fresh-database rehearsal: 36 applied, `migrate diff` clean, **120** forced-RLS public tables (unchanged: no new table) |
 
