@@ -2,12 +2,12 @@
   "$comment": "Machine-readable controller for the autonomous build programme. Authoritative over any chat transcript: if this file and a conversation disagree, this file wins. Updated at every stage checkpoint.",
   "schema_version": 1,
   "updated_at": "2026-09-05",
-  "current_stage": 21,
-  "last_completed_stage": 20,
-  "current_branch": "claude/stage-21-reporting-warehouse",
-  "current_head": "53f20744e2444d8647e472eae39f6299ab0678d4",
+  "current_stage": 22,
+  "last_completed_stage": 21,
+  "current_branch": "claude/stage-22-autonomous-gate",
+  "current_head": "c90bf9c82d611fa49893f6368a31ddeb7783683f",
   "current_head_meaning": "SHA of the last commit whose full gate set was verified locally (lint, typecheck, tests, build). Set by the status-sync commit that immediately follows it, so it names a real, verified commit rather than the one it is written in.",
-  "current_pr": "https://github.com/Emerxingx/Job-Application-Automation/pull/33",
+  "current_pr": "https://github.com/Emerxingx/Job-Application-Automation/pull/34",
   "main_head": "d6ae8b3a9180b529abe06f23417515432c0a7f0e",
   "run_complete": false,
   "stage_status": {
@@ -33,7 +33,7 @@
     "19": "PASS_ENGINEERING_EXIT_BLOCKED_L4_L5",
     "20": "PASS (engineering) — exit gate PARTIAL; SSO/SCIM IMPLEMENTED-NOT-VALIDATED; independent review processed",
     "21": "PASS (engineering) — exit gate PARTIAL (no event stream, scheduler or warehouse; throughput NOT VERIFIED); independent review processed",
-    "22": "BLOCKED_BY_DESIGN",
+    "22": "BLOCKED_BY_DESIGN — gate recorded (STAGE22_GATE.md), nothing built",
     "23": "NOT_STARTED",
     "24": "NOT_STARTED"
   },
@@ -83,7 +83,7 @@
     ],
     "verdict": "Stage 01 is PARTIAL, not PASS. Every unmet item traces to the staging project being unreachable from the build environment, except tenant-path adoption, which is engineering and continues in Stage 02 alongside the schema work that touches those handlers."
   },
-  "next_requirement": "Stage 22 (controlled autonomous application - BLOCKED BY DESIGN, ADR-0016: record the gate and the preconditions, build nothing that submits) on a stacked branch from the Stage 21 head, then Stage 23 hardening.",
+  "next_requirement": "Stage 23 (security, performance, accessibility and operational hardening) on a stacked branch from the Stage 22 head: the §20 audit with evidence per item, WCAG 2.2 AA, performance budgets and a load measurement (the Stage 21 rollup and extraction throughput included), backup/restore rehearsal, DR with RPO/RTO, incident response, retention/erasure end to end; a third-party penetration test is an external action.",
   "blockers": [
     {
       "id": "ATS-SANDBOX-CREDENTIAL",
@@ -801,5 +801,19 @@
       "Staging rehearsal NOT VERIFIED (R-34)"
     ],
     "verdict": "Stage 21 engineering PASS; the plan's exit gate PARTIAL on the stated items. Independent review processed (1 HIGH / 9 MEDIUM / 7 LOW; all but one stated LOW fixed)."
+  },
+  "stage_22_progress": {
+    "gate_record": "DONE — docs/programme/STAGE22_GATE.md: the proof table (modes, providers, submission paths, no scheduler, no evasion, source gate) with the tests that hold it; ten preconditions P1–P10, every one NOT MET, with what would satisfy each; what the stage did not do; the only order in which the gate reopens",
+    "registers": "DONE — COMPLIANCE_REGISTER L-6 (autonomous submission: OPEN, requires legal + founder decision, nothing built); ADR-0016 status amended; STAGE_STATUS row 22",
+    "code": "NONE, by design — no schema, flag, permission row, provider, scheduler or queue; no test relaxed (application-modes, ats-rulesets and the source gate tests unchanged)"
+  },
+  "stage_22_exit_gate": {
+    "met": [
+      "The gate is recorded with evidence rather than asserted; the preconditions are enumerated and each is stated NOT MET"
+    ],
+    "not_met": [
+      "Every precondition P1–P10 (by design: no design work is permitted before counsel and the founder decide)"
+    ],
+    "verdict": "Stage 22 BLOCKED BY DESIGN, as the plan states. Nothing was built. The programme continues to Stage 23."
   }
 }
