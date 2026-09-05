@@ -100,6 +100,9 @@ dataset.
 | Canadian Skills and Competencies Taxonomy | ESDC | Government of Canada content; terms to confirm | **unrecorded** — not ingested |
 | O*NET | U.S. DOL / National Center for O*NET Development | CC BY 4.0 with a required attribution statement | **unrecorded** — not ingested |
 | Test fixture | this repository | a dozen hand-written nodes in NOC's shape, attributed (`tests/fixtures/README-taxonomy.md`) | approvable only inside a test database |
+| Job Bank regulated occupations and certification requirements (Stage 16) | ESDC (Job Bank) | Government of Canada material; redistribution terms and attribution wording to confirm | **unrecorded** — not ingested |
+| CICIC directory of institutions and programs (Stage 16) | CMEC / CICIC | published for public information; redistribution and the recognition claims it carries need review | **unrecorded** — not ingested |
+| Learning-graph test fixture (Stage 16) | this repository | hand-written credentials, providers and offerings; every recognition value is what the file states (`tests/fixtures/learning-fixture.json`) | approvable only inside a test database |
 
 The "what the publisher states" column is what a developer read on the
 publisher's site. It is not a licence record and grants nothing: the row

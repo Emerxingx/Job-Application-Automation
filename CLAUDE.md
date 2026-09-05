@@ -26,7 +26,7 @@ remediation has begun.**
 npm ci                # install from the lockfile
 npm run dev           # http://localhost:3000
 npx tsc --noEmit      # typecheck  — PASSES
-npm test              # 1109 tests  — PASSES with the two database URLs below set; the
+npm test              # 1126 tests  — PASSES with the two database URLs below set; the
                       #   database suites skip WITH A REASON without them and THROW
                       #   when CI=true, so CI cannot pass by skipping them
 npm run build         # production — PASSES
@@ -57,7 +57,7 @@ npm run cms:types          # regenerate payload-types.ts
 ## Things that will surprise you
 
 1. **The database is PostgreSQL with a versioned migration history** since
-   Stage 01 (`ADR-0002`). Thirty-eight migrations under `prisma/migrations/`; CI applies
+   Stage 01 (`ADR-0002`). Forty migrations under `prisma/migrations/`; CI applies
    them to an empty database and fails on drift. `DATABASE_URL` is the
    transaction pooler, `DIRECT_URL` the session endpoint for migrations. The RLS
    migration is **generated** from `src/lib/tenancy/rls-tables.ts` — regenerate
@@ -349,6 +349,27 @@ npm run cms:types          # regenerate payload-types.ts
     codebase (no key here); `PlanPrice` and `BillingProfile` are wired into
     checkout (`resolvePrice`, `ensureBillingProfile`; a real gateway is only
     offered a price cell that carries its price id).
+
+27. **The career transition graph is licensed reference data and the engine
+    is pure** (Stage 16, ADR-0031). `Credential`, `OccupationCredential`,
+    `LearningProvider`, `LearningOffering` and their skill links are
+    `reference` rows loaded ONLY through `loadLearningGraph` →
+    `requireIngestible()` (an unknown NOC code is reported, never invented;
+    a prohibition purges everything the dataset loaded); every learning
+    dataset is `unrecorded` (L-2), so the graph is EMPTY outside a test
+    database and the pages say so. `src/lib/career/engine.ts` is
+    deterministic (a static test refuses the AI gateway, a provider, the
+    mailbox or the sensitive path under `src/lib/career`); every pathway
+    step carries provenance or an explicit "no licensed offering covers
+    this yet"; recognition is a string the dataset states; no outcome is
+    predicted. `credentialCounterfactual` is the Stage 07 engine run twice.
+    Plans are versioned (`refresh` writes n+1 with `supersedesId`), a `done`
+    milestone may cite only the person's own approved evidence, and access
+    is the `career_transition_per_month` / `learning_recommendations`
+    entitlements. `TaxonomyDataset` is system-only, so the career service
+    reads dataset facts through `datasetFacts()` on the system client -
+    the one documented system-client read in that path; never add a
+    `dataset` relation include on the tenant path (it returns null).
 
 ## Conventions worth preserving
 

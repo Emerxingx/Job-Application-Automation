@@ -77,6 +77,7 @@ the entitlement attaches to the **person** either way.
 
 ## Enforcement
 **Stage 15 (ADR-0030):** implemented. `src/lib/entitlements/service.ts` answers every question from `Entitlement` rows (resolved by max across the person and their organizations, free baseline otherwise); `tests/entitlements-static.test.ts` refuses a feature module that branches on `Subscription.status` or reads a plan column; the seeded plans' quantities (25 / 120 / 400 applications) are what the rows carry — this table's 30 / 100 / 300 are the target and reconciling them is a product decision (recorded in `STAGE15_EVIDENCE.md`).
+**Stage 16 (ADR-0031):** the two career rows are enforced: `career_transition_per_month` bounds new analyses in a rolling 30-day window (`analysisBudget`; a refresh of an existing plan does not count) and `learning_recommendations` decides whether the pathway's offerings are shown - the gaps are always shown and a withheld pathway says why.
 
 1. One entitlement service answers "may this account do X". No feature reads a
    subscription row.

@@ -409,3 +409,43 @@ never occurred.
   entitlement consequences are proven against the functions the webhook
   dispatches to; the Stage 01 replay and ordering tests stand.
 
+## Stage 16 — career transition, learning and certification
+
+- **Pure (`tests/career-engine.test.ts`):** a skill is held by id or
+  normalised name and a credential by any whole-word spelling (a substring
+  is not one); transferable skills are separated from gaps, gaps ordered by
+  importance, credentials priced by requirement (regulated 30, required 15,
+  preferred 5), the score banded; the pathway is credentials first (via an
+  offering when one leads to it, else the credential alone), then a greedy
+  set cover of offerings over the remaining skill gaps, then an explicit
+  "no licensed offering covers X yet" step with no provenance, then bridge
+  roles - every other step carrying its dataset; the same input yields the
+  same output; with no offerings and no dataset nothing is invented; an
+  offering counterfactual closes exactly the gaps it states it teaches; the
+  credential counterfactual turns an ineligible verdict eligible on exactly
+  the licensure rule and a credential the posting does not ask for changes
+  nothing. Static: nothing under `src/lib/career` imports the AI gateway, a
+  provider SDK, the mailbox or the sensitive path.
+- **Database (`tests/career.test.ts`):** the graph file is validated
+  (unknown kind, provider, credential, NOC shape, importance range,
+  duplicate slug refused); loading is refused until the licence is recorded
+  AND approved; a load carries the dataset on every row, reports an unknown
+  NOC and does not load it, and is idempotent; the engine on the tenant path
+  shows transfers, gaps with stated recognition, a pathway of licensed
+  offerings and the recorded bridge for the entitled, and withholds the
+  offerings (gaps complete, reason stated) for the unentitled; a plan is
+  versioned - create counts against the budget, refresh supersedes and
+  archives and carries done milestones by title without counting, the
+  budget refuses at the limit and the unentitled at zero, archived versions
+  are not listed; a completed milestone may cite the person's own approved
+  evidence and neither a draft nor another person's; RLS shows another
+  tenant none of the plans or milestones and refuses their update while
+  reference rows are readable by every tenant; the counterfactual on real
+  rows (the regulated CPA) moves ineligible to eligible on the licensure
+  rule with provenance; a prohibition purges the graph, the dataset's
+  occupations go with it, plans keep their stored analysis and cited
+  offerings are detached.
+- **NOT covered, by honesty:** any real learning dataset (none is
+  recorded), the UI beyond compile and lint, and any claim about what an
+  employer accepts.
+

@@ -1,13 +1,13 @@
 {
   "$comment": "Machine-readable controller for the autonomous build programme. Authoritative over any chat transcript: if this file and a conversation disagree, this file wins. Updated at every stage checkpoint.",
   "schema_version": 1,
-  "updated_at": "2026-09-05T12:55:00Z",
-  "current_stage": "15",
-  "last_completed_stage": "14",
-  "current_branch": "claude/stage-15-payments-entitlements",
+  "updated_at": "2026-09-05T14:40:00Z",
+  "current_stage": "16",
+  "last_completed_stage": "15",
+  "current_branch": "claude/stage-16-career-transition",
   "current_head": "669aae8a1bacf1bfd341d6256a4ca80e6345db03",
   "current_head_meaning": "SHA of the last commit whose full gate set was verified locally (lint, typecheck, tests, build). Set by the status-sync commit that immediately follows it, so it names a real, verified commit rather than the one it is written in.",
-  "current_pr": "https://github.com/Emerxingx/Job-Application-Automation/pull/27",
+  "current_pr": "__PR__",
   "main_head": "d6ae8b3a9180b529abe06f23417515432c0a7f0e",
   "run_complete": false,
   "stage_status": {
@@ -26,8 +26,8 @@
     "12": "PASS_ENGINEERING_EXIT_BLOCKED_CREDENTIALS",
     "13": "PASS_ENGINEERING_EXIT_PARTIAL",
     "14": "PASS_ENGINEERING_EXIT_PARTIAL",
-    "15": "PASS_ENGINEERING_EXIT_BLOCKED_CREDENTIAL",
-    "16": "NOT_STARTED",
+    "15": "PASS_ENGINEERING_EXIT_BLOCKED_CREDENTIALS",
+    "16": "PASS_ENGINEERING_EXIT_BLOCKED_LEGAL",
     "17": "NOT_STARTED",
     "18": "NOT_STARTED",
     "19": "NOT_STARTED",
@@ -83,7 +83,7 @@
     ],
     "verdict": "Stage 01 is PARTIAL, not PASS. Every unmet item traces to the staging project being unreachable from the build environment, except tenant-path adoption, which is engineering and continues in Stage 02 alongside the schema work that touches those handlers."
   },
-  "next_requirement": "Stage 15 engineering is complete; its exit is BLOCKED on the Stripe test-mode credential (STRIPE-TEST-KEY). Independent work continues: Stage 16 (career transition, learning and certification OS) begins on a branch stacked on Stage 15 — the transactional graph (skills, competencies, occupations, career paths, courses, programs, credentials, institutions, providers), the transition engine (current occupation → transferable skills → candidate occupations → gaps → learning pathway → target jobs), a counterfactual test proving a completed credential measurably changes eligibility, provenance on every recommendation, no fabricated recognition or outcome claims.",
+  "next_requirement": "Stage 16 independent adversarial review, then Stage 17 (WorkBC companion: organisations, cases, copilot recommends only; no fake WorkBC integration, ADR-0020) on a stacked branch from the Stage 16 head.",
   "blockers": [
     {
       "id": "ATS-SANDBOX-CREDENTIAL",
@@ -616,5 +616,27 @@
       "Staging rehearsal (NOT VERIFIED — R-34)"
     ],
     "verdict": "Stage 15 engineering is complete; its exit is BLOCKED on a Stripe test-mode credential. Everything provable without Stripe is proven. Merge posture inherited from the stack."
+  },
+  "stage_16_progress": {
+    "graph": "DONE — eight tables (migration 20260905140000_career_graph; RLS generated in 20260905140100_rls_career_graph; six reference, two user-owned); loader through requireIngestible with unknown NOC reported and prohibition purge; three datasets registered (esdc-regulated-occupations, cicic-programs unrecorded; learning-fixture for tests)",
+    "engine": "DONE — pure, deterministic, ENGINE_VERSION recorded; transferable/gaps/difficulty/market/pathway/bridges/provenance/honesty; static test forbids the AI gateway, providers, mailbox and the sensitive path under src/lib/career",
+    "counterfactual": "DONE — credentialCounterfactual runs the Stage 07 engine twice; demonstrated pure and on database rows (regulated CPA: ineligible → eligible on exactly the licensure rule); on the job page and POST /api/career/whatif with the audited profile read",
+    "plans": "DONE — versioned CareerPlan (refresh supersedes, archive), milestones with the approved-evidence rule, /dashboard/career and /dashboard/career/[planId], /api/career/plans, /api/career/plans/[planId], /api/career/milestones/[id]; nav entry",
+    "entitlements": "DONE — career_transition_per_month bounds new analyses (30-day window; refresh does not count); learning_recommendations decides whether offerings are shown, gaps always shown",
+    "licences": "BLOCKED (LEGAL, L-2) — no learning dataset recorded; graph empty outside a test database; pages say so",
+    "independent_review": "PENDING"
+  },
+  "stage_16_exit_gate": {
+    "met": [
+      "Graph queryable (eight tables, reference RLS, loaded through the licence gate, read by the engine on the tenant path)",
+      "Counterfactual demonstrated (pure and against the database)",
+      "Gap computation correctness tested (pure engine suite)",
+      "Full gate set green: lint 0/7, typecheck 0, tests 1126 / 1126 (0 skipped), build 0; rehearsal 40 migrations, drift clean, 129 forced tables"
+    ],
+    "not_met": [
+      "Provider / credential terms recorded — BLOCKED (LEGAL, L-2): every learning dataset is unrecorded, the graph is empty outside a test database",
+      "Staging rehearsal (NOT VERIFIED — R-34)"
+    ],
+    "verdict": "Stage 16 engineering is complete and proven on the fixture; the product is empty until a licence is recorded and says so. Merge posture inherited from the stack."
   }
 }

@@ -32,13 +32,13 @@ import type { StaffContext } from '../crm/auth';
  * control, not a read-time check.)
  */
 
-export type DatasetKey = 'noc-2021' | 'soc-2018' | 'oasis' | 'csct' | 'onet' | 'fixture';
+export type DatasetKey = 'noc-2021' | 'soc-2018' | 'oasis' | 'csct' | 'onet' | 'fixture' | 'esdc-regulated-occupations' | 'cicic-programs' | 'learning-fixture';
 
 export interface DatasetDefinition {
   key: DatasetKey;
   name: string;
   publisher: string;
-  scheme: 'NOC2021' | 'SOC2018' | 'OASIS' | 'CSCT' | 'ONET' | 'FIXTURE';
+  scheme: 'NOC2021' | 'SOC2018' | 'OASIS' | 'CSCT' | 'ONET' | 'FIXTURE' | 'LEARNING';
   version: string;
   sourceUrl: string;
   /** What the publisher states publicly. To be confirmed by counsel (L-2). */
@@ -99,6 +99,34 @@ export const DATASET_DEFINITIONS: readonly DatasetDefinition[] = [
     version: 'test',
     sourceUrl: '',
     knownTerms: 'Authored for tests; codes and titles follow the NOC 2021 / SOC 2018 structure and are attributed to their publishers in the file. Never loaded outside a test database.',
+  },
+  // Stage 16 (ADR-0031): the learning and credential graph is licensed content too.
+  {
+    key: 'esdc-regulated-occupations',
+    name: 'Job Bank - regulated occupations and certification requirements by province and territory',
+    publisher: 'Employment and Social Development Canada (Job Bank)',
+    scheme: 'LEARNING',
+    version: '2026',
+    sourceUrl: 'https://www.jobbank.gc.ca/',
+    knownTerms: 'Job Bank content is Government of Canada material; the terms under which regulated-occupation requirements may be redistributed in a commercial product, and the attribution wording, are to be confirmed by counsel (L-2). Nothing is loaded until recorded.',
+  },
+  {
+    key: 'cicic-programs',
+    name: 'CICIC directory of educational institutions and programs in Canada',
+    publisher: 'Canadian Information Centre for International Credentials (CMEC)',
+    scheme: 'LEARNING',
+    version: '2026',
+    sourceUrl: 'https://www.cicic.ca/',
+    knownTerms: 'The CICIC directory is published for public information; redistribution and the recognition claims it carries need counsel review (L-2) before any row is loaded. Nothing is loaded until recorded.',
+  },
+  {
+    key: 'learning-fixture',
+    name: 'Hand-written learning-graph fixture (credentials, providers, offerings)',
+    publisher: 'This repository',
+    scheme: 'LEARNING',
+    version: 'test',
+    sourceUrl: '',
+    knownTerms: 'Authored for tests against the occupation fixture; every recognition value is what the file states. Never loaded outside a test database.',
   },
 ];
 
@@ -169,6 +197,11 @@ async function purgeDataset(tx: Prisma.TransactionClient, dataset: TaxonomyDatas
   const occupations = await tx.occupation.deleteMany({ where: { datasetId: dataset.id } });
   const codes = await tx.occupationCode.deleteMany({ where: { scheme: dataset.scheme, version: dataset.version } });
   await tx.occupationSkill.deleteMany({ where: { datasetId: dataset.id } });
+  // Stage 16: a learning-graph dataset's credentials, providers, offerings and requirements go with it.
+  await tx.occupationCredential.deleteMany({ where: { datasetId: dataset.id } });
+  await tx.learningOffering.deleteMany({ where: { datasetId: dataset.id } });
+  await tx.learningProvider.deleteMany({ where: { datasetId: dataset.id } });
+  await tx.credential.deleteMany({ where: { datasetId: dataset.id } });
   return { occupations: occupations.count, codes: codes.count };
 }
 

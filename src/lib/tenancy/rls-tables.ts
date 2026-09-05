@@ -196,6 +196,15 @@ export const RLS_TABLES: Record<string, RlsKind> = {
   SkillMapping: { kind: 'reference' },
   OccupationSkill: { kind: 'reference' },
   CareerPath: { kind: 'reference' },
+  // Stage 16: the learning and credential graph is licensed reference data (read by every tenant, written by no tenant); a plan is the person's.
+  Credential: { kind: 'reference' },
+  CredentialSkill: { kind: 'reference' },
+  OccupationCredential: { kind: 'reference' },
+  LearningProvider: { kind: 'reference' },
+  LearningOffering: { kind: 'reference' },
+  OfferingSkill: { kind: 'reference' },
+  CareerPlan: { kind: 'user', column: 'userId' },
+  CareerPlanMilestone: { kind: 'user', column: 'userId' },
   Region: { kind: 'reference' },
   RegionLabel: { kind: 'reference' },
 
@@ -324,6 +333,7 @@ export const STAGE_11_TABLES = ['MailboxConnection', 'MailboxSecret', 'EmailThre
 export const STAGE_12_TABLES = ['FieldMappingVersion'];
 export const STAGE_13_TABLES = ['CandidateOutcomeMart', 'CandidateMatchMart', 'CandidateBenchmarkMart'];
 export const STAGE_15_TABLES = ['Entitlement'];
+export const STAGE_16_TABLES = ['Credential', 'CredentialSkill', 'OccupationCredential', 'LearningProvider', 'LearningOffering', 'OfferingSkill', 'CareerPlan', 'CareerPlanMilestone'];
 
 export const RLS_MANIFESTS: RlsManifest[] = [
   { migration: '20260903073000_row_level_security', preamble: true, tables: STAGE_01_TABLES },
@@ -340,4 +350,5 @@ export const RLS_MANIFESTS: RlsManifest[] = [
   { migration: '20260903200100_rls_field_mapping_table', preamble: false, tables: STAGE_12_TABLES },
   { migration: '20260903210100_rls_candidate_marts', preamble: false, tables: STAGE_13_TABLES },
   { migration: '20260905120100_rls_entitlements', preamble: false, tables: STAGE_15_TABLES },
+  { migration: '20260905140100_rls_career_graph', preamble: false, tables: STAGE_16_TABLES },
 ];

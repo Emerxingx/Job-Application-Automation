@@ -1,0 +1,301 @@
+{
+  "$comment": "Stage 16 test fixture. Every recognition value is what this file states; the credentials, providers and offerings are illustrative and attributed to nobody but this repository. Loaded only into a test database under the learning-fixture dataset.",
+  "credentials": [
+    {
+      "slug": "cpa-ca",
+      "name": "Chartered Professional Accountant (CPA)",
+      "kind": "licence",
+      "issuer": "CPA Canada (illustrative)",
+      "jurisdiction": "CA",
+      "recognition": "regulated",
+      "regulated": true,
+      "validityMonths": 12,
+      "renewal": "Annual membership and CPD",
+      "spellings": [
+        "cpa",
+        "chartered professional accountant"
+      ],
+      "skills": [
+        "financial reporting",
+        "audit",
+        "taxation"
+      ]
+    },
+    {
+      "slug": "aws-data-analytics",
+      "name": "AWS Certified Data Analytics - Specialty",
+      "kind": "certification",
+      "issuer": "Amazon Web Services (illustrative)",
+      "jurisdiction": "*",
+      "recognition": "vendor",
+      "regulated": false,
+      "validityMonths": 36,
+      "renewal": "Recertify every three years",
+      "spellings": [
+        "aws certified data analytics"
+      ],
+      "skills": [
+        "sql",
+        "data pipelines",
+        "data visualization"
+      ]
+    },
+    {
+      "slug": "cissp",
+      "name": "CISSP",
+      "kind": "certification",
+      "issuer": "ISC2 (illustrative)",
+      "jurisdiction": "*",
+      "recognition": "industry",
+      "regulated": false,
+      "validityMonths": 36,
+      "renewal": "CPE credits",
+      "spellings": [
+        "cissp",
+        "certified information systems security professional"
+      ],
+      "skills": [
+        "security architecture",
+        "risk management",
+        "incident response"
+      ]
+    },
+    {
+      "slug": "msc-data-science",
+      "name": "Master of Science in Data Science",
+      "kind": "degree",
+      "issuer": "Fixture University (illustrative)",
+      "jurisdiction": "CA",
+      "recognition": "unverified",
+      "regulated": false,
+      "validityMonths": null,
+      "renewal": "",
+      "spellings": [
+        "msc data science",
+        "master of data science"
+      ],
+      "skills": [
+        "statistics",
+        "machine learning",
+        "python",
+        "sql"
+      ]
+    }
+  ],
+  "providers": [
+    {
+      "slug": "fixture-university",
+      "name": "Fixture University",
+      "kind": "university",
+      "country": "CA",
+      "region": "ON",
+      "url": "https://fixture.example/university"
+    },
+    {
+      "slug": "fixture-academy",
+      "name": "Fixture Online Academy",
+      "kind": "platform",
+      "country": "CA",
+      "region": "",
+      "url": "https://fixture.example/academy"
+    }
+  ],
+  "offerings": [
+    {
+      "slug": "fu-msc-data-science",
+      "provider": "fixture-university",
+      "credential": "msc-data-science",
+      "title": "MSc Data Science",
+      "deliveryMode": "hybrid",
+      "durationWeeks": 64,
+      "costCents": 2400000,
+      "currency": "CAD",
+      "prerequisites": "An undergraduate degree with quantitative content",
+      "jurisdiction": "CA",
+      "url": "https://fixture.example/university/msc-ds",
+      "skills": [
+        "statistics",
+        "machine learning",
+        "python",
+        "sql",
+        "data visualization"
+      ]
+    },
+    {
+      "slug": "fa-sql-for-analysts",
+      "provider": "fixture-academy",
+      "credential": null,
+      "title": "SQL for Analysts",
+      "deliveryMode": "online",
+      "durationHours": 20,
+      "costCents": 19900,
+      "currency": "CAD",
+      "prerequisites": "",
+      "jurisdiction": "*",
+      "url": "https://fixture.example/academy/sql",
+      "skills": [
+        "sql"
+      ]
+    },
+    {
+      "slug": "fa-python-data",
+      "provider": "fixture-academy",
+      "credential": null,
+      "title": "Python for Data Work",
+      "deliveryMode": "online",
+      "durationHours": 40,
+      "costCents": 29900,
+      "currency": "CAD",
+      "prerequisites": "SQL for Analysts or equivalent",
+      "jurisdiction": "*",
+      "url": "https://fixture.example/academy/python",
+      "skills": [
+        "python",
+        "data pipelines"
+      ]
+    },
+    {
+      "slug": "fa-aws-data-prep",
+      "provider": "fixture-academy",
+      "credential": "aws-data-analytics",
+      "title": "AWS Data Analytics exam preparation",
+      "deliveryMode": "online",
+      "durationHours": 30,
+      "costCents": 39900,
+      "currency": "CAD",
+      "prerequisites": "",
+      "jurisdiction": "*",
+      "url": "https://fixture.example/academy/aws",
+      "skills": [
+        "data pipelines",
+        "data visualization"
+      ]
+    },
+    {
+      "slug": "fa-cissp-prep",
+      "provider": "fixture-academy",
+      "credential": "cissp",
+      "title": "CISSP preparation",
+      "deliveryMode": "online",
+      "durationHours": 60,
+      "costCents": 79900,
+      "currency": "CAD",
+      "prerequisites": "Five years of security experience for the certification itself",
+      "jurisdiction": "*",
+      "url": "https://fixture.example/academy/cissp",
+      "skills": [
+        "security architecture",
+        "risk management"
+      ]
+    }
+  ],
+  "occupationCredentials": [
+    {
+      "noc": "11100",
+      "credential": "cpa-ca",
+      "requirement": "regulated",
+      "jurisdiction": "CA",
+      "note": "Public accounting in Canada is a regulated profession (fixture statement)."
+    },
+    {
+      "noc": "21211",
+      "credential": "msc-data-science",
+      "requirement": "preferred",
+      "jurisdiction": "CA",
+      "note": ""
+    },
+    {
+      "noc": "21211",
+      "credential": "aws-data-analytics",
+      "requirement": "preferred",
+      "jurisdiction": "*",
+      "note": ""
+    },
+    {
+      "noc": "21220",
+      "credential": "cissp",
+      "requirement": "required",
+      "jurisdiction": "*",
+      "note": ""
+    },
+    {
+      "noc": "99999",
+      "credential": "cissp",
+      "requirement": "preferred",
+      "jurisdiction": "*",
+      "note": "A code the taxonomy does not hold: must be reported, never invented."
+    }
+  ],
+  "occupationSkills": [
+    {
+      "noc": "21211",
+      "skill": "python",
+      "importance": 5
+    },
+    {
+      "noc": "21211",
+      "skill": "sql",
+      "importance": 5
+    },
+    {
+      "noc": "21211",
+      "skill": "statistics",
+      "importance": 4
+    },
+    {
+      "noc": "21211",
+      "skill": "machine learning",
+      "importance": 4
+    },
+    {
+      "noc": "21211",
+      "skill": "data visualization",
+      "importance": 3
+    },
+    {
+      "noc": "21211",
+      "skill": "data pipelines",
+      "importance": 2
+    },
+    {
+      "noc": "21223",
+      "skill": "sql",
+      "importance": 5
+    },
+    {
+      "noc": "21223",
+      "skill": "data pipelines",
+      "importance": 4
+    },
+    {
+      "noc": "21223",
+      "skill": "data visualization",
+      "importance": 3
+    },
+    {
+      "noc": "21220",
+      "skill": "security architecture",
+      "importance": 5
+    },
+    {
+      "noc": "21220",
+      "skill": "risk management",
+      "importance": 4
+    },
+    {
+      "noc": "21220",
+      "skill": "incident response",
+      "importance": 4
+    },
+    {
+      "noc": "11100",
+      "skill": "financial reporting",
+      "importance": 5
+    },
+    {
+      "noc": "11100",
+      "skill": "taxation",
+      "importance": 4
+    }
+  ]
+}
