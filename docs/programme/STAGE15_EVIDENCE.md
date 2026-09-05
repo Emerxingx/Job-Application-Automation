@@ -120,7 +120,7 @@ STRIPE-TEST-KEY.
 | --- | --- |
 | Lint | 0 errors, 7 warnings (baseline ceiling 8; one pre-existing warning resolved) |
 | Typecheck | 0 |
-| Tests | **__ROOT_TESTS__**, 0 skipped (Stage 14: 1087) - new: `entitlements` 10, `entitlements-static` 3 |
+| Tests | **1103 / 1103**, 0 skipped (Stage 14: 1087) - new: `entitlements` 10, `entitlements-static` 3 |
 | Build | passes; `/console/entitlements` and `/api/console/entitlements` present |
 | Migrations | **thirty-eight** (two new, additive; RLS generated); fresh-database rehearsal: 38 applied, `migrate diff` clean, **121** forced-RLS public tables |
 

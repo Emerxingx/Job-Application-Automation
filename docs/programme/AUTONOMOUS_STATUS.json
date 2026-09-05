@@ -607,7 +607,7 @@
       "Webhook idempotency and ordering (Stage 01, tests stand)",
       "Refunds never silently revoke (static + database tests)",
       "PlanPrice and BillingProfile wired",
-      "Full gate set green: lint 0/7, typecheck 0, tests __ROOT_TESTS__, build 0; rehearsal 38 migrations, drift clean, 121 forced tables"
+      "Full gate set green: lint 0/7, typecheck 0, tests 1103/1103 (0 skipped), build 0; rehearsal 38 migrations, drift clean, 121 forced tables"
     ],
     "not_met": [
       "Stripe SANDBOX-VALIDATED — BLOCKED (CREDENTIAL): STRIPE-TEST-KEY",
