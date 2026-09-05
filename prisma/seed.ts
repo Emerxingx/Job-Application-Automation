@@ -168,6 +168,14 @@ async function main() {
   console.log(`  ✓ ${PLANS.length} subscription plans`);
 
   // --- Demo account --------------------------------------------------------
+  // Stage 23 review (M7): the demo account's password is published in this
+  // repository, so it never exists on a production database - the seed stops
+  // here after the plans. Locally and in CI it is the staff account of the
+  // accessibility run; the console two-lock still needs STAFF_EMAILS.
+  if (process.env.NODE_ENV === 'production') {
+    console.log('  ✓ Plans seeded; the demo account is NOT created in production.');
+    return;
+  }
   const professional = await db.plan.findUniqueOrThrow({ where: { code: 'professional' } });
 
   const passwordHash = await bcrypt.hash('demo1234', 10);
@@ -184,7 +192,12 @@ async function main() {
       linkedinUrl: 'https://linkedin.com/in/alexmorgan-demo',
       workAuth: 'Canadian Citizen',
       onboardedAt: new Date(),
+      // Stage 23: the demo account is the staff account of a local install and
+      // of the accessibility run over the console. The console two-lock still
+      // holds: the role means nothing unless STAFF_EMAILS lists the address.
+      role: 'admin',
     },
+    // The role is set on creation only: a staff demotion must survive a reseed.
     update: { passwordHash },
   });
 

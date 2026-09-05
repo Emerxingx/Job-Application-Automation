@@ -15,7 +15,7 @@ export default async function SignupPage({
   const params = await searchParams;
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-bg px-4 py-12">
+    <main className="flex min-h-screen flex-col items-center justify-center bg-bg px-4 py-12">
       <Link href="/" className="mb-8" aria-label="JobPilot AI home">
         <Logo />
       </Link>
@@ -35,6 +35,6 @@ export default async function SignupPage({
           </Link>
         </p>
       </div>
-    </div>
+    </main>
   );
 }

@@ -1,4 +1,5 @@
 import type { CompletionRequest, ExternalModelProvider } from './types';
+import { redactError } from '@/lib/log';
 
 /**
  * Claude-backed external model provider.
@@ -62,7 +63,7 @@ export class AnthropicModelProvider implements ExternalModelProvider {
 
       return text ? (JSON.parse(text) as T) : null;
     } catch (error) {
-      console.error('[anthropic] request failed:', error instanceof Error ? error.message : error);
+      console.error('[anthropic] request failed:', redactError(error).message);
       return null;
     }
   }

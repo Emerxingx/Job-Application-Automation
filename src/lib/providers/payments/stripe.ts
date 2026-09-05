@@ -1,6 +1,7 @@
 import Stripe from 'stripe';
 import type { BillingInterval } from '@/lib/types';
 import type { CheckoutSession, PaymentProvider } from './index';
+import { redactError } from '@/lib/log';
 
 /**
  * Stripe subscription billing.
@@ -101,7 +102,7 @@ export class StripePaymentProvider implements PaymentProvider {
       await stripe().subscriptions.update(subscriptionId, { cancel_at_period_end: true });
       return { ok: true };
     } catch (error) {
-      console.error('[stripe] cancel failed:', error);
+      console.error('[stripe] cancel failed:', redactError(error));
       return { ok: false };
     }
   }

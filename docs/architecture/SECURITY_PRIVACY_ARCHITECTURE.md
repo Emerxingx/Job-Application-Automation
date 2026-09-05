@@ -32,14 +32,21 @@ because a framework defaults to it.**
 | S-08 | Rate limits per-instance; ceiling multiplies with instances | MED | 01 |
 | S-09 | No sensitive-demographic architecture (no fields yet — a design gap) | HIGH | 02 |
 
-## Not yet assessed — must not be claimed
+## Assessed in Stage 23 (ADR-0037) — and what still must not be claimed
 
-File-upload malware scanning · encryption at rest for documents · backup
-integrity and **restore rehearsal** · disaster recovery (no RPO/RTO defined) ·
-penetration testing · accessibility · dependency provenance/SBOM · log redaction
-of PII · AI output leakage across tenants · third-party processor agreements.
-
-Each is a Stage 23 deliverable and is `NOT VERIFIED` until it has evidence.
+| Item | Now | Evidence |
+| --- | --- | --- |
+| File-upload malware scanning | PARTIAL — structural scan only; **no antivirus engine** | Stage 09 `scan.ts` |
+| Encryption at rest for documents | NOT VERIFIED — the provider's setting; the S3 provider refuses a region outside the allow-list | ADR-0015 |
+| Backup integrity and restore rehearsal | PASS (local): checksum, history, RLS, counts, drift verified on a restored copy; provider PITR NOT VERIFIED | `BACKUP_RESTORE.md` |
+| Disaster recovery | PARTIAL — RPO/RTO proposed, scenarios written, local rehearsal; provider rehearsal and rollback not done | `DISASTER_RECOVERY.md` |
+| Penetration testing | NOT VERIFIED — **external action**; adversarial code reviews are not one | `AUTONOMOUS_STATUS.json` |
+| Accessibility | PASS (axe WCAG 2.2 AA, light theme, 43 pages, in CI); dark theme and interactions not measured | `STAGE23_EVIDENCE.md` §4 |
+| Dependency provenance / SBOM | PASS — CycloneDX per CI run; advisories gated on PRs | `ci.yml` `sbom` |
+| Log redaction of PII | PASS — one error log, redacted, tested | `src/lib/log.ts` |
+| AI output leakage across tenants | PARTIAL — the gateway refuses RESTRICTED keys and grounds every section; no cross-tenant model context exists because no model is called (deterministic engine); NOT VERIFIED against a live provider | Stage 03 |
+| Third-party processor agreements | NOT DONE — a founder action with each provider before go-live | — |
+| CSRF, response headers, health check, log redaction, erasure, retention | PASS / PARTIAL as `PRODUCTION_READINESS_GATES.md` states row by row | Stage 23 |
 
 ## Privacy architecture
 

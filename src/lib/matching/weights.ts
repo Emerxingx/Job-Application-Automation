@@ -2,6 +2,7 @@ import type { MatchWeightVersion, Prisma } from '@prisma/client';
 import { db } from '../db';
 import type { StaffContext } from '../crm/auth';
 import { getCache } from '../cache';
+import { redactError } from '@/lib/log';
 
 /**
  * Stage 08 — compatibility weights as governed, versioned data.
@@ -80,7 +81,7 @@ export async function getActiveWeights(): Promise<ActiveWeights> {
     const cached = await cache.get(CACHE_KEY);
     if (cached !== null) return JSON.parse(cached) as ActiveWeights;
   } catch (error) {
-    console.error('[matching] cache read failed; reading through:', error);
+    console.error('[matching] cache read failed; reading through:', redactError(error));
   }
   // One active row is the invariant the advisory lock keeps; should it ever
   // be broken, the most recent activation wins deterministically.
@@ -93,7 +94,7 @@ export async function getActiveWeights(): Promise<ActiveWeights> {
       // A stored row that no longer validates (a hand edit, a new dimension)
       // must not take every scan down with it: the baseline scores, says so,
       // and nothing is cached so a corrected register applies at once.
-      console.error(`[matching] active weights v${active.version} are invalid; scoring with the built-in baseline:`, error instanceof Error ? error.message : error);
+      console.error(`[matching] active weights v${active.version} are invalid; scoring with the built-in baseline:`, redactError(error).message);
       return { version: BUILTIN_WEIGHT_VERSION, weights: BUILTIN_WEIGHTS };
     }
   } else {
@@ -102,7 +103,7 @@ export async function getActiveWeights(): Promise<ActiveWeights> {
   try {
     await cache.set(CACHE_KEY, JSON.stringify(result), CACHE_TTL_SECONDS);
   } catch (error) {
-    console.error('[matching] cache write failed; continuing:', error);
+    console.error('[matching] cache write failed; continuing:', redactError(error));
   }
   return result;
 }
@@ -111,7 +112,7 @@ export async function invalidateActiveWeights(): Promise<void> {
   try {
     await getCache().del(CACHE_KEY);
   } catch (error) {
-    console.error('[matching] cache invalidation failed:', error);
+    console.error('[matching] cache invalidation failed:', redactError(error));
   }
 }
 

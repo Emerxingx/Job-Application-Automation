@@ -23,6 +23,7 @@ import { requireTenant } from '@/lib/tenancy/request';
 import { describeWait, fail, ok, route, tooMany } from '@/lib/api';
 import { rateLimit } from '@/lib/rate-limit';
 import { runDueDeliveries, toSafeWebhookDelivery } from '@/lib/integrations/webhooks';
+import { redactError } from '@/lib/log';
 
 const listSchema = z.object({
   endpointId: z.string().trim().min(1).optional(),
@@ -75,7 +76,7 @@ export const POST = route(async () => {
     const report = await runDueDeliveries({ userId: user.id, limit: 50 });
     return ok({ report });
   } catch (error) {
-    console.error('[integrations] delivery run failed:', error);
+    console.error('[integrations] delivery run failed:', redactError(error));
     return fail('Could not send the queued deliveries. Please try again.', 500);
   }
 });

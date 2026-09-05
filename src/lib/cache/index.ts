@@ -1,5 +1,6 @@
 import { createRequire } from 'node:module';
 import path from 'node:path';
+import { redactError } from '@/lib/log';
 
 /**
  * A tiny cache abstraction with two backends.
@@ -149,7 +150,7 @@ export function getCache(): Cache {
     } catch (error) {
       // A Redis misconfiguration must never take the engine down — degrade to
       // the in-memory cache and a direct DB read on miss.
-      console.error('[cache] REDIS_URL set but Redis init failed; using in-memory cache:', error);
+      console.error('[cache] REDIS_URL set but Redis init failed; using in-memory cache:', redactError(error));
     }
   }
   cache = new MemoryCache();

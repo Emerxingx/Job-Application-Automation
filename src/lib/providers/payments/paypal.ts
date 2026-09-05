@@ -51,6 +51,7 @@ import type {
   VerifiedWebhook,
   WebhookInput,
 } from './registry';
+import { redactError } from '@/lib/log';
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -520,7 +521,7 @@ export class PayPalPaymentProvider implements PaymentGateway {
       });
       return { ok: true };
     } catch (error) {
-      console.error('[paypal] cancel failed:', error);
+      console.error('[paypal] cancel failed:', redactError(error));
       return { ok: false };
     }
   }

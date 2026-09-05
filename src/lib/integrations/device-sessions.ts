@@ -263,7 +263,7 @@ export async function listDeviceSessions(userId: string, currentKeyId: string | 
   return rows.map((r) => serialiseDevice(r, currentKeyId));
 }
 
-export type DeviceRevokeReason = 'logout' | 'user_revoke' | 'password_change' | 'sign_out_everywhere' | 'staff_revoke';
+export type DeviceRevokeReason = 'logout' | 'user_revoke' | 'password_change' | 'sign_out_everywhere' | 'staff_revoke' | 'account_erasure';
 
 /**
  * Revoke one device, scoped by owner (a stranger's guess at an id revokes

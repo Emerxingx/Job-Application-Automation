@@ -2,6 +2,7 @@ import type { FieldMappingVersion, Prisma } from '@prisma/client';
 import { db } from '../db';
 import type { StaffContext } from '../crm/auth';
 import { getCache } from '../cache';
+import { redactError } from '@/lib/log';
 
 /**
  * Stage 12 — the field-mapping register as governed, versioned data
@@ -160,7 +161,7 @@ export async function getActiveFieldMappings(): Promise<ActiveFieldMappings> {
     const cached = await cache.get(CACHE_KEY);
     if (cached !== null) return JSON.parse(cached) as ActiveFieldMappings;
   } catch (error) {
-    console.error('[apply] mapping cache read failed; reading through:', error);
+    console.error('[apply] mapping cache read failed; reading through:', redactError(error));
   }
   const active = await db.fieldMappingVersion.findFirst({ where: { status: 'active' }, orderBy: [{ activatedAt: 'desc' }, { version: 'desc' }] });
   let result: ActiveFieldMappings;
@@ -168,7 +169,7 @@ export async function getActiveFieldMappings(): Promise<ActiveFieldMappings> {
     try {
       result = { version: `v${active.version}`, mappings: parseMappings(active.mappings) };
     } catch (error) {
-      console.error(`[apply] active field mappings v${active.version} are invalid; preparing with the built-in set:`, error instanceof Error ? error.message : error);
+      console.error(`[apply] active field mappings v${active.version} are invalid; preparing with the built-in set:`, redactError(error).message);
       return { version: BUILTIN_FIELD_MAPPING_VERSION, mappings: BUILTIN_FIELD_MAPPINGS };
     }
   } else {
@@ -177,7 +178,7 @@ export async function getActiveFieldMappings(): Promise<ActiveFieldMappings> {
   try {
     await cache.set(CACHE_KEY, JSON.stringify(result), CACHE_TTL_SECONDS);
   } catch (error) {
-    console.error('[apply] mapping cache write failed; continuing:', error);
+    console.error('[apply] mapping cache write failed; continuing:', redactError(error));
   }
   return result;
 }
@@ -186,7 +187,7 @@ export async function invalidateActiveFieldMappings(): Promise<void> {
   try {
     await getCache().del(CACHE_KEY);
   } catch (error) {
-    console.error('[apply] mapping cache invalidation failed:', error);
+    console.error('[apply] mapping cache invalidation failed:', redactError(error));
   }
 }
 

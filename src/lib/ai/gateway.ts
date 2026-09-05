@@ -10,6 +10,7 @@ import { assertNoRestrictedFields, RestrictedPayloadError } from './restricted-f
 import { allowedContext, buildCorpus, findViolations, groundInterviewPack, groundMatchAnalysis, groundTailoredDocuments } from './grounding';
 import type { MessageKind } from '../documents/kinds';
 import { MissingPromptVariablesError, PromptNotFoundError, renderPrompt, type RenderedPrompt } from './prompt-registry';
+import { redactError } from '@/lib/log';
 
 /**
  * The AI gateway (ADR-0006, ADR-0015, AI_GOVERNANCE.md). Every model-backed
@@ -168,7 +169,7 @@ async function execute<T, Raw>(ctx: GenerationContext, spec: TaskSpec<T, Raw>): 
     } catch (err) {
       // The record is traceability, not a precondition of serving the user;
       // its absence is logged loudly and the result still returns.
-      console.error(`[ai-gateway] failed to record ${spec.task} run:`, err instanceof Error ? err.message : err);
+      console.error(`[ai-gateway] failed to record ${spec.task} run:`, redactError(err).message);
     }
   };
 

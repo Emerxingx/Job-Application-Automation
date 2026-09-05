@@ -1,3 +1,4 @@
+import { redactError } from '@/lib/log';
 import { NextResponse } from 'next/server';
 import { requireUser } from '@/lib/auth';
 import { completeConnection, MailboxError } from '@/lib/mailbox/service';
@@ -25,7 +26,7 @@ export const GET = route(async (request: Request) => {
     // The browser is mid-redirect from the provider: a network or provider
     // failure must land on settings with a notice, never on a JSON error body.
     // The message is logged without the code, the state or any token.
-    console.error('[mailbox] callback failed:', error instanceof Error ? error.message : 'unknown error');
+    console.error('[mailbox] callback failed:', redactError(error).message);
     return back('failed');
   }
 });

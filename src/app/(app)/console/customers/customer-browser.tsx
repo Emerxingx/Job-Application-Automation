@@ -435,7 +435,7 @@ export function CustomerBrowser({
 
       <p className="mt-4 text-xs text-faint">
         Looking for one person?{' '}
-        <Link href="/console/tickets" className="text-brand-500 hover:text-brand-600">
+        <Link href="/console/tickets" className="text-brand-500 underline hover:text-brand-600">
           The support queue
         </Link>{' '}
         links straight to the account behind each ticket.

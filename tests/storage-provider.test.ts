@@ -110,4 +110,20 @@ describe('storage — S3 signer and provider', () => {
     assert.ok(calls.every((c) => c.auth.startsWith('AWS4-HMAC-SHA256')));
     assert.equal(p.location, 's3:ca-central-1/jobpilot-test');
   });
+  it('a listing follows the continuation token to the last page, so deletePrefix removes every object (review M5)', async () => {
+    const calls: string[] = [];
+    const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      calls.push(`${init?.method ?? 'GET'} ${url}`);
+      if (init?.method === 'DELETE') return new Response(null, { status: 204 });
+      if (url.includes('continuation-token=')) return new Response('<ListBucketResult><IsTruncated>false</IsTruncated><Contents><Key>u1/documents/b&amp;c.txt</Key><Size>2</Size></Contents></ListBucketResult>', { status: 200 });
+      return new Response('<ListBucketResult><IsTruncated>true</IsTruncated><NextContinuationToken>tok/1+2=</NextContinuationToken><Contents><Key>u1/a.txt</Key><Size>1</Size></Contents></ListBucketResult>', { status: 200 });
+    }) as typeof fetch;
+    const p = new S3StorageProvider(config, fetchImpl);
+    assert.deepEqual(await p.list('u1'), [{ key: 'u1/a.txt', size: 1 }, { key: 'u1/documents/b&c.txt', size: 2 }]);
+    assert.equal(await p.deletePrefix('u1/'), 2);
+    assert.equal(calls.filter((c) => c.startsWith('GET')).length, 4, 'two pages per listing, two listings');
+    assert.ok(calls.some((c) => c.includes('continuation-token=tok%2F1%2B2%3D&list-type=2')), 'the token is encoded and sorted before list-type, as the signature requires');
+    assert.equal(calls.filter((c) => c.startsWith('DELETE')).length, 2);
+  });
 });

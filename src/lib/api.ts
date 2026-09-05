@@ -5,6 +5,7 @@ import { currentImpersonation, ImpersonationReadOnlyError, UnauthorizedError } f
 import { TenantContextError } from './tenancy/context';
 import { OrganizationAccessError } from './tenancy/organizations';
 import { ApplicationModeError } from './apply/modes';
+import { redactError } from './log';
 
 const READ_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
@@ -87,7 +88,9 @@ export function route<Args extends unknown[]>(
       // Everything else is logged server-side and answered generically: an
       // unexpected error's message can carry a table name, a policy name or a
       // provider's own text, none of which belongs in a response body.
-      console.error('[api] unhandled error:', error);
+      // Stage 23 (ADR-0037): never the error object - its message can carry an
+      // email, a token or a connection string; the redacted shape is logged.
+      console.error('[api] unhandled error:', redactError(error));
       return fail('Something went wrong. Please try again.', 500);
     }
   };

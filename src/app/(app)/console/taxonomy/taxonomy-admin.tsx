@@ -120,7 +120,7 @@ export function TaxonomyAdmin({ datasets, report }: { datasets: DatasetView[]; r
             {d.sourceUrl && (
               <>
                 {' · '}
-                <a href={d.sourceUrl} className="text-brand-500 hover:text-brand-600" target="_blank" rel="noreferrer noopener">
+                <a href={d.sourceUrl} className="text-brand-500 underline hover:text-brand-600" target="_blank" rel="noreferrer noopener">
                   source
                 </a>
               </>

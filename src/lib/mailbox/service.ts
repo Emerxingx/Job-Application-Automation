@@ -10,6 +10,7 @@ import type { ConnectionKind, EventSummary, MailboxProvider, ThreadSummary, Toke
 import { SCOPE_INVENTORY } from './providers/types';
 import { signOAuthState, verifyOAuthState } from './state';
 import { assertNotImpersonating } from '@/lib/auth';
+import { redactError } from '@/lib/log';
 
 /**
  * Stage 11 — connect, sync, associate, revoke.
@@ -365,7 +366,7 @@ export async function revokeConnection(user: MailboxUser, connectionId: string, 
       const tokens = JSON.parse(decryptSecret(connection.secret)) as TokenSet;
       await connectorFor(connection.provider as MailboxProvider).revoke(tokens);
     } catch (error) {
-      console.error(`[mailbox] provider revocation for ${connection.id} failed; purging anyway:`, error instanceof Error ? error.message : error);
+      console.error(`[mailbox] provider revocation for ${connection.id} failed; purging anyway:`, redactError(error).message);
     }
   }
   const counts = await db.$transaction(async (tx) => {

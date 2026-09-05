@@ -4,6 +4,7 @@ import { getPaymentProvider } from '@/lib/providers';
 import { activatePlan, resolvePrice } from '@/lib/subscription';
 import { ensureBillingProfile } from '@/lib/billing/profile';
 import { fail, ok, route } from '@/lib/api';
+import { erasureScheduled } from '@/lib/privacy/erasure';
 import type { BillingInterval } from '@/lib/types';
 
 const schema = z.object({
@@ -20,6 +21,9 @@ const schema = z.object({
 export const POST = route(async (request: Request) => {
   const { user, run } = await requireTenant();
   const body = schema.parse(await request.json());
+  // Stage 23 review (M1): the grace period is long enough to subscribe; a
+  // person who has asked for erasure cancels that first, or is not billed.
+  if (await erasureScheduled(user.id)) return fail('An account erasure is scheduled for this account. Cancel it under Settings before subscribing.', 409);
 
   // Plan and its prices are reference data, readable on the tenant path; the
   // billing profile is the user's own row. The payment provider call below

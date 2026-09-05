@@ -2,6 +2,7 @@ import type { Application, Prisma } from '@prisma/client';
 import { db } from '../db';
 import type { ApplicationStatus } from '../types';
 import { canTransition, describeRefusal, isApplicationStatus, outcomeFor } from './status-machine';
+import { redactError } from '@/lib/log';
 
 /**
  * Stage 10 — the application folder service. Every write goes through a
@@ -83,7 +84,7 @@ export async function flushAudit(actor: Actor): Promise<void> {
         },
       });
     } catch (error) {
-      console.error(`[applications] failed to record ${e.action} for ${e.applicationId}:`, error instanceof Error ? error.message : error);
+      console.error(`[applications] failed to record ${e.action} for ${e.applicationId}:`, redactError(error).message);
     }
   }
 }

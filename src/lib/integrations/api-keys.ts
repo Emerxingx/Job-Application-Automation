@@ -55,6 +55,7 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { db } from '../db';
 import { parseJson } from '../types';
+import { redactError } from '@/lib/log';
 
 // --- Format -----------------------------------------------------------------
 
@@ -527,6 +528,6 @@ export async function recordApiKeyUse(keyId: string, ip: string | null): Promise
       },
     });
   } catch (error) {
-    console.warn('[api-keys] could not record usage:', error);
+    console.warn('[api-keys] could not record usage:', redactError(error));
   }
 }

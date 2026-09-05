@@ -11,6 +11,7 @@ import {
   type SubjectType,
 } from '@/lib/billing/webhook-events';
 import type { BillingInterval } from '@/lib/types';
+import { redactError } from '@/lib/log';
 
 /**
  * Stripe webhook.
@@ -62,7 +63,7 @@ export async function POST(request: Request) {
     event = constructWebhookEvent(payload, signature);
   } catch (error) {
     // A bad signature is an attacker or a misconfiguration; either way, refuse.
-    console.error('[stripe-webhook] signature verification failed:', error);
+    console.error('[stripe-webhook] signature verification failed:', redactError(error));
     return NextResponse.json({ error: 'Invalid signature.' }, { status: 400 });
   }
 
@@ -211,15 +212,15 @@ export async function POST(request: Request) {
     // database failure — the event is not lost. The row is marked `failed`, and
     // because the retry carries the SAME event id it will be recognised as a
     // duplicate rather than double-applied.
-    console.error(`[stripe-webhook] handling ${event.type} failed:`, error);
+    console.error(`[stripe-webhook] handling ${event.type} failed:`, redactError(error));
     await markWebhookFailed(outcome.eventId, error instanceof Error ? error.message : 'unknown').catch(
-      (e) => console.error('[stripe-webhook] could not mark event failed:', e),
+      (e) => console.error('[stripe-webhook] could not mark event failed:', redactError(e)),
     );
     return NextResponse.json({ error: 'Handler failed.' }, { status: 500 });
   }
 
   await markWebhookProcessed(outcome.eventId).catch((e) =>
-    console.error('[stripe-webhook] could not mark event processed:', e),
+    console.error('[stripe-webhook] could not mark event processed:', redactError(e)),
   );
 
   return NextResponse.json({ received: true, dispatched: true });

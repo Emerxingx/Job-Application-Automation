@@ -132,7 +132,7 @@ function OccupationPicker({ label, value, onChange }: { label: string; value: Oc
       ) : (
         <div className="relative mt-1">
           <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-muted" aria-hidden />
-          <input id={inputId} className="w-full rounded-md border border-line bg-surface py-2 pl-9 pr-3" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search by title or NOC code" autoComplete="off" aria-autocomplete="list" aria-controls={`${inputId}-list`} />
+          <input id={inputId} className="w-full rounded-md border border-line bg-surface py-2 pl-9 pr-3" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search by title or NOC code" autoComplete="off" role="combobox" aria-autocomplete="list" aria-controls={active && options.length > 0 ? `${inputId}-list` : undefined} aria-expanded={active && options.length > 0} />
           {searching ? <Loader2 className="absolute right-3 top-2.5 h-4 w-4 animate-spin text-muted" aria-label="Searching" /> : null}
           {active && options.length > 0 ? (
             <ul id={`${inputId}-list`} role="listbox" className="absolute z-10 mt-1 w-full rounded-md border border-line bg-surface shadow">

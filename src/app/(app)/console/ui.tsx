@@ -486,12 +486,12 @@ export function Blank({ children }: { children: ReactNode }) {
  */
 export function AccessDenied() {
   return (
-    <main className="flex min-h-screen items-center justify-center bg-bg px-4 py-16">
+    <section aria-labelledby="console-denied-title" className="flex min-h-screen items-center justify-center bg-bg px-4 py-16">
       <div className="card max-w-md p-8 text-center">
         <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-danger/10">
           <ShieldAlert className="h-6 w-6 text-danger" aria-hidden="true" />
         </div>
-        <h1 className="text-xl font-bold text-ink">This area is restricted to JobPilot staff</h1>
+        <h1 id="console-denied-title" className="text-xl font-bold text-ink">This area is restricted to JobPilot staff</h1>
         <p className="mt-2 text-sm text-muted">
           Your account does not have console access. If you believe that is wrong, ask an
           administrator to check your staff permissions — they are granted deliberately, not by
@@ -506,6 +506,6 @@ export function AccessDenied() {
           </Link>
         </div>
       </div>
-    </main>
+    </section>
   );
 }

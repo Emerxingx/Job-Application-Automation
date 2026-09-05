@@ -2,6 +2,7 @@ import type { AtsRuleset, Prisma } from '@prisma/client';
 import { db } from '../db';
 import type { StaffContext } from '../crm/auth';
 import { getCache } from '../cache';
+import { redactError } from '@/lib/log';
 
 /**
  * The governed ATS ruleset registry (ADR-0019 Tier 1; MASTER_BUILD_PLAN
@@ -109,14 +110,14 @@ export async function getActiveAtsRuleset(platform: string): Promise<ActiveAtsRu
     const cached = await cache.get(key);
     if (cached !== null) return cached === '__none__' ? null : (JSON.parse(cached) as ActiveAtsRuleset);
   } catch (error) {
-    console.error('[ats] cache read failed; reading through:', error);
+    console.error('[ats] cache read failed; reading through:', redactError(error));
   }
   const row = await db.atsRuleset.findFirst({ where: { platform: platform.toLowerCase(), status: 'active' } });
   const ruleset = row ? toActive(row) : null;
   try {
     await cache.set(key, ruleset ? JSON.stringify(ruleset) : '__none__', ATS_CACHE_TTL_SECONDS);
   } catch (error) {
-    console.error('[ats] cache write failed; continuing:', error);
+    console.error('[ats] cache write failed; continuing:', redactError(error));
   }
   return ruleset;
 }
@@ -125,7 +126,7 @@ export async function invalidateAtsRuleset(platform: string): Promise<void> {
   try {
     await getCache().del(cacheKey(platform));
   } catch (error) {
-    console.error('[ats] cache invalidation failed:', error);
+    console.error('[ats] cache invalidation failed:', redactError(error));
   }
 }
 

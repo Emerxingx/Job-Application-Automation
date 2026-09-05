@@ -20,6 +20,7 @@ import { listQuestions } from '@/lib/evidence/questions';
 import { atsDisplayName } from '@/lib/providers/apply';
 import type { ApplicantProfile, ApplyRequest } from '@/lib/providers/apply';
 import type { User } from '@prisma/client';
+import { redactError } from '@/lib/log';
 
 /** The applicant as an employer form sees them — from the profile, never from a model. */
 export function applicantOf(user: Pick<User, 'fullName' | 'email' | 'phone' | 'city' | 'country' | 'linkedinUrl' | 'portfolioUrl' | 'workAuth'>): ApplicantProfile {
@@ -285,7 +286,7 @@ export async function applyToJobs(userId: string, jobIds: string[]): Promise<Bul
           seal: false,
         });
       } catch (error) {
-        console.error('[documents] could not write the application documents:', error);
+        console.error('[documents] could not write the application documents:', redactError(error));
       }
 
       // Stage 12: a prepared match is `reviewed`, never `applied` — `applied` is
@@ -320,7 +321,7 @@ export async function applyToJobs(userId: string, jobIds: string[]): Promise<Bul
       }
     } catch (error) {
       failed += 1;
-      console.error(`[applicator] job ${jobId} failed:`, error);
+      console.error(`[applicator] job ${jobId} failed:`, redactError(error));
       outcomes.push({
         jobId,
         jobTitle: job.title,
@@ -446,7 +447,7 @@ export async function submitThroughAts(userId: string, applicationId: string): P
     else if (!outcome.ok) failure = outcome.failureReason ?? 'The employer system refused the submission. You can still submit on their form.';
   } catch (error) {
     failure = 'The employer system could not be reached. You can still submit on their form.';
-    console.error('[apply] instructed submission failed:', error instanceof Error ? error.message : error);
+    console.error('[apply] instructed submission failed:', redactError(error).message);
   }
 
   if (failure || !outcome) {

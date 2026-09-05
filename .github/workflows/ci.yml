@@ -274,3 +274,93 @@ jobs:
             exit 1
           fi
           echo "All tracked files comply with the line-ending policy."
+
+  # Stage 23 (ADR-0037): WCAG 2.2 AA over the rendered pages of a BUILT,
+  # STARTED application, with axe-core in a real Chromium, signed in as the
+  # seeded demo account (staff on this run, so the console is covered). It is
+  # its own job because it needs the app running against a migrated,
+  # seeded database; `npm test` cannot do that. A violation fails the job.
+  accessibility:
+    name: Accessibility (WCAG 2.2 AA · axe · rendered pages)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: jobpilot_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d jobpilot_ci"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      STAFF_EMAILS: demo@jobpilot.ai
+      NEXT_PUBLIC_APP_URL: http://127.0.0.1:3000
+      A11Y_BASE_URL: http://127.0.0.1:3000
+      PORT: '3000'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install (from the lockfile)
+        run: npm ci
+      - name: Apply the migration history and seed the demo account
+        run: |
+          npm run db:migrate:deploy
+          npm run db:seed
+      - name: Build
+        run: npm run build
+      - name: Start the application
+        run: |
+          nohup npm run start > a11y-server.log 2>&1 &
+          for i in $(seq 1 40); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/api/health || true)
+            if [ "$code" = "200" ] || [ "$code" = "503" ]; then echo "up ($code)"; exit 0; fi
+            sleep 3
+          done
+          echo "the application did not come up"; tail -50 a11y-server.log; exit 1
+      - name: Install Chromium for Playwright
+        run: npx playwright install --with-deps chromium
+      - name: Audit every page
+        run: npm run a11y
+      - name: Keep the report and traces
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: accessibility-report
+          path: |
+            a11y/report/a11y-results.json
+            a11y/report/artifacts
+          if-no-files-found: ignore
+
+  # Stage 23 (ADR-0037): a software bill of materials for every commit, so
+  # the dependency provenance the readiness gate asks for is a produced
+  # artefact rather than a claim. CycloneDX, from the lockfile, production
+  # dependencies only. `dependency-review.yml` gates known advisories on PRs.
+  sbom:
+    name: SBOM (CycloneDX, from the lockfile)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install (from the lockfile)
+        run: npm ci --ignore-scripts
+      - name: Generate
+        run: npm sbom --sbom-format cyclonedx --omit dev --package-lock-only > sbom.cyclonedx.json
+      - name: Summarise
+        run: node -e "const s=require('./sbom.cyclonedx.json'); console.log(s.components.length + ' components, ' + (s.components.filter(c=>c.licenses&&c.licenses.length).length) + ' with a license entry')"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: sbom.cyclonedx.json

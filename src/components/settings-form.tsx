@@ -105,7 +105,7 @@ export function SettingsForm({ initial }: { initial: ProfileValues }) {
             </label>
           ))}
           <div className="flex items-start gap-3 rounded-xl border border-dashed border-line p-3 text-sm opacity-70" aria-disabled="true">
-            <input type="radio" name="applicationMode" value={UNREACHABLE_MODE} disabled className="mt-1" />
+            <input type="radio" name="applicationMode" value={UNREACHABLE_MODE} disabled className="mt-1" aria-label="Approved auto-apply (unavailable until Stage 22 preconditions are met)" />
             <span>
               <span className="block font-medium text-ink">Approved Auto-Apply — not available</span>
               <span className="block text-xs text-muted">Autonomous submission is not offered. It is gated on a lawfulness review and an explicit founder decision (Stage 22); no setting turns it on.</span>

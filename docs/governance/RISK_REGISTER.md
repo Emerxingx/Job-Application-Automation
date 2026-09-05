@@ -32,7 +32,7 @@ Scored **Likelihood × Impact** (1–5). Owner is the stage that closes it.
 | R-14 | ~~Lint backlog surfaces late~~ **CLOSED in Stage 00** — measured at 9 issues, of which 6 were the deliberate provider `require()` pattern (exempted with reasons, not "fixed"). Residual **0 errors / 2 warnings**, locked as a blocking gate via `--max-warnings=2` | — | — | — | Done | 00 |
 | R-30 | **ESLint 9 is EOL upstream, and ESLint 10 is outside `eslint-config-next@15.4.11`'s peer range** (`^7 \|\| ^8 \|\| ^9`) — the same constraint shape as Next/Payload | 3 | 2 | 6 | Pinned to 9.x; Dependabot ignores `eslint >=10`; revisit with the Next 16 upgrade | 01 |
 | R-15 | Payload peer range blocks a future Next security fix | 2 | 4 | 8 | Standing pre-upgrade check; `ADR-0003` revisit trigger | ongoing |
-| R-16 | Rate limits multiply by instance count | 3 | 3 | 9 | Shared Redis store | 01 |
+| R-16 | Rate limits multiply by instance count | 3 | 3 | 9 | Shared Redis store. **Stage 23:** still in-process; correct for the single founder-stage instance and stated PARTIAL in the readiness gates; a shared store is required before a second instance (Stage 24) | 24 |
 | R-17 | Artefacts lost on container restart (local filesystem) | 4 | 2 | 8 | Object storage | 05 |
 | R-18 | Cross-border AI processing without adequate consent | 2 | 4 | 8 | Documented exception, disclosure, minimal content, no sensitive data | 01/15 |
 | R-19 | Dashboards degrade transactional performance | 3 | 3 | 9 | Marts and materialized views | 21 |
@@ -44,7 +44,7 @@ Scored **Likelihood × Impact** (1–5). Owner is the stage that closes it.
 | ID | Risk | Rationale |
 | --- | --- | --- |
 | R-23 | `esbuild`/`drizzle-kit` moderate advisory, no fix available | Affects the esbuild **dev server** only; reaches us via Payload's migration CLI, never run in production. Development-machine exposure only. Revisit when Payload updates its adapter deps |
-| R-24 | Webhook SSRF residual DNS-rebinding gap | Literal private addresses blocked and redirects refused; closing fully needs a custom agent that re-checks the resolved address at connect time. Documented honestly in-source. Revisit in Stage 23 |
+| R-24 | Webhook SSRF residual DNS-rebinding gap | Literal private addresses blocked and redirects refused; closing fully needs a custom agent that re-checks the resolved address at connect time. Documented honestly in-source. **Stage 23 revisit:** unchanged and still accepted - no outbound webhook is configured by any tenant yet; re-check before the first one is |
 
 ## Open legal / compliance decisions (R-25 … R-29)
 

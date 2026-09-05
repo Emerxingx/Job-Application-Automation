@@ -1,4 +1,5 @@
 import type { ApplyRequest, AtsTarget, AtsVendor, ApplyOutcome } from './types';
+import { redactError } from '@/lib/log';
 
 /**
  * ATS detection and submission.
@@ -266,7 +267,7 @@ export async function submitToAts(
       };
     }
   } catch (error) {
-    console.error('[apply/ats] submission error:', error);
+    console.error('[apply/ats] submission error:', redactError(error));
     return {
       ok: false,
       channel: 'ats_api',

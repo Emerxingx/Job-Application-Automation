@@ -52,6 +52,7 @@ import {
   validateWebhookUrl,
   type WebhookTransport,
 } from './webhooks';
+import { redactError } from '@/lib/log';
 
 // --- The interface ----------------------------------------------------------
 
@@ -615,7 +616,7 @@ export async function deliverToConnector(
         ? { lastSyncAt: now, lastError: null, errorCount: 0 }
         : { lastError: result.message, errorCount: { increment: 1 }, status: 'error' },
     })
-    .catch((error) => console.warn('[connectors] could not record outcome:', error));
+    .catch((error) => console.warn('[connectors] could not record outcome:', redactError(error)));
 
   return result;
 }
