@@ -31,6 +31,10 @@ export type SecurityEvent =
   | 'auth.sessions.revoked_all'
   | 'auth.password.changed'
   | 'auth.identity.linked'
+  // Stage 14: a mobile sign-in mints a device key; revocation is by the owner,
+  // by password change, or by "sign out everywhere else".
+  | 'auth.device.issued'
+  | 'auth.device.revoked'
   // Stage 03: step-up re-authentication for prompt governance (failures only;
   // a success is implied by the prompt.* audit row that follows it).
   | 'auth.step_up.failed'

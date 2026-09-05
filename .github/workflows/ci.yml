@@ -144,6 +144,54 @@ jobs:
       - name: Build
         run: npm run build
 
+  mobile:
+    name: Mobile (types · typecheck · test · web bundle)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Stage 14 (ADR-0013): the Expo client is its own package under mobile/,
+    # built against the frozen candidate contract. Its generated types are
+    # tracked and diffed here, so a contract change that is not regenerated
+    # into the app is a red build rather than a runtime mismatch on a phone.
+    # The web export is the compile gate: Metro bundles every screen. Nothing
+    # here runs on a device - that is NOT VERIFIED in CI and the evidence
+    # says so.
+    defaults:
+      run:
+        working-directory: mobile
+    env:
+      EXPO_NO_TELEMETRY: '1'
+      CI: 'true'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Install (from the lockfile)
+        run: npm ci
+
+      - name: Regenerate the client types from the contract
+        run: npm run api:types
+
+      - name: Fail if the generated types drifted from docs/api/openapi.candidate.v1.json
+        run: |
+          if ! git diff --exit-code -- src/api/schema.d.ts; then
+            echo "::error::mobile/src/api/schema.d.ts is out of sync with the contract. Run 'npm run api:types' in mobile/ and commit the result."
+            exit 1
+          fi
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Tests (client, cache policy, contract parity, contrast)
+        run: npm test
+
+      - name: Web bundle (Metro compiles every screen)
+        run: npm run export:web
+
   generated-files:
     name: Generated-file determinism
     runs-on: ubuntu-latest

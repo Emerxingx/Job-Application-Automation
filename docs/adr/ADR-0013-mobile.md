@@ -1,6 +1,6 @@
 # ADR-0013 — Mobile architecture: React Native + Expo, contract-first
 
-**Status:** Proposed · **Date:** 2026-09-02
+**Status:** Accepted · **Date:** 2026-09-02 · **Steps 1 and 2 delivered (Stage 14, 2026-09-03, ADR-0028):** `docs/api/openapi.candidate.v1.json` is published, hash-locked in `openapi.candidate.v1.lock`, and proven against the backend by `tests/candidate-api-contract.test.ts` in CI. **Step 3 delivered (2026-09-05):** the Expo client under `mobile/` consumes only the contract (1.1.0, additive; ADR-0029 for its device sign-in), typechecks, passes its tests and bundles in CI; it has never run on a device - the device matrix, the secure-store write and screen-reader use are NOT VERIFIED, push notifications wait on ADR-0011, biometric unlock and certificate pinning are NOT IMPLEMENTED.
 
 ## Context
 No mobile application exists. The target is React Native + Expo + TypeScript,

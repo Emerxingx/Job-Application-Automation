@@ -22,6 +22,7 @@
     "jobs:canonicalize": "node scripts/db/with-encoded-env.mjs tsx scripts/jobs/canonicalize.ts",
     "mailbox:sync": "tsx scripts/mailbox/sync.ts",
     "analytics:rollup": "tsx scripts/analytics/rollup-candidates.ts",
+    "api:freeze": "tsx scripts/api/freeze-contract.ts",
     "db:reset": "node scripts/db/with-encoded-env.mjs prisma migrate reset --force",
     "postinstall": "prisma generate",
     "cms:types": "node scripts/payload-cli.mjs generate:types",

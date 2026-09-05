@@ -66,11 +66,33 @@ describe('rateLimit', () => {
 });
 
 describe('clientAddress', () => {
-  it('reads the first hop from x-forwarded-for', () => {
+  // Stage 14 review: the leftmost entry is whatever the caller wrote. Only the
+  // entry the trusted proxy appended - the rightmost, with one hop - counts.
+  it('believes the entry the trusted proxy appended, not the one the caller wrote', () => {
     const request = new Request('https://example.com', {
       headers: { 'x-forwarded-for': '203.0.113.7, 70.41.3.18' },
     });
-    assert.equal(clientAddress(request), '203.0.113.7');
+    assert.equal(clientAddress(request, 1), '70.41.3.18');
+    assert.equal(clientAddress(request, 2), '203.0.113.7', 'two trusted hops reach one entry further left');
+    assert.equal(clientAddress(request, 3), 'unknown', 'more hops than entries: nothing believable');
+  });
+
+  it('ignores every forwarded header with zero trusted hops (one shared bucket)', () => {
+    const request = new Request('https://example.com', {
+      headers: { 'x-forwarded-for': '203.0.113.7', 'x-real-ip': '198.51.100.4' },
+    });
+    assert.equal(clientAddress(request, 0), 'unknown');
+  });
+
+  it('a rotating forwarded header does not buy fresh buckets, and the per-account rule exists', () => {
+    resetRateLimits();
+    const rule = { limit: 2, windowSeconds: 60 };
+    for (const spoof of ['1.1.1.1', '2.2.2.2', '3.3.3.3']) {
+      const request = new Request('https://example.com', { headers: { 'x-forwarded-for': `${spoof}, 70.41.3.18` } });
+      rateLimit('spoof-test', clientAddress(request, 1), rule);
+    }
+    assert.equal(rateLimit('spoof-test', '70.41.3.18', rule).ok, false, 'all three landed in the proxy-seen bucket');
+    assert.ok(LIMITS.authAccount.limit >= 10 && LIMITS.authAccount.windowSeconds >= 300);
   });
 
   it('falls back to x-real-ip, then to a sentinel', () => {

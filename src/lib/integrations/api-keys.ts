@@ -451,7 +451,10 @@ export async function createApiKey(
   userId: string,
   input: CreateApiKeyInput,
 ): Promise<{ key: SafeApiKey; secret: string }> {
-  const active = await db.apiKey.count({ where: { userId, revokedAt: null } });
+  // Integration keys only: a device key (Stage 14) is a session, capped and
+  // recycled by src/lib/integrations/device-sessions.ts, and must not be able
+  // to lock the owner out of minting a server key by filling this budget.
+  const active = await db.apiKey.count({ where: { userId, kind: 'integration', revokedAt: null } });
   if (active >= MAX_ACTIVE_KEYS_PER_USER) {
     throw new Error(
       `You already have ${MAX_ACTIVE_KEYS_PER_USER} active API keys. Revoke one before creating another.`,
@@ -470,6 +473,7 @@ export async function createApiKey(
       keyHash: generated.keyHash,
       scopes: serialiseScopes(scopes),
       environment,
+      kind: 'integration',
       rateLimitPerMinute: input.rateLimitPerMinute ?? DEFAULT_RATE_LIMIT_PER_MINUTE,
       expiresAt: input.expiresAt ?? null,
     },
@@ -480,7 +484,8 @@ export async function createApiKey(
 
 /** A user's keys, newest first, in their safe shape. */
 export async function listApiKeys(userId: string): Promise<SafeApiKey[]> {
-  const rows = await db.apiKey.findMany({ where: { userId }, orderBy: { createdAt: 'desc' } });
+  // Device keys are listed with the sessions (they are sign-ins, not integrations).
+  const rows = await db.apiKey.findMany({ where: { userId, kind: 'integration' }, orderBy: { createdAt: 'desc' } });
   const now = new Date();
   return rows.map((row) => toSafeApiKey(row, now));
 }

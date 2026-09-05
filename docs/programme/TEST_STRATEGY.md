@@ -309,3 +309,57 @@ never occurred.
   changes nothing; a single-user refresh does not shrink the benchmark;
   another tenant reads nothing and cannot reach the benchmark table; the
   benchmark suppresses a one-person cohort.
+
+## Stage 14 — the candidate API contract
+
+- `tests/candidate-api-contract.test.ts` (pure): the OpenAPI document is
+  3.1 and semver, every operation carries a scope and a 2xx schema, every
+  error references the one `Error` envelope, every path parameter is
+  declared, every `$ref` resolves; the lock's hash equals the canonical
+  document's (a change without `npm run api:freeze` fails); the contract's
+  paths and the route files under `src/app/(app)/api/v1` are the same set
+  both ways; the `Error` schema accepts exactly what `http.ts` emits.
+- (database): with real API keys, every GET's body validates against its
+  declared schema; a never-automated question carries no value through the
+  API; a contact's address is absent from the folder; another key gets the
+  404 envelope for the same ids and empty lists; a `read` key is refused
+  `apply:write` with the `insufficient_scope` envelope; an unknown key gets
+  401; `submit` on a non-permitting mode and on an unauthorised board is
+  refused with the envelope and nothing moves; `confirm` with `apply:write`
+  moves the record through the machine, seals the documents, returns a
+  valid folder, and a second confirm is refused.
+
+### Stage 14, second pass — version 1.1.0 and the app (2026-09-05)
+
+- **Contract, closed.** The independent review showed an open schema waves a
+  leaked column through, so every object schema is `additionalProperties:
+  false` and `contractProblems()` refuses an open one or an `allOf`; a test
+  proves `passwordHash` on `Me` fails. Every keyed operation documents 401,
+  every operation 429; enforced. `conforms()` parses every `*At` string.
+- **The device flow, end to end with a real password hash** (bcrypt in the
+  test's `before`): mint, use, list as current, sign out, refused; a wrong
+  password mints nothing; the supabase method without a provider is 503
+  `unavailable`; an integration key cannot be signed out through the device
+  route; a stranger's revoke is 404 and the device still works; the owner's
+  revoke from another device works; a password change revokes all; no audit
+  row carries a key. Consents (grant once, withdraw, required and L-3
+  purposes refused), saved jobs (idempotent, ownership, `saved` on detail),
+  the signed document link (verified with `verifyDocumentLink`, bound to the
+  owner, 404 for a stranger), evidence (claims never facts).
+- **The app (`mobile/tests`, node:test, no device):** the client against a
+  fake fetch (bearer header on all but sign-in, envelope → `ApiError` with
+  code / status / param / Retry-After, one 401 signal, network and
+  non-envelope bodies as `NetworkError`, every write helper's method and
+  path); the cache policy (allow-list of GETs, never a write / device list /
+  signed link, age-out, corrupt entries dropped, cleared on sign-out);
+  contract parity (every client path in the document, every document path
+  in the client but the ATS lookup, generated types byte-identical to a
+  fresh `openapi-typescript` run, no `fetch` or `/v1` literal outside the
+  client, no AsyncStorage import, nothing that looks like a key or secret);
+  formatting and the device descriptor; WCAG contrast of every token pair
+  **computed**. CI: `api:types` diff, `tsc`, the suites, `expo export
+  --platform web` as the compile gate.
+- **NOT covered, by honesty:** anything that needs a device - the secure
+  store, VoiceOver / TalkBack, dynamic type, a network drop mid-tap, deep
+  links, the store build. Detox / Maestro remain the plan for a device
+  matrix once one exists.

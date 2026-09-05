@@ -293,10 +293,19 @@ audit and system health.
 in `ADR-0019`: business configuration is admin-editable; security-critical
 implementation is not.
 
-### G-27 — No mobile · NOT IMPLEMENTED
-Target is React Native + Expo. Nothing exists. The absence of a stable public API
-contract (OpenAPI) is the real blocker — `/api/v1` covers 4 endpoints.
-**Remediation:** `ADR-0013`; Stage 14.
+### G-27 — No mobile · PARTIAL (the contract and the Expo app exist, Stage 14; device-level proofs NOT VERIFIED, push NOT IMPLEMENTED)
+Target is React Native + Expo. The blocker was the absence of a stable public API
+contract — `/api/v1` covered 4 endpoints.
+**Stage 14 (ADR-0028, ADR-0029):** `docs/api/openapi.candidate.v1.json` (1.1.0)
+publishes twenty-five operations for the candidate surface, hash-locked and
+versioned, every schema closed, proven against the backend in CI; the Expo
+application under `mobile/` consumes only it (generated types diffed in CI, path
+parity and no-direct-fetch tests), signs in with a device key kept in secure
+storage, caches read-only and never submits offline. Remaining: everything a
+device would prove (NOT VERIFIED — no device or emulator here), push
+notifications (NOT IMPLEMENTED, ADR-0011), biometric unlock and certificate
+pinning (NOT IMPLEMENTED), the store build (a founder action).
+**Remediation:** run on a device (external action MOBILE-DEVICE-VALIDATION); ADR-0011.
 
 ### G-28 — Local filesystem storage · PARTIAL
 `STORAGE_ROOT` on local disk. Application folders do not survive a container

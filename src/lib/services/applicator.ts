@@ -369,19 +369,24 @@ export async function confirmAssistedSubmission(
   userId: string,
   applicationId: string,
 ): Promise<{ ok: boolean; reason?: string }> {
-  const application = await db.application.findFirst({
-    where: { id: applicationId, userId },
-  });
-  if (!application) return { ok: false, reason: 'Application not found.' };
-  if (application.status !== 'ready_to_submit') {
-    return { ok: false, reason: 'This application is not awaiting confirmation.' };
-  }
-
   // Stage 10: through the status machine, so the history row, the audit row
   // and the row update commit together; appliedAt is stamped by the move.
+  // Stage 14 review: the status check and the move happen under the same
+  // advisory lock submitThroughAts takes, so two confirmations arriving
+  // together (a retrying client, two taps) cannot both read ready_to_submit
+  // and both write a history row - the second finds `submitted` and is refused.
   const actor = folderActor({ id: userId });
-  await db.$transaction((tx) => transitionApplication(tx, actor, application.id, 'submitted', { actor: 'applicant', source: 'confirm', reason: 'confirmed on the employer form' }));
+  const claimed = await db.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`application:submit:${applicationId}`}::text))`;
+    const application = await tx.application.findFirst({ where: { id: applicationId, userId }, select: { id: true, jobId: true, status: true } });
+    if (!application) return { refused: 'Application not found.' as const };
+    if (application.status !== 'ready_to_submit') return { refused: 'This application is not awaiting confirmation.' as const };
+    await transitionApplication(tx, actor, application.id, 'submitted', { actor: 'applicant', source: 'confirm', reason: 'confirmed on the employer form' });
+    return { application };
+  });
   await flushAudit(actor);
+  if ('refused' in claimed) return { ok: false, reason: claimed.refused };
+  const application = claimed.application;
   // Stage 09: what was prepared is now what was sent — seal it.
   await sealApplicationDocuments(db, userId, application.id);
   await markMatchApplied(userId, application.jobId);

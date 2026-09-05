@@ -1,13 +1,13 @@
 {
   "$comment": "Machine-readable controller for the autonomous build programme. Authoritative over any chat transcript: if this file and a conversation disagree, this file wins. Updated at every stage checkpoint.",
   "schema_version": 1,
-  "updated_at": "2026-09-03",
-  "current_stage": "13",
+  "updated_at": "2026-09-05T11:00:00Z",
+  "current_stage": "14",
   "last_completed_stage": "00",
-  "current_branch": "claude/stage-13-candidate-analytics",
-  "current_head": "131ac795c12b9be6e99c51a4f6c0bef92bc37679",
+  "current_branch": "claude/stage-14-candidate-api-contract",
+  "current_head": "70577bfd776f669d51c45e55ef15d5a51f01d9b7",
   "current_head_meaning": "SHA of the last commit whose full gate set was verified locally (lint, typecheck, tests, build). Set by the status-sync commit that immediately follows it, so it names a real, verified commit rather than the one it is written in.",
-  "current_pr": "https://github.com/Emerxingx/Job-Application-Automation/pull/25",
+  "current_pr": "https://github.com/Emerxingx/Job-Application-Automation/pull/26",
   "main_head": "d6ae8b3a9180b529abe06f23417515432c0a7f0e",
   "run_complete": false,
   "stage_status": {
@@ -25,7 +25,7 @@
     "11": "PASS_ENGINEERING_EXIT_BLOCKED_CREDENTIALS",
     "12": "PASS_ENGINEERING_EXIT_BLOCKED_CREDENTIALS",
     "13": "PASS_ENGINEERING_EXIT_PARTIAL",
-    "14": "NOT_STARTED",
+    "14": "PASS_ENGINEERING_EXIT_PARTIAL",
     "15": "NOT_STARTED",
     "16": "NOT_STARTED",
     "17": "NOT_STARTED",
@@ -83,7 +83,7 @@
     ],
     "verdict": "Stage 01 is PARTIAL, not PASS. Every unmet item traces to the staging project being unreachable from the build environment, except tenant-path adoption, which is engineering and continues in Stage 02 alongside the schema work that touches those handlers."
   },
-  "next_requirement": "Stage 05 engineering is complete; its exit is PARTIAL: the two conditions that need a live, credentialed source (≥2 lawful sources live; Adzuna PRODUCTION-VALIDATED) are BLOCKED on ADZUNA_APP_ID / ADZUNA_APP_KEY and a recorded terms review (external action ADZUNA-LIVE-VALIDATION). Independent work continues: Stage 06 (normalization, deduplication, freshness) begins on a branch stacked on Stage 05 — canonical job with normalized_title / occupation_family / canonical_hash, deduplication preserving provenance across sources, closure detection, expiry, quality scoring.",
+  "next_requirement": "Stage 14 engineering is complete; its exit is PARTIAL on device-level proofs (NOT VERIFIED here) and push (NOT IMPLEMENTED, ADR-0011). Independent work continues: Stage 15 (payments, subscriptions, entitlements) begins on a branch stacked on Stage 14 — an explicit entitlement layer per ADR-0010, PlanPrice and BillingProfile wired, webhook idempotency and ordering proven, refund never silently revokes; Stripe stays IMPLEMENTED-NOT-VALIDATED without a test-mode key (CREDENTIAL blocker), so the Stage 15 exit will be BLOCKED on SANDBOX-VALIDATED.",
   "blockers": [
     {
       "id": "ATS-SANDBOX-CREDENTIAL",
@@ -213,6 +213,13 @@
       "action": "Provide Adzuna credentials as secrets, record the API terms at /console/sources, enable the source, run a health check and one discovery, attach the redacted run row.",
       "why": "ADR-0008 and the Stage 05 exit gate: an integration is promoted only on an observed run against the real service.",
       "status": "REQUIRED_BEFORE_LIVE_JOB_DATA"
+    },
+    {
+      "id": "MOBILE-DEVICE-VALIDATION",
+      "stage": "14",
+      "type": "FOUNDER_PRODUCT_DECISION / EXTERNAL_SERVICE",
+      "action": "Run mobile/ on iOS and Android (Expo Go: cd mobile && EXPO_PUBLIC_API_BASE_URL=https://<deployment> npm start); confirm sign-in, the Keychain / Keystore write, VoiceOver / TalkBack on the folder screen, a network drop mid-tap; then decide on a store build (Apple Developer and Google Play accounts, paid).",
+      "status": "OPEN"
     }
   ],
   "invariants_never_to_break": [
@@ -539,5 +546,32 @@
       "Staging rehearsal (NOT VERIFIED — R-34)"
     ],
     "verdict": "Stage 13 passes every engineering gate that can be run here and is PARTIAL at its exit on the inherited absence of an event stream and a scheduler, and on the absence of an industry classification, all stated. Merge posture inherited from the stack."
+  },
+  "stage_14_progress": {
+    "contract": "DONE — docs/api/openapi.candidate.v1.json 1.1.0 (1.0.0 frozen 2026-09-03; additive amendment 2026-09-05): 25 operations on 22 paths, 37 schemas, every object closed, 401/429 on every operation, one public operation (the device sign-in); lock re-frozen; ADR-0028 amended",
+    "routes": "DONE — nine 1.0 routes plus the 1.1 routes (auth/sessions ×3, PATCH me, consents ×2, jobs/{id}/saved, saved-jobs, documents/{id}/link, evidence); ownership through the key's user; device keys per ADR-0029 (kind device, scope write, expiring, capped, revoked by owner / password change / sign-out-everywhere, listed beside browser sessions)",
+    "freeze": "DONE — openapi.candidate.v1.lock 1.1.0; npm run api:freeze; contractProblems enforces closed schemas, 401/429, scope vocabulary, public ⇔ security []",
+    "contract_tests": "DONE — 17 tests (6 pure, 11 database): 1.0 GETs against schemas with dates parsed, ownership, scope refusal, locked confirm, submit refusals; 1.1: device flow end to end with a real password hash, revocation scoping, PATCH me, consents fail-closed, saved jobs, signed document link, evidence",
+    "migration": "DONE — 20260905100000_api_key_kind (ApiKey.kind, ApiKey.platform; additive); rehearsal on a fresh database: 36 applied, drift clean, 120 forced tables",
+    "mobile_app": "DONE (engineering) — mobile/: Expo SDK 57 + expo-router + TypeScript strict; sign-in, onboarding notice, recommendations, saved, job detail with eligibility, match analysis, applications, folder with review + confirm + instructed submit + signed document links, interviews, activity, profile, edit, evidence, analytics, privacy & consent, devices, sign out; loading/error/empty/offline states; read-only cache, no offline queue; secure-store device key; contrast computed; 24 tests; Metro web bundle; own CI job. NOT VERIFIED on a device; push NOT IMPLEMENTED (ADR-0011); biometric unlock and certificate pinning NOT IMPLEMENTED",
+    "independent_review": "DONE (two passes). 1.0.0: 2 MEDIUM fixed (advisory-locked confirm; closed schemas), 3 LOW fixed, 2 LOW recorded as deliberate. 1.1.0 + app: 3 MEDIUM fixed (trusted-proxy address + per-account sign-in budget; document link authority from NEXT_PUBLIC_APP_URL; border contrast to 3:1 with the test demanding it), 4 LOW fixed (PATCH me status, locked consent grant, evidence counts, locked device recycling). Both recorded in STAGE14_EVIDENCE.md §10-11."
+  },
+  "stage_14_exit_gate": {
+    "met": [
+      "Contract published for the candidate surface (25 operations, closed schemas)",
+      "Contract frozen and versioned before app work began (1.0.0 on 2026-09-03; the app built on 2026-09-05 against the additive 1.1.0)",
+      "Contract tests run in CI against the web backend (17)",
+      "Mobile consumes only the published contract — generated types diffed in CI, path parity, no direct fetch (test-enforced)",
+      "Same auth as web, platform-secure storage, no privileged endpoints — ADR-0029 (engineering; the secure-store write is NOT VERIFIED on a device)",
+      "Offline behaviour: read-only cache, no offline submission (policy tested; a real drop NOT VERIFIED)",
+      "Full gate set green with the documented command only: lint 0/8, typecheck 0, 1089/1089 tests (0 skipped), build 0; mobile: typecheck 0, 24/24, web bundle 0 errors"
+    ],
+    "not_met": [
+      "Device matrix — NOT VERIFIED: no device or emulator in this environment",
+      "Push notifications — NOT IMPLEMENTED: waits on ADR-0011",
+      "Biometric unlock, certificate pinning — NOT IMPLEMENTED",
+      "Staging rehearsal (NOT VERIFIED — R-34)"
+    ],
+    "verdict": "Stage 14 is PASS on engineering — contract, backend proof, and an app that consumes only the contract — and PARTIAL as a stage: what a device would prove is NOT VERIFIED and push is NOT IMPLEMENTED. Merge posture inherited from the stack."
   }
 }

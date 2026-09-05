@@ -24,6 +24,12 @@ export const POST = route(async (request: Request) => {
   const body = schema.parse(await request.json());
   const email = body.email.toLowerCase().trim();
   const meta = requestMeta(request);
+  // Stage 14 review: a per-ACCOUNT budget too, keyed by the digest of the
+  // address, so a caller rotating X-Forwarded-For still runs out of guesses.
+  const account = rateLimit('auth_account', hashEmail(email), LIMITS.authAccount);
+  if (!account.ok) {
+    return tooMany(`Too many sign-in attempts for this account. Try again in ${describeWait(account.retryAfterSeconds)}.`, account.retryAfterSeconds);
+  }
 
   const user = await db.user.findUnique({ where: { email } });
   // Same message either way so the response doesn't reveal which emails exist.

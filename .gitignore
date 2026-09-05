@@ -30,3 +30,6 @@ yarn-error.log*
 .vercel
 *.tsbuildinfo
 next-env.d.ts
+
+# Sibling git worktrees used during stage work (never part of the tree)
+scratchpad/
