@@ -5,7 +5,7 @@
   "current_stage": "20",
   "last_completed_stage": "19",
   "current_branch": "claude/stage-20-enterprise-controls",
-  "current_head": "a555d252149a888701738908e4e12530cf5d2ea4",
+  "current_head": "4941af50a2c8c82c9ff302b42853a361b50e0229",
   "current_head_meaning": "SHA of the last commit whose full gate set was verified locally (lint, typecheck, tests, build). Set by the status-sync commit that immediately follows it, so it names a real, verified commit rather than the one it is written in.",
   "current_pr": "https://github.com/Emerxingx/Job-Application-Automation/pull/32",
   "main_head": "d6ae8b3a9180b529abe06f23417515432c0a7f0e",
@@ -762,7 +762,7 @@
       "Every routine change the stage built is performed in /console without a deploy, under step-up with a reason and an audit row",
       "Admin authorisation matrix tested statically; impersonation read-only enforced in route() and tested; SSO flow tested end to end against a local issuer; SCIM lifecycle tested against the database",
       "ADR-0019 boundary held: flags declared in code, Tier-2 keys refused, no security module reads a flag",
-      "Full gate set green: lint 0/7, typecheck 0, tests 1236/1236 (0 skipped), build 0 (main tree); rehearsal 52 migrations, drift clean, 155 forced tables"
+      "Full gate set green: lint 0/7, typecheck 0, tests 1243/1243 (0 skipped), re-run after the review fixes and the static-test correction, build 0 (main tree); rehearsal 52 migrations, drift clean, 155 forced tables"
     ],
     "not_met": [
       "\"No routine business change requires a code deploy\" as written — plan/price editing, notification/email templates, retention beyond cases and system health still need a developer (NOT IMPLEMENTED)",
