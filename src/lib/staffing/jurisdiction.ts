@@ -48,7 +48,7 @@ export interface JurisdictionEvaluation {
   verdict: 'allowed' | 'blocked' | 'unconfirmed';
 }
 
-export const JURISDICTION_ENGINE_VERSION = '2026-09-05.1';
+export const JURISDICTION_ENGINE_VERSION = '2026-09-05.2';
 
 /** The jurisdictions seeded as rows. Names only; every rule value is null until counsel records it. */
 export const SEEDED_JURISDICTIONS: { jurisdiction: string; name: string }[] = [
@@ -64,16 +64,28 @@ export const SEEDED_JURISDICTIONS: { jurisdiction: string; name: string }[] = [
   { jurisdiction: 'US-WA', name: 'Washington' },
 ];
 
-/** `CA-BC` matches `CA-BC` then `CA`; a bare `CA` matches itself only. Codes are upper-case, `COUNTRY` or `COUNTRY-REGION`. */
+/** Codes are upper-case, `COUNTRY` or `COUNTRY-REGION`. */
 export function isJurisdictionCode(value: unknown): value is string {
   return typeof value === 'string' && /^[A-Z]{2}(-[A-Z0-9]{2,3})?$/.test(value);
 }
 
+const answered = (r: JurisdictionRuleRow | undefined) => r !== undefined && (r.status === 'recorded' || r.status === 'prohibited');
+
+/**
+ * Which row governs a code. Precedence (Stage 19 review, H2): the region's
+ * own row when counsel has ANSWERED it (recorded or prohibited); otherwise
+ * the country's answered row - so an `unrecorded` region row never shadows a
+ * prohibition or an answer recorded at country level; otherwise whichever
+ * unrecorded row exists (region, then country); otherwise null. A bare
+ * country code matches its own row only.
+ */
 export function resolveRule(rules: readonly JurisdictionRuleRow[], jurisdiction: string): JurisdictionRuleRow | null {
   const exact = rules.find((r) => r.jurisdiction === jurisdiction);
-  if (exact) return exact;
   const country = jurisdiction.split('-')[0]!;
-  return rules.find((r) => r.jurisdiction === country) ?? null;
+  const parent = country === jurisdiction ? undefined : rules.find((r) => r.jurisdiction === country);
+  if (answered(exact)) return exact!;
+  if (answered(parent)) return parent!;
+  return exact ?? parent ?? null;
 }
 
 export interface PlacementFacts {
@@ -89,10 +101,17 @@ export function evaluateJurisdiction(rules: readonly JurisdictionRuleRow[], fact
   const rule = resolveRule(rules, facts.jurisdiction);
   const checks: JurisdictionCheck[] = [];
 
+  // A prohibition anywhere up the chain blocks. A RECORDED answer confirms
+  // only the code it was recorded for: a country's answer reaching a region
+  // (CA recorded, CA-SK never asked about) is `unknown`, never a pass -
+  // provincial rules differ, and silence about a province is not an answer
+  // (L-4; Stage 19 review, H2).
+  const inherited = rule !== null && rule.jurisdiction !== facts.jurisdiction;
   if (!rule) checks.push({ rule: 'jurisdiction_recorded', status: 'unknown', reason: `No rule row exists for ${facts.jurisdiction}; counsel has not been asked about it (L-4).` });
-  else if (rule.status === 'prohibited') checks.push({ rule: 'jurisdiction_recorded', status: 'fail', reason: `${rule.name}: counsel recorded that this platform must not place candidates here.` });
+  else if (rule.status === 'prohibited') checks.push({ rule: 'jurisdiction_recorded', status: 'fail', reason: `${rule.name}: counsel recorded that this platform must not place candidates here${inherited ? ` (${rule.jurisdiction} governs ${facts.jurisdiction})` : ''}.` });
   else if (rule.status !== 'recorded') checks.push({ rule: 'jurisdiction_recorded', status: 'unknown', reason: `${rule.name}: the rules are not recorded yet (L-4).` });
-  else checks.push({ rule: 'jurisdiction_recorded', status: 'pass', reason: `${rule.name}: rules recorded${rule.jurisdiction === facts.jurisdiction ? '' : ` (${rule.jurisdiction} applies to ${facts.jurisdiction})`}.` });
+  else if (inherited) checks.push({ rule: 'jurisdiction_recorded', status: 'unknown', reason: `${rule.name} is recorded, but counsel has not answered for ${facts.jurisdiction} itself; a country's answer does not confirm a region (L-4).` });
+  else checks.push({ rule: 'jurisdiction_recorded', status: 'pass', reason: `${rule.name}: rules recorded.` });
 
   // Platform rule, in every jurisdiction.
   if (facts.paidBy !== 'client') checks.push({ rule: 'candidate_fees', status: 'fail', reason: 'The fee is not paid by the client. No candidate is charged on an employer-paid engagement, anywhere.' });

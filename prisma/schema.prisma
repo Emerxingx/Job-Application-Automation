@@ -4540,7 +4540,7 @@ model Placement {
 
   organization   Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   engagement     Engagement            @relation(fields: [engagementId], references: [id], onDelete: Cascade)
-  candidate      User                  @relation("PlacedCandidate", fields: [candidateUserId], references: [id], onDelete: Cascade)
+  candidate      User                  @relation("PlacedCandidate", fields: [candidateUserId], references: [id], onDelete: Restrict)
   representation RepresentationConsent @relation(fields: [representationConsentId], references: [id], onDelete: Restrict)
   invoices       PlacementInvoice[]
 

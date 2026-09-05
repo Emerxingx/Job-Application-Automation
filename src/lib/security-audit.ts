@@ -94,6 +94,7 @@ export type SecurityEvent =
   | 'employer.offer.decided'
   // Stage 19 (ADR-0034): staffing. Fee data is CONFIDENTIAL: the rows carry ids, kinds and amounts in cents, never a candidate's name or a client's contact.
   | 'staffing.jurisdiction.recorded'
+  | 'staffing.role.set'
   | 'representation.requested'
   | 'representation.granted'
   | 'representation.declined'

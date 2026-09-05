@@ -1,4 +1,4 @@
-import { ensureJurisdictionRegistry } from '@/lib/staffing/service';
+import { listJurisdictionRegistry } from '@/lib/staffing/service';
 import { PageHeader } from '@/components/ui';
 import { consoleGate } from '../guard';
 import { AccessDenied } from '../ui';
@@ -11,7 +11,7 @@ export const dynamic = 'force-dynamic';
 export default async function ConsoleStaffingPage() {
   const gate = await consoleGate('admin');
   if (!gate.ok) return <AccessDenied />;
-  const rows = await ensureJurisdictionRegistry();
+  const rows = await listJurisdictionRegistry();
   return (
     <>
       <PageHeader title="Staffing rules by jurisdiction" description="What counsel recorded for each jurisdiction the staffing product targets. Rules are data; the code asserts nothing about any jurisdiction." />

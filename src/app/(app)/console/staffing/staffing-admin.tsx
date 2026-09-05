@@ -31,6 +31,7 @@ export function StaffingAdmin({ jurisdictions }: { jurisdictions: JurisdictionVi
   const router = useRouter();
   const [editing, setEditing] = useState<string | null>(null);
   const [form, setForm] = useState({ status: 'recorded', licenceRequired: '', candidateFeesProhibited: '', maxGuaranteeDays: '', reference: '', notes: '', reason: '' });
+  const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
 
@@ -42,11 +43,15 @@ export function StaffingAdmin({ jurisdictions }: { jurisdictions: JurisdictionVi
   async function save(e: React.FormEvent) {
     e.preventDefault();
     if (!editing) return;
+    if (!password) {
+      setMessage({ ok: false, text: 'Enter your current password first - recording counsel\'s answer is re-authenticated.' });
+      return;
+    }
     setBusy(true);
     setMessage(null);
     try {
       const tri = (v: string) => (v === '' ? null : v === 'true');
-      const res = await fetch('/api/console/staffing/jurisdictions', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jurisdiction: editing, status: form.status, licenceRequired: tri(form.licenceRequired), candidateFeesProhibited: tri(form.candidateFeesProhibited), maxGuaranteeDays: form.maxGuaranteeDays === '' ? null : Number(form.maxGuaranteeDays), reference: form.reference, notes: form.notes, reason: form.reason }) });
+      const res = await fetch('/api/console/staffing/jurisdictions', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ currentPassword: password, jurisdiction: editing, status: form.status, licenceRequired: tri(form.licenceRequired), candidateFeesProhibited: tri(form.candidateFeesProhibited), maxGuaranteeDays: form.maxGuaranteeDays === '' ? null : Number(form.maxGuaranteeDays), reference: form.reference, notes: form.notes, reason: form.reason }) });
       const data = await res.json();
       if (!res.ok) {
         setMessage({ ok: false, text: data.error ?? 'Could not record the rule.' });
@@ -54,6 +59,7 @@ export function StaffingAdmin({ jurisdictions }: { jurisdictions: JurisdictionVi
       }
       setMessage({ ok: true, text: `${editing} recorded.` });
       setEditing(null);
+      setPassword('');
       router.refresh();
     } catch {
       setMessage({ ok: false, text: 'Could not reach the server.' });
@@ -132,7 +138,7 @@ export function StaffingAdmin({ jurisdictions }: { jurisdictions: JurisdictionVi
             </label>
             <label className="flex flex-col text-sm">
               <span className="text-muted">Longest guarantee period allowed (days; blank = no limit recorded)</span>
-              <input type="number" min={1} max={3650} className="rounded-md border border-line bg-surface px-3 py-2" value={form.maxGuaranteeDays} onChange={(e) => setForm({ ...form, maxGuaranteeDays: e.target.value })} />
+              <input type="number" min={0} max={3650} className="rounded-md border border-line bg-surface px-3 py-2" value={form.maxGuaranteeDays} onChange={(e) => setForm({ ...form, maxGuaranteeDays: e.target.value })} />
             </label>
             <label className="flex flex-col text-sm md:col-span-2">
               <span className="text-muted">Citation (the statute or regulation counsel relied on)</span>
@@ -145,6 +151,10 @@ export function StaffingAdmin({ jurisdictions }: { jurisdictions: JurisdictionVi
             <label className="flex flex-col text-sm md:col-span-2">
               <span className="text-muted">Reason (audited)</span>
               <input className="rounded-md border border-line bg-surface px-3 py-2" required minLength={3} value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} />
+            </label>
+            <label className="flex flex-col text-sm md:col-span-2">
+              <span className="text-muted">Your current password (every change is re-authenticated)</span>
+              <input type="password" autoComplete="current-password" className="rounded-md border border-line bg-surface px-3 py-2" required value={password} onChange={(e) => setPassword(e.target.value)} />
             </label>
             <div className="flex gap-2 md:col-span-2">
               <button type="submit" className="btn-primary" disabled={busy}>

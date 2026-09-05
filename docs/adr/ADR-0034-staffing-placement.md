@@ -54,8 +54,11 @@ with their consent record, SELECT-only for them under RLS, revocable.
    (licence required, candidate fees prohibited, longest guarantee, the
    citation) is recorded by a staff admin at `/console/staffing` with a
    reason, audited (`staffing.jurisdiction.recorded`), and may be
-   `prohibited`. `jurisdiction.ts` resolves the most specific row (`CA-BC`
-   before `CA`) and evaluates four checks with `pass` · `fail` · `unknown`
+   `prohibited`. `jurisdiction.ts` resolves the most specific ANSWERED row
+   (`CA-BC` before `CA`; an `unrecorded` region row never shadows an answer
+   or a prohibition recorded at country level, and a country's recorded
+   answer never CONFIRMS a region it was not recorded for - that region is
+   `unconfirmed`) and evaluates four checks with `pass` · `fail` · `unknown`
    and a reason in words: `unconfirmed` when anything is unknown, `blocked`
    on any fail, `allowed` only when every check passes. One check is the
    platform's, everywhere: a fee not paid by the client FAILS. A placement
@@ -71,7 +74,9 @@ with their consent record, SELECT-only for them under RLS, revocable.
    with a `ConsentRecord` (`agency_representation`), which links them and
    snapshots their name; declining is final for that engagement; revoking
    revokes THAT record, and no new placement can cite it - a placement
-   already made stands as the agency's record. A placement asks one
+   already made stands as the agency's record, and the revoked row is never
+   reset or re-requested (a withdrawn consent is final for the engagement,
+   as a declined one is). A placement asks one
    question: the representation is `granted`, for this engagement, and its
    own consent record is this person's, for this purpose, unrevoked. Under
    RLS the candidate may SELECT their own row and nothing more.
@@ -82,8 +87,10 @@ with their consent record, SELECT-only for them under RLS, revocable.
    candidate is represented in production until counsel records the
    wording (L-5).
 6. **A fall-off inside the guarantee is a credit on the client's invoice**,
-   never a charge to anyone: `fell_off` with a named reason and a date, and
-   finance records a `guarantee_fell_off` credit for the full amount on an
+   never a charge to anyone: `fell_off` (only from `started`, with a named
+   reason and a date on or after the start and not in the future; a
+   candidate who never started is `cancelled`, which is not a guarantee
+   event), and finance records a `guarantee_fell_off` credit for the full amount on an
    issued or paid invoice. Replacement is a new placement.
 7. **Recruiter productivity is the organisation's own rows**: engagements
    owned, representations requested and granted, placements, fall-offs
@@ -107,7 +114,42 @@ with their consent record, SELECT-only for them under RLS, revocable.
 - Interest, tax, currency conversion, partial payments and dunning are not
   built for placement invoices (paid, void, credited only); a PDF rendering
   is not built.
-- Placement records name the candidate by user id; a candidate's erasure
-  cascades through `Placement` and `RepresentationConsent` (their rows),
-  which removes the agency's record of them - accepted for now and noted for
-  the erasure review in Stage 20.
+- Placement records name the candidate by user id. `Placement.candidateUserId`
+  is `ON DELETE RESTRICT` (migration `20260905190200`): a person's account
+  cannot be hard-deleted from under the agency's commercial record and its
+  invoice; erasure of a placed candidate is scrub-in-place, and what is
+  scrubbed on `RepresentationConsent` (`invitedName`, `invitedEmail`) is the
+  erasure review's to specify in Stage 20 - no erasure path touches these
+  tables yet, and this ADR claims none.
+
+## Amendments (Stage 19 independent review, 2026-09-05)
+
+- **A staffing agency is a VERIFIED organisation type.** `staffing_agency`
+  joined `VERIFIED_TYPES`: only staff create one (`{ verifiedOrganization: true }`),
+  as for employers and service providers, because an agency reaches into
+  people's Settings by email. Representation requests are rate-limited per
+  recruiter (30/hour) and per agency (200/day) - the Stage 17 invitation
+  limits, reused.
+- **Rule precedence** is as item 3 now states (answered beats unrecorded up
+  the chain; a country's answer does not confirm a region);
+  `JURISDICTION_ENGINE_VERSION` is `2026-09-05.2` and every stored
+  evaluation names it.
+- **One invoice per placement is held under a lock**: the system-client
+  transaction takes `pg_advisory_xact_lock(hashtext('placement_invoice:' || id))`
+  and repeats the "already invoiced" check under it before allocating the
+  `PL` number (a partial unique index would be invisible to Prisma's drift
+  check, so the lock is the mechanism; a database test races two issuers).
+- **A placement cites a consent of THIS purpose at the CURRENT wording**
+  (`agency_representation`, `CONSENT_VERSIONS.agency_representation`); the
+  credited recruiter is validated as a recruiter or admin of the agency and a
+  recruiter credits only themselves; the placement is denominated as the fee
+  structure is (a differing currency is refused).
+- **Recording counsel's answer (L-4) is a governance action**: the console
+  route is a `governanceRoute` under `requireStepUp`; the registry read
+  writes nothing; a code outside the seeded list is refused (the list is the
+  product decision); `maxGuaranteeDays` may be 0.
+- **Stated, not accidental:** an engagement with no owner recruiter is
+  writable by every recruiter of the agency (`canWriteEngagement`); role
+  assignment is audited (`staffing.role.set`); an invalid productivity range
+  is a 422, not a 500.
+

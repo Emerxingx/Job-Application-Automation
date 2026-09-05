@@ -60,8 +60,10 @@ describe('staffing - roles, contracts, fees, engagements, representation, placem
       await db.user.create({ data: { id: u.id, email: u.email, passwordHash: 'x', fullName: u.fullName, country: 'CA', onboardedAt: new Date() } });
       await orgs.ensurePersonalWorkspace(db, u);
     }
-    orgA = (await orgs.createOrganization(OA.id, { name: `Agency A ${S}`, type: 'staffing_agency', billingEmail: OA.email })).id;
-    orgB = (await orgs.createOrganization(OB.id, { name: `Agency B ${S}`, type: 'staffing_agency', billingEmail: OB.email })).id;
+    // Stage 19 review (H1): an agency is a VERIFIED organisation - staff create it; self-serve is refused.
+    await assert.rejects(orgs.createOrganization(OA.id, { name: `Agency A ${S}`, type: 'staffing_agency', billingEmail: OA.email }), (e: unknown) => e instanceof orgs.OrganizationAccessError && e.status === 403);
+    orgA = (await orgs.createOrganization(OA.id, { name: `Agency A ${S}`, type: 'staffing_agency', billingEmail: OA.email }, { verifiedOrganization: true })).id;
+    orgB = (await orgs.createOrganization(OB.id, { name: `Agency B ${S}`, type: 'staffing_agency', billingEmail: OB.email }, { verifiedOrganization: true })).id;
     for (const [u, serviceRole] of [
       [REC, 'recruiter'],
       [DEL, 'delivery'],
@@ -102,6 +104,8 @@ describe('staffing - roles, contracts, fees, engagements, representation, placem
     assert.equal((await svc.requireStaffingActor(FIN, orgA)).role, 'finance');
     assert.equal((await svc.requireStaffingActor(VW, orgA)).role, 'viewer');
     assert.deepEqual((await svc.agencyMemberships(REC.id)).map((m) => m.organizationId), [orgA]);
+    assert.equal(await auditCount('staffing.role.set'), 3, 'every role assignment is audited (review L14)');
+    await status(svc.setStaffingRole(rec(), VW.id, 'finance'), 403);
     await status(tenant(VW.id, orgA, (tx) => svc.listContracts(tx, vw())), 403);
     await status(tenant(VW.id, orgA, (tx) => svc.listEngagements(tx, vw())), 403);
   });
@@ -148,6 +152,9 @@ describe('staffing - roles, contracts, fees, engagements, representation, placem
     assert.equal(view.canWrite, false);
     assert.equal(view.jurisdiction.verdict, 'unconfirmed', 'nothing recorded for CA-BC yet (L-4)');
     assert.deepEqual(view.representations, [], 'finance does not see representation');
+    const asDelivery = await tenant(DEL.id, orgA, (tx) => svc.loadEngagement(tx, del(), e.id));
+    assert.equal(asDelivery.fee, null, 'delivery does not see the fee row');
+    assert.deepEqual(asDelivery.jurisdiction, view.jurisdiction, 'but sees the same verdict, evaluated from it (review M12)');
     await status(tenant(OB.id, orgB, (tx) => svc.loadEngagement(tx, adminB(), e.id)), 404);
   });
 
@@ -169,7 +176,7 @@ describe('staffing - roles, contracts, fees, engagements, representation, placem
     assert.equal(await tenant(CAND.id, undefined, (tx) => tx.representationConsent.count({ where: { id: r.id } })), 0, 'not on the tenant path until linked');
     await status(svc.respondToRepresentation(CAND2, r.id, true), 404);
     // no placement before consent
-    await status(tenant(REC.id, orgA, (tx) => svc.createPlacement(tx, rec(), { engagementId, representationConsentId: r.id, startDate: new Date('2026-10-01T00:00:00Z'), salaryCents: 9_000_000 })), 403, /not consented/);
+    await status(tenant(REC.id, orgA, (tx) => svc.createPlacement(tx, rec(), { engagementId, representationConsentId: r.id, startDate: new Date('2026-06-01T00:00:00Z'), salaryCents: 9_000_000 })), 403, /not consented/);
     const before = await db.consentRecord.count({ where: { userId: CAND.id, purpose: 'agency_representation' } });
     const granted = await svc.respondToRepresentation(CAND, r.id, true);
     assert.equal(granted.status, 'granted');
@@ -195,12 +202,17 @@ describe('staffing - roles, contracts, fees, engagements, representation, placem
 
   it('a placement freezes the fee and the guarantee, stores the jurisdiction evaluation, and no invoice is issued while the rules are unrecorded (L-4); the candidate is never a party', async () => {
     const billingBefore = await candidateBilling(CAND.id);
-    await status(tenant(FIN.id, orgA, (tx) => svc.createPlacement(tx, fin(), { engagementId, representationConsentId: repId, startDate: new Date('2026-10-01T00:00:00Z'), salaryCents: 9_000_000 })), 403);
-    const p = await tenant(DEL.id, orgA, (tx) => svc.createPlacement(tx, del(), { engagementId, representationConsentId: repId, startDate: new Date('2026-10-01T00:00:00Z'), salaryCents: 9_000_000 }));
+    await status(tenant(FIN.id, orgA, (tx) => svc.createPlacement(tx, fin(), { engagementId, representationConsentId: repId, startDate: new Date('2026-06-01T00:00:00Z'), salaryCents: 9_000_000 })), 403);
+    await status(tenant(DEL.id, orgA, (tx) => svc.createPlacement(tx, del(), { engagementId, representationConsentId: repId, startDate: new Date('2026-06-01T00:00:00Z'), salaryCents: 9_000_000, currency: 'USD' })), 422, /fee structure is in CAD/);
+    await status(tenant(DEL.id, orgA, (tx) => svc.createPlacement(tx, del(), { engagementId, representationConsentId: repId, startDate: new Date('2026-06-01T00:00:00Z'), salaryCents: 9_000_000, recruiterId: VW.id })), 422, /is a recruiter of this organisation/);
+    await status(tenant(DEL.id, orgA, (tx) => svc.createPlacement(tx, del(), { engagementId, representationConsentId: repId, startDate: new Date('2026-06-01T00:00:00Z'), salaryCents: 9_000_000, recruiterId: OB.id })), 422, /is a recruiter of this organisation/);
+    await status(tenant(REC.id, orgA, (tx) => svc.createPlacement(tx, rec(), { engagementId, representationConsentId: repId, startDate: new Date('2026-06-01T00:00:00Z'), salaryCents: 9_000_000, recruiterId: OA.id })), 403, /their own placements only/);
+    const p = await tenant(DEL.id, orgA, (tx) => svc.createPlacement(tx, del(), { engagementId, representationConsentId: repId, startDate: new Date('2026-06-01T00:00:00Z'), salaryCents: 9_000_000 }));
     placementId = p.id;
+    assert.equal(p.currency, 'CAD', 'denominated as the fee structure is');
     assert.equal(p.feeCents, 1_800_000, '20% of 90,000.00');
     assert.equal(p.guaranteeDays, 90);
-    assert.equal(p.guaranteeEndsAt.toISOString().slice(0, 10), '2026-12-30');
+    assert.equal(p.guaranteeEndsAt.toISOString().slice(0, 10), '2026-08-30');
     assert.equal(p.recruiterId, REC.id, 'the engagement\'s owner');
     const check = JSON.parse(p.jurisdictionCheck) as { verdict: string; matched: string | null };
     assert.equal(check.verdict, 'unconfirmed');
@@ -208,7 +220,11 @@ describe('staffing - roles, contracts, fees, engagements, representation, placem
     assert.equal(await auditCount('staffing.placement.created', p.id), 1);
     await status(tenant(REC.id, orgA, (tx) => svc.issuePlacementInvoice(tx, rec(), p.id)), 403);
     await status(tenant(FIN.id, orgA, (tx) => svc.issuePlacementInvoice(tx, fin(), p.id)), 409, /pending placement is not invoiced/);
+    await status(tenant(REC.id, orgA, (tx) => svc.updatePlacementStatus(tx, rec(), p.id, { status: 'fell_off', fellOffReason: 'other' })), 409, /pending placement cannot become fell_off/);
     await tenant(REC.id, orgA, (tx) => svc.updatePlacementStatus(tx, rec(), p.id, { status: 'started' }));
+    await status(tenant(REC.id, orgA, (tx) => svc.updatePlacementStatus(tx, rec(), p.id, { status: 'fell_off', fellOffReason: 'other', fellOffAt: new Date('2026-05-01T00:00:00Z') })), 422, /not before the start date/);
+    await status(tenant(REC.id, orgA, (tx) => svc.updatePlacementStatus(tx, rec(), p.id, { status: 'fell_off', fellOffReason: 'other', fellOffAt: new Date(Date.now() + 86_400_000) })), 422, /not in the future/);
+    await status(tenant(REC.id, orgA, (tx) => svc.updatePlacementStatus(tx, rec(), p.id, { status: 'cancelled' })), 409);
     await status(tenant(FIN.id, orgA, (tx) => svc.issuePlacementInvoice(tx, fin(), p.id)), 409, /until its rules are recorded/);
     assert.equal(await db.placementInvoice.count({ where: { placementId: p.id } }), 0);
     assert.deepEqual(await candidateBilling(CAND.id), billingBefore, 'nothing of the candidate\'s billing changed');
@@ -216,12 +232,21 @@ describe('staffing - roles, contracts, fees, engagements, representation, placem
 
   it('counsel\'s answer is recorded by an admin with a citation (audited) and evaluated as data: BC recorded allows the invoice, which is numbered in the PL book; another agency sees nothing; a prohibited jurisdiction blocks a new placement', async () => {
     await status(svc.recordJurisdictionRule(STAFF, 'CA-BC', { status: 'recorded', licenceRequired: true, candidateFeesProhibited: true, maxGuaranteeDays: null, reference: '' }, 'test'), 422, /cites/);
+    await status(svc.recordJurisdictionRule(STAFF, 'ZZ-QQ', { status: 'recorded', licenceRequired: false, candidateFeesProhibited: true, maxGuaranteeDays: null, reference: 'x' }, 'test'), 422, /not a jurisdiction this product targets/);
+    assert.equal(await db.staffingJurisdictionRule.count({ where: { jurisdiction: 'ZZ-QQ' } }), 0);
     await svc.recordJurisdictionRule(STAFF, 'CA-BC', { status: 'recorded', licenceRequired: true, candidateFeesProhibited: true, maxGuaranteeDays: 120, reference: 'Counsel memo (test fixture)' }, 'recording the test fixture');
     assert.equal(await auditCount('staffing.jurisdiction.recorded'), 1);
     const view = await tenant(REC.id, orgA, (tx) => svc.loadEngagement(tx, rec(), engagementId));
     assert.equal(view.jurisdiction.verdict, 'allowed', 'licence stated on the contract, 90 days within 120');
+    assert.equal((await tenant(DEL.id, orgA, (tx) => svc.loadEngagement(tx, del(), engagementId))).jurisdiction.verdict, 'allowed', 'delivery sees the verdict evaluated from the fee row it cannot read');
     const billingBefore = await candidateBilling(CAND.id);
-    const inv = await tenant(FIN.id, orgA, (tx) => svc.issuePlacementInvoice(tx, fin(), placementId));
+    // Two finance users issue at once: exactly one invoice exists afterwards (review H3 - the advisory lock and the re-check under it).
+    const race = await Promise.allSettled([tenant(FIN.id, orgA, (tx) => svc.issuePlacementInvoice(tx, fin(), placementId)), tenant(OA.id, orgA, (tx) => svc.issuePlacementInvoice(tx, admin(), placementId))]);
+    const won = race.filter((r): r is PromiseFulfilledResult<Awaited<ReturnType<Svc['issuePlacementInvoice']>>> => r.status === 'fulfilled');
+    assert.equal(won.length, 1, 'one of the two won');
+    assert.ok(race.some((r) => r.status === 'rejected' && r.reason instanceof svc.StaffingError && r.reason.status === 409 && /already invoiced/.test(r.reason.message)), 'the other was told');
+    assert.equal(await db.placementInvoice.count({ where: { placementId } }), 1);
+    const inv = won[0]!.value;
     invoiceId = inv.id;
     assert.match(inv.number!, /^PL-\d{4}-\d{6}$/);
     assert.equal(inv.status, 'issued');
@@ -250,7 +275,7 @@ describe('staffing - roles, contracts, fees, engagements, representation, placem
   it('a fall-off inside the guarantee credits the client\'s invoice; a revoked representation stops new placements but not the record; productivity counts per recruiter with fees for finance only', async () => {
     await status(tenant(REC.id, orgA, (tx) => svc.updatePlacementStatus(tx, rec(), placementId, { status: 'fell_off' })), 422, /names its reason/);
     await status(tenant(FIN.id, orgA, (tx) => svc.updatePlacementInvoice(tx, fin(), invoiceId, { action: 'credit_guarantee' })), 409, /inside the guarantee/);
-    await tenant(REC.id, orgA, (tx) => svc.updatePlacementStatus(tx, rec(), placementId, { status: 'fell_off', fellOffReason: 'candidate_resigned', fellOffAt: new Date('2026-11-15T00:00:00Z') }));
+    await tenant(REC.id, orgA, (tx) => svc.updatePlacementStatus(tx, rec(), placementId, { status: 'fell_off', fellOffReason: 'candidate_resigned', fellOffAt: new Date('2026-07-15T00:00:00Z') }));
     const credited = await tenant(FIN.id, orgA, (tx) => svc.updatePlacementInvoice(tx, fin(), invoiceId, { action: 'credit_guarantee' }));
     assert.equal(credited.creditedCents, 1_800_000);
     assert.equal(credited.creditReason, 'guarantee_fell_off');
@@ -263,13 +288,25 @@ describe('staffing - roles, contracts, fees, engagements, representation, placem
     await status(tenant(DEL.id, orgA, (tx) => svc.createPlacement(tx, del(), { engagementId, representationConsentId: repId, startDate: new Date(), salaryCents: 100 })), 403, /withdrew/);
     assert.equal(await db.placement.count({ where: { id: placementId } }), 1);
     assert.equal(await auditCount('representation.revoked', repId), 1);
+    await status(svc.requestRepresentation(rec(), { engagementId, email: CAND.email }), 409, /withdrew representation.*does not ask again/);
+    assert.equal((await db.representationConsent.findUniqueOrThrow({ where: { id: repId } })).status, 'revoked', 'the cited row is never reset (review M5)');
+    await assert.rejects(db.user.delete({ where: { id: CAND.id } }), 'a placed candidate\'s account cannot be hard-deleted from under the agency\'s record (review M11: RESTRICT)');
+    // a second placement that never starts is CANCELLED, not a fall-off: no guarantee event, no credit
+    const r3 = await svc.requestRepresentation(rec(), { engagementId, email: CAND2.email });
+    await svc.respondToRepresentation(CAND2, r3.id, true);
+    const p2 = await tenant(REC.id, orgA, (tx) => svc.createPlacement(tx, rec(), { engagementId, representationConsentId: r3.id, startDate: new Date('2026-08-01T00:00:00Z'), salaryCents: 5_000_000 }));
+    assert.equal(p2.recruiterId, REC.id);
+    const cancelled = await tenant(REC.id, orgA, (tx) => svc.updatePlacementStatus(tx, rec(), p2.id, { status: 'cancelled' }));
+    assert.equal(cancelled.status, 'cancelled');
+    assert.equal(cancelled.fellOffAt, null);
+    assert.ok(!svc.withinGuarantee(cancelled));
     const prodFin = await tenant(FIN.id, orgA, (tx) => svc.recruiterProductivity(tx, fin(), { from: new Date(Date.now() - 86_400_000), to: new Date(Date.now() + 86_400_000) }));
     const recRow = prodFin.recruiters.find((r) => r.recruiterId === REC.id)!;
-    assert.equal(recRow.placements, 1);
-    assert.equal(recRow.fellOffInGuarantee, 1);
-    assert.equal(recRow.feeCents, 1_800_000);
-    assert.equal(recRow.requested, 3, 'two people asked for the first engagement, one for the second');
-    assert.equal(recRow.granted, 1, 'one grant stands; the other was revoked');
+    assert.equal(recRow.placements, 2);
+    assert.equal(recRow.fellOffInGuarantee, 1, 'the cancelled placement is not a fall-off');
+    assert.equal(recRow.feeCents, 1_800_000 + 1_000_000);
+    assert.equal(recRow.requested, 4, 'three people asked for the first engagement, one for the second');
+    assert.equal(recRow.granted, 2, 'two grants stand; the other was revoked');
     const prodDel = await tenant(DEL.id, orgA, (tx) => svc.recruiterProductivity(tx, del(), { from: new Date(0), to: new Date() }));
     assert.equal(prodDel.recruiters.find((r) => r.recruiterId === REC.id)?.feeCents, null, 'delivery sees no fees');
     const prodRec = await tenant(REC.id, orgA, (tx) => svc.recruiterProductivity(tx, rec(), { from: new Date(0), to: new Date() }));

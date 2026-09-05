@@ -129,9 +129,14 @@ export function StaffingEngagement({ organizationId, view }: { organizationId: s
                 <span className="flex items-center gap-2">
                   <StatusBadge status={p.status} />
                   {view.canWrite && p.status === 'pending' ? (
-                    <button type="button" className="btn-secondary text-xs" disabled={busy !== null} onClick={() => call(p.id, `/api/staffing/placements/${p.id}`, 'PATCH', { organizationId, status: 'started' })}>
-                      Started
-                    </button>
+                    <>
+                      <button type="button" className="btn-secondary text-xs" disabled={busy !== null} onClick={() => call(p.id, `/api/staffing/placements/${p.id}`, 'PATCH', { organizationId, status: 'started' })}>
+                        Started
+                      </button>
+                      <button type="button" className="rounded-md border border-line px-3 py-2 text-xs text-muted" disabled={busy !== null} onClick={() => call(`cx-${p.id}`, `/api/staffing/placements/${p.id}`, 'PATCH', { organizationId, status: 'cancelled' })}>
+                        Never started
+                      </button>
+                    </>
                   ) : null}
                   {view.canWrite && p.status === 'started' ? (
                     <>

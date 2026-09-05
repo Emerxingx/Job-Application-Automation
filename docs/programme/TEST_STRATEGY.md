@@ -452,8 +452,11 @@ never occurred.
 ## Stage 19 — staffing and placement
 
 - **Pure (`tests/staffing-static.test.ts`):** jurisdiction codes; the seeded
-  list carries names only; the most specific rule wins and a region falls
-  back to its country; an unrecorded jurisdiction is UNCONFIRMED and a
+  list carries names only; the most specific ANSWERED rule wins and a region
+  falls back to its country (review H2: an unrecorded region row never shadows
+  a country's answer or prohibition; a country's recorded answer leaves an
+  unseeded region unconfirmed, never allowed; an answered region beats an
+  answered country either way); an unrecorded jurisdiction is UNCONFIRMED and a
   prohibited one BLOCKED; a recorded row is evaluated from its values (BC
   with a licence and a 120-day limit, Ontario with neither, Washington with
   two answers blank - fixture rows, not code); a fee not paid by the client
@@ -464,8 +467,14 @@ never occurred.
   the `PL` book is its own series. Static separation: nothing under
   `src/lib/staffing` imports subscription, entitlement, invoice, dunning,
   tax, profile, webhook or payment modules or names their tables; nothing
-  under the billing, entitlement or payment-provider modules names a
-  staffing table; `PlacementInvoice` has no user id and no relation to
+  under the billing, entitlement or payment-provider modules (nor
+  `subscription.ts`) touches a staffing table - by any delegate method, raw
+  SQL naming the table, or a relative import (review M9); an unowned
+  engagement is open to every recruiter (stated, L13); `staffing_agency` is a
+  verified type and requests are rate-limited (H1); the L-4 route is a
+  governance route under step-up and its GET writes nothing (M10, L16); a
+  placement cites a consent of this purpose at the current version (M4); the
+  invoice issue locks, re-checks, then allocates (H3); `PlacementInvoice` has no user id and no relation to
   `Invoice` or `Payment`; `FeeStructure.paidBy` defaults to `client`.
 - **Database (`tests/staffing.test.ts`):** the actor resolves only from a
   staffing agency's accepted membership and a viewer reads nothing

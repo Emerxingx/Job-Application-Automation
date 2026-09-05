@@ -19,7 +19,8 @@
  */
 import type { Prisma } from '@prisma/client';
 import { db } from '@/lib/db';
-import { grantConsent } from '@/lib/consent';
+import { CONSENT_VERSIONS, grantConsent } from '@/lib/consent';
+import { LIMITS, rateLimit } from '@/lib/rate-limit';
 import { allocateDocumentNumber, prismaSequenceStore } from '@/lib/billing/numbering';
 import { hashEmail, recordSecurityEvent, type RequestMeta, type SecurityEvent } from '@/lib/security-audit';
 import { findActiveMembership } from '@/lib/tenancy/organizations';
@@ -48,7 +49,8 @@ export interface StaffingActor {
 export const CONTRACT_STATUSES = ['draft', 'active', 'ended'] as const;
 export const FEE_KINDS = ['contingency', 'retained', 'flat'] as const;
 export const ENGAGEMENT_STATUSES = ['draft', 'active', 'filled', 'closed'] as const;
-export const PLACEMENT_STATUSES = ['pending', 'started', 'completed', 'fell_off'] as const;
+/** `cancelled` is a placement the candidate never started (from `pending`); `fell_off` is a departure AFTER starting - the only status the guarantee clock reads. */
+export const PLACEMENT_STATUSES = ['pending', 'started', 'completed', 'fell_off', 'cancelled'] as const;
 export const FELL_OFF_REASONS = ['candidate_resigned', 'client_terminated', 'other'] as const;
 export const INVOICE_VOID_REASONS = ['duplicate', 'placement_cancelled', 'other'] as const;
 
@@ -79,6 +81,7 @@ export async function setStaffingRole(actor: StaffingActor, memberUserId: string
   const m = await findActiveMembership(db, actor.organizationId, memberUserId);
   if (!m) throw new StaffingError('No such member.', 404);
   await db.membership.update({ where: { id: m.id }, data: { serviceRole } });
+  await audit('staffing.role.set', actor, 'Membership', m.id, `Staffing role set: ${serviceRole ?? 'none'}`, { memberUserId, from: m.serviceRole, to: serviceRole });
 }
 
 // --- Jurisdiction rules (staff-recorded reference data) ----------------------
@@ -89,6 +92,13 @@ export async function ensureJurisdictionRegistry(client: Client = db) {
     await client.staffingJurisdictionRule.upsert({ where: { jurisdiction: j.jurisdiction }, create: { jurisdiction: j.jurisdiction, name: j.name }, update: {} });
   }
   return client.staffingJurisdictionRule.findMany({ orderBy: { jurisdiction: 'asc' } });
+}
+
+/** The registry as a READ: every seeded jurisdiction, from its row where one exists and as an unrecorded placeholder where none does yet. Writes nothing (Stage 19 review, L16). */
+export async function listJurisdictionRegistry(client: Client = db) {
+  const rows = await client.staffingJurisdictionRule.findMany({ orderBy: { jurisdiction: 'asc' } });
+  const missing = SEEDED_JURISDICTIONS.filter((j) => !rows.some((r) => r.jurisdiction === j.jurisdiction)).map((j) => ({ id: '', jurisdiction: j.jurisdiction, name: j.name, status: 'unrecorded', licenceRequired: null, candidateFeesProhibited: null, maxGuaranteeDays: null, reference: '', notes: '', recordedByEmail: '', recordedAt: null, createdAt: null, updatedAt: null }));
+  return [...rows, ...missing].sort((a, b) => a.jurisdiction.localeCompare(b.jurisdiction));
 }
 
 export interface JurisdictionRuleInput {
@@ -103,10 +113,14 @@ export interface JurisdictionRuleInput {
 /** Counsel's answer for one jurisdiction, recorded by an admin with a citation and audited (L-4). */
 export async function recordJurisdictionRule(staff: StaffContext, jurisdiction: string, input: JurisdictionRuleInput, reason: string, meta?: RequestMeta) {
   if (!isJurisdictionCode(jurisdiction)) throw new StaffingError('A jurisdiction is COUNTRY or COUNTRY-REGION, upper-case.', 422);
-  if (input.status === 'recorded' && !input.reference.trim()) throw new StaffingError('A recorded rule cites the statute or regulation counsel relied on.', 422);
-  if (input.maxGuaranteeDays !== null && (!Number.isInteger(input.maxGuaranteeDays) || input.maxGuaranteeDays < 1 || input.maxGuaranteeDays > 3650)) throw new StaffingError('maxGuaranteeDays is a whole number of days between 1 and 3650, or empty.', 422);
-  if (!reason.trim()) throw new StaffingError('A reason is required.', 422);
   const existing = await db.staffingJurisdictionRule.findUnique({ where: { jurisdiction } });
+  // Counsel is asked about the jurisdictions the product TARGETS: a code
+  // outside the seeded list (and not already a row) is added to the list in
+  // code first, with the product decision behind it - not typed into a form.
+  if (!existing && !SEEDED_JURISDICTIONS.some((j) => j.jurisdiction === jurisdiction)) throw new StaffingError(`${jurisdiction} is not a jurisdiction this product targets; add it to the seeded list before recording a rule for it.`, 422);
+  if (input.status === 'recorded' && !input.reference.trim()) throw new StaffingError('A recorded rule cites the statute or regulation counsel relied on.', 422);
+  if (input.maxGuaranteeDays !== null && (!Number.isInteger(input.maxGuaranteeDays) || input.maxGuaranteeDays < 0 || input.maxGuaranteeDays > 3650)) throw new StaffingError('maxGuaranteeDays is a whole number of days between 0 (no guarantee may be offered) and 3650, or empty.', 422);
+  if (!reason.trim()) throw new StaffingError('A reason is required.', 422);
   const name = existing?.name ?? SEEDED_JURISDICTIONS.find((j) => j.jurisdiction === jurisdiction)?.name ?? jurisdiction;
   const row = await db.staffingJurisdictionRule.upsert({
     where: { jurisdiction },
@@ -239,16 +253,19 @@ export async function loadEngagement(tx: Client, actor: StaffingActor, id: strin
   const e = await ownedEngagement(tx, actor, id);
   const [contract, fee, representations, placements, rules] = await Promise.all([
     ownedContract(tx, actor, e.contractId),
-    canReadFee(actor.role) ? tx.feeStructure.findFirst({ where: { id: e.feeStructureId } }) : null,
+    tx.feeStructure.findFirst({ where: { id: e.feeStructureId } }),
     canReadRepresentation(actor.role) ? tx.representationConsent.findMany({ where: { engagementId: e.id }, orderBy: { requestedAt: 'desc' } }) : [],
     tx.placement.findMany({ where: { engagementId: e.id }, orderBy: { createdAt: 'desc' }, include: { invoices: { select: { id: true, number: true, status: true, amountCents: true, creditedCents: true } } } }),
     rulesFor(tx),
   ]);
-  const jurisdiction = evaluateJurisdiction(rules, { jurisdiction: e.jurisdiction, paidBy: 'client', guaranteeDays: fee?.guaranteeDays ?? 0, agencyLicenceStated: contract.agencyLicenceRef !== '' });
+  // The evaluation always reads the fee row (who pays, the guarantee length)
+  // so every role sees the same verdict; the row itself reaches only the
+  // roles that read fees (Stage 19 review, M12).
+  const jurisdiction = evaluateJurisdiction(rules, { jurisdiction: e.jurisdiction, paidBy: fee?.paidBy ?? 'client', guaranteeDays: fee?.guaranteeDays ?? 0, agencyLicenceStated: contract.agencyLicenceRef !== '' });
   return {
     engagement: e,
     contract: { id: contract.id, clientName: contract.clientName, jurisdiction: contract.jurisdiction, status: contract.status, agencyLicenceRef: contract.agencyLicenceRef },
-    fee,
+    fee: canReadFee(actor.role) ? fee : null,
     jurisdiction,
     representations: representations.map((r) => ({ id: r.id, status: r.status, email: r.invitedEmail, name: r.status === 'granted' ? r.invitedName : null, candidateUserId: r.status === 'granted' ? r.candidateUserId : null, requestedAt: r.requestedAt, respondedAt: r.respondedAt })),
     placements: placements.map((p) => ({ ...p, feeCents: canReadFee(actor.role) ? p.feeCents : null, salaryCents: canReadFee(actor.role) ? p.salaryCents : null, invoices: canReadInvoice(actor.role) ? p.invoices : [] })),
@@ -273,14 +290,22 @@ export async function requestRepresentation(actor: StaffingActor, input: { engag
   if (!e || !canReadEngagement(actor.role)) throw new StaffingError('Engagement not found.', 404);
   if (!canRequestRepresentation(actor.role, e, actor.user.id)) throw new StaffingError('Only the engagement\'s recruiter or an administrator asks for representation.', 403);
   if (e.status !== 'active' && e.status !== 'draft') throw new StaffingError('This engagement is not open.', 409);
+  // A request is a row a person sees under Settings: volume is bounded per
+  // recruiter and per agency so an address list cannot be sprayed (Stage 19
+  // review, H1; the Stage 17 limits, reused).
+  if (!rateLimit('staffing:represent', actor.user.id, LIMITS.representationRequest).ok) throw new StaffingError('Too many representation requests from this account; try again later.', 429);
+  if (!rateLimit('staffing:represent:org', actor.organizationId, LIMITS.representationRequestOrganization).ok) throw new StaffingError('This agency has reached its representation-request limit for today.', 429);
   const email = input.email.trim().toLowerCase();
   const existing = await db.representationConsent.findUnique({ where: { engagementId_invitedEmail: { engagementId: e.id, invitedEmail: email } } });
   if (existing && (existing.status === 'requested' || existing.status === 'granted')) throw new StaffingError('A request for that address already exists on this engagement.', 409);
   if (existing && existing.status === 'declined') throw new StaffingError('That person declined representation for this engagement; the platform does not ask again.', 409);
+  // A withdrawn consent is final for the engagement too: the row may be cited
+  // by a placement and is never reset (Stage 19 review, M5), and a person who
+  // took consent back is not asked for it again by the same engagement.
+  if (existing && existing.status === 'revoked') throw new StaffingError('That person withdrew representation for this engagement; the platform does not ask again.', 409);
+  if (existing) throw new StaffingError('A request for that address already exists on this engagement.', 409);
   const message = (input.message ?? '').trim().slice(0, 500);
-  const r = existing
-    ? await db.representationConsent.update({ where: { id: existing.id }, data: { status: 'requested', message, requestedById: actor.user.id, requestedAt: new Date(), respondedAt: null, consentRecordId: null, candidateUserId: null, invitedName: '' } })
-    : await db.representationConsent.create({ data: { organizationId: actor.organizationId, engagementId: e.id, invitedEmail: email, message, requestedById: actor.user.id } });
+  const r = await db.representationConsent.create({ data: { organizationId: actor.organizationId, engagementId: e.id, invitedEmail: email, message, requestedById: actor.user.id } });
   await audit('representation.requested', actor, 'RepresentationConsent', r.id, 'Representation requested', { engagementId: e.id, emailDigest: hashEmail(email) });
   return r;
 }
@@ -340,7 +365,10 @@ export async function revokeRepresentation(candidate: { id: string; email: strin
 async function currentRepresentation(client: Client, organizationId: string, id: string) {
   const r = await client.representationConsent.findFirst({ where: { id, organizationId } });
   if (!r || r.status !== 'granted' || !r.candidateUserId || !r.consentRecordId) return null;
-  const consent = await db.consentRecord.findFirst({ where: { id: r.consentRecordId, userId: r.candidateUserId, revokedAt: null }, select: { id: true } });
+  // The record must be THIS purpose at the CURRENT wording: a consent given
+  // to older wording, or for another purpose, does not carry a placement
+  // (Stage 19 review, M4).
+  const consent = await db.consentRecord.findFirst({ where: { id: r.consentRecordId, userId: r.candidateUserId, purpose: 'agency_representation', version: CONSENT_VERSIONS.agency_representation, revokedAt: null }, select: { id: true } });
   return consent ? { ...r, candidateUserId: r.candidateUserId } : null;
 }
 
@@ -363,6 +391,18 @@ export async function createPlacement(tx: Client, actor: StaffingActor, input: {
   if (!rep || rep.engagementId !== e.id) throw new StaffingError('The candidate has not consented to representation for this engagement, or withdrew it.', 403);
   const [fee, contract, rules] = await Promise.all([tx.feeStructure.findFirstOrThrow({ where: { id: e.feeStructureId } }), ownedContract(tx, actor, e.contractId), rulesFor(tx)]);
   if (contract.status !== 'active') throw new StaffingError('The client contract is not active.', 409);
+  // The placement is denominated as the fee structure is; a salary in another
+  // currency would make the frozen fee meaningless (Stage 19 review, M7).
+  if (input.currency && input.currency !== fee.currency) throw new StaffingError(`This engagement's fee structure is in ${fee.currency}; the salary is stated in that currency.`, 422);
+  // The credited recruiter is a recruiter (or admin) of this agency; a
+  // recruiter credits only themselves (Stage 19 review, M6).
+  let recruiterId = e.ownerRecruiterId ?? (actor.role === 'recruiter' ? actor.user.id : null);
+  if (input.recruiterId !== undefined && input.recruiterId !== null) {
+    if (actor.role === 'recruiter' && input.recruiterId !== actor.user.id) throw new StaffingError('A recruiter credits their own placements only.', 403);
+    const m = await findActiveMembership(tx, actor.organizationId, input.recruiterId);
+    if (!m || (staffingRoleOf(m) !== 'recruiter' && staffingRoleOf(m) !== 'admin')) throw new StaffingError('The credited recruiter is a recruiter of this organisation.', 422);
+    recruiterId = input.recruiterId;
+  }
   const evaluation = evaluateJurisdiction(rules, { jurisdiction: e.jurisdiction, paidBy: fee.paidBy, guaranteeDays: fee.guaranteeDays, agencyLicenceStated: contract.agencyLicenceRef !== '' });
   if (evaluation.verdict === 'blocked') throw new StaffingError(`This placement is not allowed: ${evaluation.checks.filter((c) => c.status === 'fail').map((c) => c.reason).join(' ')}`, 422);
   const feeCents = computeFee(fee, input.salaryCents);
@@ -372,10 +412,10 @@ export async function createPlacement(tx: Client, actor: StaffingActor, input: {
       engagementId: e.id,
       candidateUserId: rep.candidateUserId,
       representationConsentId: rep.id,
-      recruiterId: input.recruiterId ?? e.ownerRecruiterId ?? (actor.role === 'recruiter' ? actor.user.id : null),
+      recruiterId,
       startDate: input.startDate,
       salaryCents: input.salaryCents,
-      currency: input.currency ?? fee.currency,
+      currency: fee.currency,
       feeCents,
       guaranteeDays: fee.guaranteeDays,
       guaranteeEndsAt: new Date(input.startDate.getTime() + fee.guaranteeDays * 86_400_000),
@@ -387,16 +427,27 @@ export async function createPlacement(tx: Client, actor: StaffingActor, input: {
   return placement;
 }
 
-export async function updatePlacementStatus(tx: Client, actor: StaffingActor, id: string, input: { status: 'started' | 'completed' | 'fell_off'; fellOffReason?: (typeof FELL_OFF_REASONS)[number]; fellOffAt?: Date }) {
+export async function updatePlacementStatus(tx: Client, actor: StaffingActor, id: string, input: { status: 'started' | 'completed' | 'fell_off' | 'cancelled'; fellOffReason?: (typeof FELL_OFF_REASONS)[number]; fellOffAt?: Date }) {
   const p = await tx.placement.findFirst({ where: { id, organizationId: actor.organizationId } });
   if (!p) throw new StaffingError('Placement not found.', 404);
   const e = await ownedEngagement(tx, actor, p.engagementId);
   if (!canWritePlacement(actor.role, e, actor.user.id)) throw new StaffingError('You may not change this placement.', 403);
-  const allowed: Record<string, string[]> = { pending: ['started', 'fell_off'], started: ['completed', 'fell_off'], completed: [], fell_off: [] };
+  // A fall-off is a departure AFTER starting - the only thing the guarantee
+  // clock reads; a candidate who never started is `cancelled`, which no
+  // credit and no productivity count treats as a guarantee event (Stage 19
+  // review, M8/L17).
+  const allowed: Record<string, string[]> = { pending: ['started', 'cancelled'], started: ['completed', 'fell_off'], completed: [], fell_off: [], cancelled: [] };
   if (!allowed[p.status]?.includes(input.status)) throw new StaffingError(`A ${p.status} placement cannot become ${input.status}.`, 409);
-  if (input.status === 'fell_off' && !input.fellOffReason) throw new StaffingError('A fall-off names its reason.', 422);
-  const updated = await tx.placement.update({ where: { id: p.id }, data: { status: input.status, ...(input.status === 'fell_off' ? { fellOffAt: input.fellOffAt ?? new Date(), fellOffReason: input.fellOffReason } : {}) } });
-  await audit('staffing.placement.updated', actor, 'Placement', p.id, `Placement ${input.status}`, { status: input.status, fellOffReason: input.fellOffReason ?? null, withinGuarantee: input.status === 'fell_off' ? (input.fellOffAt ?? new Date()) <= p.guaranteeEndsAt : null });
+  let fellOffAt: Date | null = null;
+  if (input.status === 'fell_off') {
+    if (!input.fellOffReason) throw new StaffingError('A fall-off names its reason.', 422);
+    fellOffAt = input.fellOffAt ?? new Date();
+    if (Number.isNaN(fellOffAt.getTime())) throw new StaffingError('The fall-off date is not a date.', 422);
+    if (fellOffAt < p.startDate) throw new StaffingError('A fall-off is not before the start date.', 422);
+    if (fellOffAt.getTime() > Date.now() + 5 * 60_000) throw new StaffingError('A fall-off is not in the future.', 422);
+  }
+  const updated = await tx.placement.update({ where: { id: p.id }, data: { status: input.status, ...(fellOffAt ? { fellOffAt, fellOffReason: input.fellOffReason } : {}) } });
+  await audit('staffing.placement.updated', actor, 'Placement', p.id, `Placement ${input.status}`, { status: input.status, fellOffReason: input.fellOffReason ?? null, withinGuarantee: fellOffAt ? fellOffAt <= p.guaranteeEndsAt : null });
   return updated;
 }
 
@@ -424,15 +475,20 @@ export async function issuePlacementInvoice(tx: Client, actor: StaffingActor, pl
   if (contract.status !== 'active') throw new StaffingError('The client contract is not active.', 409);
   const evaluation = evaluateJurisdiction(rules, { jurisdiction: e.jurisdiction, paidBy: fee.paidBy, guaranteeDays: p.guaranteeDays, agencyLicenceStated: contract.agencyLicenceRef !== '' });
   if (evaluation.verdict !== 'allowed') throw new StaffingError(`No invoice is issued under ${e.jurisdiction} until its rules are recorded and pass (L-4): ${evaluation.checks.filter((c) => c.status !== 'pass').map((c) => c.reason).join(' ')}`, 409);
-  const open = await tx.placementInvoice.count({ where: { placementId: p.id, status: { in: ['draft', 'issued', 'paid'] } } });
-  if (open > 0) throw new StaffingError('This placement is already invoiced.', 409);
+  const openInvoices = (client: Client) => client.placementInvoice.count({ where: { placementId: p.id, status: { in: ['draft', 'issued', 'paid'] } } });
+  if ((await openInvoices(tx)) > 0) throw new StaffingError('This placement is already invoiced.', 409);
   const now = new Date();
   // The number and the row are written in ONE system-client transaction: the
   // numbering book (`DocumentSequence`) is system-only under RLS, as it is for
   // every document on the platform, and a rolled-back issue must give its
   // number back. Every check above ran on the tenant path; the write carries
-  // the organisation id the actor was resolved for.
+  // the organisation id the actor was resolved for. Two finance users issuing
+  // at once serialise on a transaction-scoped advisory lock keyed by the
+  // placement, and the "already invoiced" check is repeated UNDER that lock,
+  // so the second sees the first's committed row (Stage 19 review, H3).
   const invoice = await db.$transaction(async (sys) => {
+    await sys.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'placement_invoice:' + p.id}))`;
+    if ((await openInvoices(sys)) > 0) throw new StaffingError('This placement is already invoiced.', 409);
     const allocated = await allocateDocumentNumber(prismaSequenceStore(sys), { scope: 'placement_invoice', series: 'PL', year: now.getUTCFullYear() });
     return sys.placementInvoice.create({ data: { organizationId: actor.organizationId, placementId: p.id, contractId: contract.id, number: allocated.number, status: 'issued', amountCents: p.feeCents, currency: p.currency, issuedAt: now, dueAt: new Date(now.getTime() + (input.dueDays ?? 30) * 86_400_000), createdById: actor.user.id } });
   });

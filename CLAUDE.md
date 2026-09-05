@@ -26,7 +26,7 @@ remediation has begun.**
 npm ci                # install from the lockfile
 npm run dev           # http://localhost:3000
 npx tsc --noEmit      # typecheck  — PASSES
-npm test              # 1199 tests  — PASSES with the two database URLs below set; the
+npm test              # 1205 tests  — PASSES with the two database URLs below set; the
                       #   database suites skip WITH A REASON without them and THROW
                       #   when CI=true, so CI cannot pass by skipping them
 npm run build         # production — PASSES
@@ -57,7 +57,7 @@ npm run cms:types          # regenerate payload-types.ts
 ## Things that will surprise you
 
 1. **The database is PostgreSQL with a versioned migration history** since
-   Stage 01 (`ADR-0002`). Forty-nine migrations under `prisma/migrations/`; CI applies
+   Stage 01 (`ADR-0002`). Fifty migrations under `prisma/migrations/`; CI applies
    them to an empty database and fails on drift. `DATABASE_URL` is the
    transaction pooler, `DIRECT_URL` the session endpoint for migrations. The RLS
    migration is **generated** from `src/lib/tenancy/rls-tables.ts` — regenerate
@@ -448,7 +448,14 @@ npm run cms:types          # regenerate payload-types.ts
     code. Representation follows the Stage 17/18 consent pattern (invited by
     email, one transaction, SELECT-only for the candidate, revocable);
     `agency_representation` is `2026-09-05-draft` and refused in production
-    (L-5).
+    (L-5). After the Stage 19 review: an agency is a VERIFIED organisation
+    type (staff-created, like employers and providers); requests are
+    rate-limited; the engine resolves the most specific ANSWERED row and a
+    country's answer never confirms a region; one invoice per placement is
+    held under `pg_advisory_xact_lock` in the system transaction; a revoked
+    representation is final; `fell_off` only from `started` (a never-started
+    placement is `cancelled`); `Placement.candidateUserId` is RESTRICT;
+    recording counsel's answer is under step-up.
 
 ## Conventions worth preserving
 
