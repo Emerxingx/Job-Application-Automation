@@ -1,6 +1,6 @@
 # Stage 20 - Enterprise tenant controls, SSO and public-sector readiness - evidence
 
-Recorded 2026-09-05 on branch `claude/stage-20-enterprise-controls`, stacked
+Recorded 2026-09-05 on branch `claude/stage-20-enterprise-controls` (PR #32), stacked
 on Stage 19 (PR #31) - 18 (#30) - 17 (#29) - 16 (#28) - 15 (#27) - 14 (#26)
 - 13 (#25) - 12 (#24) - 11 (#23) - 10 (#22) - 09 (#21) - 08 (#20) - 07
 (#19) - 06 (#18) - 05 (#17) - 04 (#16) - 03 (#15) - 02 (#14) - 01 (#13,

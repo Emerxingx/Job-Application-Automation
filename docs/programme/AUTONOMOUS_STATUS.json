@@ -5,9 +5,9 @@
   "current_stage": "20",
   "last_completed_stage": "19",
   "current_branch": "claude/stage-20-enterprise-controls",
-  "current_head": "__HEAD__",
+  "current_head": "db8b2099fe5799236a5b3c2e4aac3eac365a3128",
   "current_head_meaning": "SHA of the last commit whose full gate set was verified locally (lint, typecheck, tests, build). Set by the status-sync commit that immediately follows it, so it names a real, verified commit rather than the one it is written in.",
-  "current_pr": "__PR__",
+  "current_pr": "https://github.com/Emerxingx/Job-Application-Automation/pull/32",
   "main_head": "d6ae8b3a9180b529abe06f23417515432c0a7f0e",
   "run_complete": false,
   "stage_status": {
