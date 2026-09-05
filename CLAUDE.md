@@ -26,7 +26,7 @@ remediation has begun.**
 npm ci                # install from the lockfile
 npm run dev           # http://localhost:3000
 npx tsc --noEmit      # typecheck  — PASSES
-npm test              # 1296 tests  — PASSES with the two database URLs below set; the
+npm test              # 1302 tests  — PASSES with the two database URLs below set; the
                       #   database suites skip WITH A REASON without them and THROW
                       #   when CI=true, so CI cannot pass by skipping them
 npm run build         # production — PASSES
@@ -544,26 +544,35 @@ npm run db:backup -- <dir> # pg_dump custom format + checksum from DIRECT_URL; n
     a nonce policy lands at Stage 24). `src/proxy.ts` `isCrossSiteWrite`
     refuses a cookie-bearing write whose `Sec-Fetch-Site` is cross-site or
     whose `Origin` is another host, before the public-path decision; bearer
-    prefixes are exempt. `/api/health` is public, rate-limited and says
-    nothing that locates anything - keep it that way. Every unhandled error
-    is logged through `redactError` (`src/lib/log.ts`); never log an error
-    object or a request body. **Erasure is `src/lib/privacy/erasure.ts`**:
+    prefixes are exempt; `same-site` is refused and the CMS cookie counts.
+    `/api/health` is public, rate-limited per address AND per instance,
+    memoised, and says nothing that locates or counts anything - keep it
+    that way. Every server-side error log goes through `redactError`
+    (`src/lib/log.ts`); a static scan refuses a raw error argument or an
+    unredacted `.message` in any `console.error`/`warn` under `src`. **Erasure is `src/lib/privacy/erasure.ts`**:
     scheduled fourteen days out, scrub-in-place (the `User` row stays -
     invoices, payments and placements RESTRICT it), the person's tables
     deleted (a submitted `DocumentVersion` leaves only through the
     Application cascade), the sensitive schema through its own module,
     mailbox connections through their revocation, other parties' records
-    scrubbed to ids; NEVER `AuditLog`, `ConsentRecord`, `Invoice`,
-    `Payment`, `Refund`, `CreditNote`, `Placement`. **Retention is
+    scrubbed to ids; the person's own `AuditLog` rows keep everything but
+    the actor address, IP and user agent (the ONE permitted audit write;
+    the hash-chain columns are UNWIRED - never claim a chain); NEVER a
+    delete of `AuditLog`, and never `ConsentRecord`, `Invoice`, `Payment`,
+    `Refund`, `CreditNote`, `Placement`. Blockers (a live subscription, a
+    sole ownership) are re-checked at execution and defer, never skip.
+    **Retention is
     `retention:sweep`** and the matrix's enforcement column is the truth;
     a row marked NOT AUTOMATED is a statement, not a gap to paper over.
-    `npm run a11y` must stay green (the four darkened colour tokens in
+    `npm run a11y` (42 pages) must stay green (the four darkened colour tokens in
     `globals.css` are why; do not lighten `--faint`, `--brand-500`,
     `--success`, `--warn` below 4.5:1); the dark theme is NOT measured.
     Performance numbers are LOCAL and say so. The demo account is seeded
-    `admin` for the console audit; `STAFF_EMAILS` still decides staff. A
-    penetration test is an EXTERNAL action - never describe a code review
-    as one.
+    `admin` for the console audit, NEVER in production; `STAFF_EMAILS`
+    still decides staff. `db:backup` keeps privileges and `db:restore`
+    proves the tenant path - a restore that only checks the system client
+    is the false PASS the review caught. A penetration test is an EXTERNAL
+    action - never describe a code review as one.
 
 ## Conventions worth preserving
 

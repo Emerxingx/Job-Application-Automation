@@ -10,12 +10,22 @@ import { martFreshness } from '@/lib/analytics/freshness';
  * Stage 23 (ADR-0037) - the health check a load balancer, an uptime monitor
  * or an operator reads. Public (no session) by design, so it is rate-limited
  * by address and says NOTHING that helps an attacker: no host, no version,
- * no error text - each check is a boolean and a short, fixed word.
+ * no count, no backend name, no error text - each check is a boolean and a
+ * short, fixed word (Stage 23 review, M3: the first version printed the
+ * number of migrations and the storage and cache backends).
  *
  * `status` is `ok` when the application can serve a request (database
  * reachable, migrations complete), `degraded` when it can but something
  * operational is off (a mart past its SLA, no enabled job source), and the
  * response is 503 only when a request could not be served.
+ *
+ * COST. Every check is a database query, and the endpoint is public. Two
+ * bounds (review M3): the result is memoised per instance for
+ * `MEMO_MS`, so a burst costs one round of queries, not one per request;
+ * and besides the per-address budget there is a per-instance budget across
+ * ALL addresses, so a caller who can vary the forwarded address (no proxy in
+ * front, or more hops than configured) still cannot make this instance run
+ * the checks more than `GLOBAL_LIMIT` times a minute.
  */
 export const dynamic = 'force-dynamic';
 
@@ -23,6 +33,10 @@ interface Check {
   ok: boolean;
   detail: string;
 }
+
+/** How long one computed answer is served to every caller of this instance. */
+export const MEMO_MS = 10_000;
+export const GLOBAL_LIMIT = { limit: 300, windowSeconds: 60 };
 
 async function checkDatabase(): Promise<Check> {
   try {
@@ -35,9 +49,8 @@ async function checkDatabase(): Promise<Check> {
 
 async function checkMigrations(): Promise<Check> {
   try {
-    const rows = await db.$queryRaw<{ pending: bigint; applied: bigint }[]>`SELECT count(*) FILTER (WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL) AS pending, count(*) FILTER (WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL) AS applied FROM "_prisma_migrations"`;
-    const pending = Number(rows[0]?.pending ?? 0);
-    return pending === 0 ? { ok: true, detail: `${Number(rows[0]?.applied ?? 0)} applied` } : { ok: false, detail: `${pending} pending or failed` };
+    const rows = await db.$queryRaw<{ pending: bigint }[]>`SELECT count(*) FILTER (WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL) AS pending FROM "_prisma_migrations"`;
+    return Number(rows[0]?.pending ?? 0) === 0 ? { ok: true, detail: 'applied' } : { ok: false, detail: 'pending' };
   } catch {
     return { ok: false, detail: 'unknown' };
   }
@@ -45,8 +58,8 @@ async function checkMigrations(): Promise<Check> {
 
 async function checkStorage(): Promise<Check> {
   try {
-    const provider = await getStorageProvider();
-    return { ok: true, detail: provider.name };
+    await getStorageProvider();
+    return { ok: true, detail: 'available' };
   } catch {
     return { ok: false, detail: 'unavailable' };
   }
@@ -55,7 +68,7 @@ async function checkStorage(): Promise<Check> {
 async function checkJobSources(): Promise<Check> {
   try {
     const enabled = await db.jobSource.count({ where: { status: 'enabled' } });
-    return enabled > 0 ? { ok: true, detail: `${enabled} enabled` } : { ok: false, detail: 'none enabled' };
+    return enabled > 0 ? { ok: true, detail: 'enabled' } : { ok: false, detail: 'none enabled' };
   } catch {
     return { ok: false, detail: 'unknown' };
   }
@@ -65,21 +78,44 @@ async function checkMarts(): Promise<Check> {
   try {
     const marts = Object.keys(MART_REGISTRY) as (keyof typeof MART_REGISTRY)[];
     const freshness = await martFreshness(marts);
-    const stale = freshness.filter((f) => f.stale).length;
-    return stale === 0 ? { ok: true, detail: 'fresh' } : { ok: false, detail: `${stale} of ${marts.length} stale` };
+    return freshness.some((f) => f.stale) ? { ok: false, detail: 'stale' } : { ok: true, detail: 'fresh' };
   } catch {
     return { ok: false, detail: 'unknown' };
   }
 }
 
-export async function GET(request: Request) {
-  const limit = rateLimit('health', clientAddress(request), { limit: 60, windowSeconds: 60 });
-  if (!limit.ok) return NextResponse.json({ status: 'rate_limited' }, { status: 429, headers: { 'Retry-After': String(limit.retryAfterSeconds), 'Cache-Control': 'no-store' } });
+interface HealthBody {
+  status: 'ok' | 'degraded' | 'unavailable';
+  checks: Record<string, Check>;
+  checkedAt: string;
+}
 
+let memo: { at: number; body: HealthBody } | null = null;
+
+/** Compute the answer, or serve the one computed inside the last MEMO_MS. Exported for the test. */
+export async function healthBody(now = Date.now()): Promise<HealthBody> {
+  if (memo && now >= memo.at && now - memo.at < MEMO_MS) return memo.body;
   const [database, migrations, storage, jobSources, marts] = await Promise.all([checkDatabase(), checkMigrations(), checkStorage(), checkJobSources(), checkMarts()]);
-  const cache: Check = { ok: true, detail: getCache().backend };
+  const cache: Check = { ok: true, detail: getCache().backend === 'redis' ? 'shared' : 'local' };
   const serving = database.ok && migrations.ok;
   const operational = serving && storage.ok && jobSources.ok && marts.ok;
-  const body = { status: !serving ? 'unavailable' : operational ? 'ok' : 'degraded', checks: { database, migrations, cache, storage, jobSources, marts }, checkedAt: new Date().toISOString() };
-  return NextResponse.json(body, { status: serving ? 200 : 503, headers: { 'Cache-Control': 'no-store' } });
+  const body: HealthBody = { status: !serving ? 'unavailable' : operational ? 'ok' : 'degraded', checks: { database, migrations, cache, storage, jobSources, marts }, checkedAt: new Date(now).toISOString() };
+  memo = { at: now, body };
+  return body;
+}
+
+/** Test seam. */
+export function resetHealthMemo(): void {
+  memo = null;
+}
+
+export async function GET(request: Request) {
+  const noStore = { 'Cache-Control': 'no-store' };
+  const perAddress = rateLimit('health', clientAddress(request), { limit: 60, windowSeconds: 60 });
+  if (!perAddress.ok) return NextResponse.json({ status: 'rate_limited' }, { status: 429, headers: { 'Retry-After': String(perAddress.retryAfterSeconds), ...noStore } });
+  const perInstance = rateLimit('health:all', 'all', GLOBAL_LIMIT);
+  if (!perInstance.ok) return NextResponse.json({ status: 'rate_limited' }, { status: 429, headers: { 'Retry-After': String(perInstance.retryAfterSeconds), ...noStore } });
+
+  const body = await healthBody();
+  return NextResponse.json(body, { status: body.status === 'unavailable' ? 503 : 200, headers: noStore });
 }

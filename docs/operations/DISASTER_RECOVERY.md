@@ -25,10 +25,13 @@ Stage 24 has rehearsed it on the provider.
    to a new instance at the latest consistent point → run
    `npm run db:migrate:status` (must be clean) → repoint `DATABASE_URL` /
    `DIRECT_URL` (secrets manager, never a file) → `GET /api/health` must be
-   `ok` or `degraded` (never `unavailable`) → re-run `executeErasure` for
-   every `DeletionRequest` completed after the restore point
-   (`npm run retention:sweep` does this: a completed request whose person
-   is not `anonymizedAt` is re-executed) → run `npm run analytics:rollup`
+   `ok` or `degraded` (never `unavailable`) AND the tenant path must work
+   (the restore script proves it; the health check runs on the system
+   client and would not notice missing grants - review H2) → re-run the
+   erasures completed after the restore point (`npm run retention:sweep`
+   does this: `unfinishedErasures()` finds every completed request whose
+   person is not `anonymizedAt` and re-executes it - built in the Stage 23
+   review, M4; tested) → run `npm run analytics:rollup`
    so the marts say a fresh "as of". Announce per `INCIDENT_RESPONSE.md`.
 2. **Provider PITR unavailable.** Same, from the newest `db:backup` dump
    with `npm run db:restore`; the RPO is then the age of that dump (up to
@@ -54,7 +57,7 @@ Stage 24 has rehearsed it on the provider.
 
 | Date | Scenario | Where | Outcome |
 | --- | --- | --- | --- |
-| 2026-09-05 | 2 (logical dump → fresh database) | local PostgreSQL 16 | PASS — `BACKUP_RESTORE.md` |
+| 2026-09-05 | 2 (logical dump → fresh database) | local PostgreSQL 16 | PASS — `BACKUP_RESTORE.md` (second run, after review H2: grants kept, tenant path proven, tenancy suite green on the restored copy) |
 | — | 1 (provider PITR) | managed provider | NOT REHEARSED |
 | — | 5 (rollback) | staging | NOT REHEARSED (Stage 24) |
 

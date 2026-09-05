@@ -30,7 +30,8 @@ answers the alert follows.
    Sev 1, hourly for Sev 2.
 4. **Record**: open an incident note (date-time, severity, timeline as it
    happens). The audit log is evidence; nothing in it is edited or deleted
-   (`AuditLog` is append-only with a hash chain).
+   (`AuditLog` is append-only; its hash-chain columns exist but are NOT written -
+   Stage 24+ - so integrity rests on database access control until then).
 
 ## Diagnosis
 

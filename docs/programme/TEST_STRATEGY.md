@@ -765,7 +765,7 @@ never occurred.
   kept, the audit row free of the person, another person untouched, a
   second run refused; the retention sweep removing exactly the expired
   rows; the health check answering without a session and naming no host.
-- **Rendered (`npm run a11y`, its own CI job):** 43 pages with axe-core
+- **Rendered (`npm run a11y`, its own CI job):** 42 pages with axe-core
   WCAG 2.0/2.1/2.2 A and AA rules, a title and exactly one `main` on each.
 - **Measured (`npm run perf:load`, `npm run perf:rollup`):** p95 per route
   and error rate against budgets; rollup and extraction throughput at 20 000

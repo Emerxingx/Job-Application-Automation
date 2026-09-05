@@ -20,19 +20,30 @@ const PATTERNS: [RegExp, string][] = [
   [/\b(Bearer|Basic)\s+[A-Za-z0-9\-._~+/]+=*/g, '$1 [redacted]'],
   // JWTs: three base64url segments.
   [/\b[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g, '[redacted-jwt]'],
-  // Provider secret shapes: Stripe, AWS, Anthropic, GitHub, Slack, Google.
-  [/\b(sk|pk|rk|whsec)_(live|test)_[A-Za-z0-9]{8,}\b/g, '[redacted-key]'],
+  // Provider secret shapes: Stripe (keys carry a live/test infix; a webhook
+  // signing secret does not - Stage 23 review M6), AWS, Anthropic, GitHub, Slack, Google.
+  [/\b(sk|pk|rk)_(live|test)_[A-Za-z0-9]{8,}\b/g, '[redacted-key]'],
+  [/\bwhsec_[A-Za-z0-9]{8,}\b/g, '[redacted-key]'],
   [/\bAKIA[0-9A-Z]{16}\b/g, '[redacted-key]'],
   [/\bsk-ant-[A-Za-z0-9\-_]{12,}\b/g, '[redacted-key]'],
   [/\b(ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}\b/g, '[redacted-key]'],
   [/\bxox[abpr]-[A-Za-z0-9-]{10,}\b/g, '[redacted-key]'],
   [/\bAIza[0-9A-Za-z\-_]{30,}\b/g, '[redacted-key]'],
-  // Our own API keys (Stage 14: `jp_` prefix) and any long hex/base64 blob that looks like a secret.
+  // Our own API keys (Stage 14: `jp_` prefix).
   [/\bjp_[A-Za-z0-9_]{12,}\b/g, '[redacted-key]'],
+  // A long hex blob (32+): a digest, an encryption key, a session id echoed by
+  // a database error. A cuid is base36 and 25 characters, so it survives.
+  [/\b[0-9a-f]{32,}\b/gi, '[redacted-hex]'],
+  // A long base64 blob (40+ characters, letters AND digits): a generated
+  // secret or a token. Words, paths with separators and short ids survive.
+  [/(?<![A-Za-z0-9+/=])(?=[A-Za-z0-9+/]*\d)(?=[A-Za-z0-9+/]*[A-Za-z])[A-Za-z0-9+/]{40,}={0,2}(?![A-Za-z0-9+/=])/g, '[redacted-blob]'],
   // Email addresses.
   [/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g, '[redacted-email]'],
-  // Phone numbers with 10+ digits in the usual shapes.
-  [/(?<![\w/])\+?\d[\d\s().-]{8,}\d(?![\w/])/g, '[redacted-number]'],
+  // Phone numbers in the shapes people write them: an international prefix,
+  // a bracketed area code, or 3-3-4 with separators. NOT any run of digits
+  // (Stage 23 review L2): an invoice number, a ticket number or a timestamp
+  // is what the person on call needs to read.
+  [/(?<![\w/-])(?:\+\d[\d\s().-]{8,}\d|\(\d{3}\)\s?\d{3}[-.\s]?\d{4}|\b\d{3}[-.\s]\d{3}[-.\s]\d{4})(?![\w/])/g, '[redacted-number]'],
 ];
 
 export function redact(text: string): string {
@@ -41,10 +52,46 @@ export function redact(text: string): string {
   return out;
 }
 
-/** What is safe to log about an error: its name, its redacted message, and a redacted stack. Never the error object (it may carry a request or a row). */
-export function redactError(error: unknown): { name: string; message: string; stack?: string } {
-  if (error instanceof Error) {
-    return { name: error.name, message: redact(error.message), stack: error.stack ? redact(error.stack) : undefined };
+export interface RedactedError {
+  name: string;
+  message: string;
+  stack?: string;
+  /** One level of `cause`, redacted the same way (Stage 23 review L3). */
+  cause?: { name: string; message: string };
+}
+
+function safeString(value: unknown): string {
+  try {
+    return typeof value === 'string' ? value : String(value);
+  } catch {
+    return '[unprintable]';
   }
-  return { name: 'Error', message: redact(typeof error === 'string' ? error : String(error)) };
+}
+
+/**
+ * What is safe to log about an error: its name, its redacted message, a
+ * redacted stack and a redacted cause. Never the error object (it may carry
+ * a request or a row). Never throws: a logger that throws inside a catch
+ * block turns a handled error into an unhandled one.
+ */
+export function redactError(error: unknown): RedactedError {
+  try {
+    if (error instanceof Error) {
+      let stack: string | undefined;
+      try {
+        stack = error.stack ? redact(error.stack) : undefined;
+      } catch {
+        stack = undefined;
+      }
+      const out: RedactedError = { name: safeString(error.name), message: redact(safeString(error.message)), stack };
+      if (error.cause !== undefined && error.cause !== null) {
+        const c = error.cause;
+        out.cause = c instanceof Error ? { name: safeString(c.name), message: redact(safeString(c.message)) } : { name: 'cause', message: redact(safeString(c)) };
+      }
+      return out;
+    }
+    return { name: 'Error', message: redact(safeString(error)) };
+  } catch {
+    return { name: 'Error', message: '[unredactable error]' };
+  }
 }

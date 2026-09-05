@@ -37,21 +37,32 @@ plainly which ones still cannot be measured from this environment.
    surfaces (`/api/v1`, `/api/scim`, `/api/webhooks`) are exempt because a
    cross-site page cannot attach a bearer credential. The check runs before
    the public-path decision, so a cross-site POST to login or signup is
-   refused too.
+   refused too. After the independent review (L7): the check covers the
+   CMS cookie (`payload-token`) as well as the session cookie; `same-site`
+   (a sibling subdomain) is refused, not allowed; and `Origin` is compared
+   against `Host`, never a forwarded host header, because that header is
+   client-writable when no proxy sets it.
 
 3. **A health check exists and says nothing useful to an attacker.**
    `GET /api/health` is public, rate-limited by address, returns booleans
-   and fixed words (database reachable, migrations applied, cache backend,
-   storage provider, enabled job sources, mart freshness), `503` only when
-   a request could not be served, `degraded` when something operational is
-   off, never a host, a version or an error text.
+   and fixed words (database reachable, migrations applied, cache,
+   storage, job sources, mart freshness), `503` only when a request could
+   not be served, `degraded` when something operational is off, never a
+   host, a version, a count, a backend name or an error text. After the
+   review (M3): the answer is memoised per instance for ten seconds, and a
+   per-instance budget across every address bounds the database cost
+   whatever a caller writes into a forwarded header.
 
 4. **Logs are redacted at the one place an unhandled error is logged.**
    `src/lib/log.ts` strips connection-string credentials, bearer and basic
    credentials, JWTs, provider key shapes, our own API keys, email
-   addresses and phone numbers; `route()` logs `redactError(error)`, never
-   the error object. A log line that carries any of those is itself a
-   Sev 2 finding (`INCIDENT_RESPONSE.md`).
+   addresses and phone numbers; every server-side error log goes through
+   `redactError`, never the error object - the review (M2) found nine
+   sites that still logged it raw, and a static scan of every
+   `console.error` / `console.warn` under `src` now refuses one. A log
+   line that carries any of those is itself a Sev 2 finding
+   (`INCIDENT_RESPONSE.md`). The redactor never throws, carries a redacted
+   `cause`, and leaves an invoice or ticket number readable (L2, L3).
 
 5. **Account erasure is code, scheduled, and scrub-in-place.**
    `src/lib/privacy/erasure.ts`: a request is scheduled fourteen days out
@@ -67,10 +78,27 @@ plainly which ones still cannot be measured from this environment.
    parties' records (a provider's case, an agency's representation, a
    support ticket) and marks memberships removed, removes the person's
    files from the object store, and writes one audit row with counts. Never
-   touched: audit rows, consent records, invoices, payments, refunds,
+   deleted: audit rows, consent records, invoices, payments, refunds,
    credit notes, placements. The person's own route
    (`/api/account/erasure`) and a control under Settings; never a staff
    action.
+
+   After the independent review (H3, M1, L1, L10, M4): the question bank,
+   webhook endpoints, queued outbound events and idempotency records are
+   deleted too; the person's support messages, a referral where they were
+   the referee, and the actor address, IP and user agent on the person's
+   OWN audit rows are scrubbed (the rows stay; the hash-chain columns are
+   unwired, so this is safe today and the chain, when wired, must hash a
+   digest); the blockers (a live subscription, being the only owner of an
+   organisation) are re-checked when the erasure runs and a request whose
+   blocker reappeared is deferred and audited, never executed around;
+   checkout and a trial refuse while an erasure is scheduled; the request
+   row is claimed conditionally inside the transaction so a cancel can
+   never be overwritten; the sweep re-executes a completed request whose
+   person is not scrubbed (a restore to before the erasure); a submitted
+   version attached to no application is immutable and its object is kept
+   and counted. NOT reached: the payment provider's own customer record,
+   which the control says.
 
 6. **Retention is a sweep the matrix describes.** `npm run retention:sweep`
    (`src/lib/privacy/retention.ts`) removes what `DATA_RETENTION_MATRIX.md`
@@ -82,7 +110,7 @@ plainly which ones still cannot be measured from this environment.
    KEEP, PER CONTRACT, NOT AUTOMATED.
 
 7. **Accessibility is a measurement over rendered pages.** `npm run a11y`
-   runs axe-core (WCAG 2.0/2.1/2.2 A and AA) in Chromium over 43 pages
+   runs axe-core (WCAG 2.0/2.1/2.2 A and AA) in Chromium over 42 pages
    of a built, started application — public, candidate and console — with
    one stored session, and CI runs it as its own job. The first run found
    real defects (three colour tokens under 4.5:1 on every page; a combobox
@@ -100,9 +128,12 @@ plainly which ones still cannot be measured from this environment.
 
 9. **Backup and restore are scripts and a rehearsal; recovery and incident
    response are written procedures.** `npm run db:backup` / `db:restore`
-   (custom-format dump with checksum, restore into an empty target with
-   role creation and proof of history, RLS and counts), rehearsed against
-   local PostgreSQL 16 with the log in `BACKUP_RESTORE.md`;
+   (custom-format dump WITH its privileges and a checksum; restore into an
+   empty target with role creation, role membership, proof of history,
+   RLS, counts AND of the tenant and sensitive paths), rehearsed twice
+   against local PostgreSQL 16 with the log in `BACKUP_RESTORE.md` - the
+   first rehearsal dropped the grants and passed every check while the
+   tenant path could read nothing (review H2);
    `DISASTER_RECOVERY.md` proposes RPO/RTO per tier and the scenario
    responses; `INCIDENT_RESPONSE.md` is the runbook. The provider's PITR
    and a production-scale restore are NOT VERIFIED.
@@ -127,7 +158,16 @@ plainly which ones still cannot be measured from this environment.
   `--success`, `--warn`); the dark theme's values were not measured (axe
   ran the light theme) and are stated as such.
 - The demo account is seeded as `admin` so the console can be audited; the
-  two-lock (`STAFF_EMAILS`) still decides whether it is staff.
+  two-lock (`STAFF_EMAILS`) still decides whether it is staff. After the
+  review (M7): the seed never creates the demo account in production and
+  never re-elevates it on a reseed.
+- `Strict-Transport-Security: includeSubDomains` commits every subdomain
+  of the deployed host to TLS; deploy at a host whose subdomains you
+  control. `Cross-Origin-Opener-Policy: same-origin` would break a
+  popup-based OAuth or payment SDK; none exists.
+- The `AuditLog` hash-chain columns are unwired (Stage 03 evidence item
+  21). The readiness gate and the retention matrix said "hash-chained";
+  both were corrected in this review.
 
 ## Not done, stated
 

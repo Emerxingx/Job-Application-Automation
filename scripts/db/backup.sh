@@ -24,13 +24,18 @@ mkdir -p "$OUT_DIR"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 FILE="$OUT_DIR/jobpilot-$STAMP.dump"
 
-# --no-owner/--no-privileges: the restore target's roles are its own; RLS
-# roles and grants are recreated by the migration history, not the dump.
-# The sensitive schema (ADR-0007) IS included: a backup that silently omitted
-# it would be a data loss on restore. It stays under the same access control
-# as the dump file itself, which is why the file is never left world-readable.
+# --no-owner: the restore target's login role owns what it restores. The
+# GRANTs and default privileges ARE kept (Stage 23 review, H2): the RLS
+# migration grants the tenant and sensitive roles their table privileges and
+# a restored history is marked applied, so `migrate deploy` would never
+# re-issue them - a dump without privileges restores a database the tenant
+# path cannot read. Role MEMBERSHIP is cluster-level and never in a dump;
+# restore.sh grants it. The sensitive schema (ADR-0007) IS included: a backup
+# that silently omitted it would be a data loss on restore. It stays under
+# the same access control as the dump file itself, which is why the file is
+# never left world-readable.
 umask 077
-pg_dump --dbname="$URL" --format=custom --compress=6 --no-owner --no-privileges --file="$FILE"
+pg_dump --dbname="$URL" --format=custom --compress=6 --no-owner --file="$FILE"
 ( cd "$OUT_DIR" && sha256sum "$(basename "$FILE")" > "$(basename "$FILE").sha256" )
 SIZE="$(stat -c %s "$FILE")"
 echo "backup written: $(basename "$FILE") ($SIZE bytes), checksum $(cut -c1-16 "$FILE.sha256")…"

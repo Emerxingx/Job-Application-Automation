@@ -19,7 +19,7 @@ export function AccountErasure() {
 
   async function load() {
     const res = await fetch('/api/account/erasure', { cache: 'no-store' });
-    if (res.ok) setState(((await res.json()) as { data: Status }).data);
+    if (res.ok) setState((await res.json()) as Status);
   }
   useEffect(() => {
     void load();
@@ -29,9 +29,9 @@ export function AccountErasure() {
     setBusy(true);
     setError(null);
     const res = await fetch('/api/account/erasure', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({}) });
-    const body = (await res.json().catch(() => ({}))) as { data?: Status; error?: string };
+    const body = (await res.json().catch(() => ({}))) as Partial<Status> & { error?: string };
     if (!res.ok) setError(body.error ?? 'Could not schedule the erasure.');
-    else setState(body.data ?? null);
+    else setState(body.status ? (body as Status) : null);
     setConfirming(false);
     setBusy(false);
   }
@@ -40,9 +40,9 @@ export function AccountErasure() {
     setBusy(true);
     setError(null);
     const res = await fetch('/api/account/erasure', { method: 'DELETE' });
-    const body = (await res.json().catch(() => ({}))) as { data?: Status; error?: string };
+    const body = (await res.json().catch(() => ({}))) as Partial<Status> & { error?: string };
     if (!res.ok) setError(body.error ?? 'Could not cancel.');
-    else setState(body.data ?? null);
+    else setState(body.status ? (body as Status) : null);
     setBusy(false);
   }
 
@@ -52,7 +52,7 @@ export function AccountErasure() {
     <div className="mt-4 rounded-lg border border-line p-4" aria-live="polite">
       <h3 className="text-sm font-semibold text-ink">Delete your account</h3>
       <p className="mt-1 text-xs text-muted">
-        Deletion is scheduled fourteen days out and you can cancel it until then. When it runs, your profile, evidence, résumés, applications and their files, plans, mailbox connections, sessions and keys are deleted and your account record is scrubbed. Invoices and payments are kept for seven years as the law requires, with your identity removed; a service provider&apos;s or employer&apos;s own records about you keep their ids only. An active subscription must be cancelled first.
+        Deletion is scheduled fourteen days out and you can cancel it until then. When it runs, your profile, evidence, résumés, applications and their files, plans, mailbox connections, sessions and keys are deleted and your account record is scrubbed. Invoices and payments are kept for seven years as the law requires, with your identity removed; a service provider&apos;s or employer&apos;s own records about you keep their ids only. Your answers to application questions and your integrations are deleted; the audit trail keeps what happened, with your address removed. A payment provider keeps its own customer record under its own privacy terms - erasure here does not reach it. An active subscription must be cancelled first, and an organisation you are the only owner of must be handed over.
       </p>
       {scheduled ? (
         <p className="mt-3 text-sm text-ink">

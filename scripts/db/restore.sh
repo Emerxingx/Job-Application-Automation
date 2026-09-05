@@ -8,8 +8,12 @@
 # docs/operations/BACKUP_RESTORE.md). After the restore the script verifies:
 # the checksum of the dump, that every migration in the dump's history is
 # marked applied in the target, that the RLS roles the migration history
-# expects exist, and prints the row counts of a handful of tables so the
-# operator can compare them with the source. It never prints a URL.
+# expects exist and are granted to the restoring login, that the TENANT PATH
+# works (a transaction that sets the context and assumes app_tenant can read
+# a forced table - Stage 23 review H2: a dump restored without its grants
+# looked healthy to the system client and served nothing to a person), and
+# prints the row counts of a handful of tables so the operator can compare
+# them with the source. It never prints a URL.
 set -euo pipefail
 
 DUMP="${1:?usage: restore.sh <dump-file>}"
@@ -34,8 +38,37 @@ for role in app_tenant app_sensitive; do
   fi
 done
 
-pg_restore --dbname="$URL" --no-owner --no-privileges --exit-on-error "$DUMP"
+pg_restore --dbname="$URL" --no-owner --exit-on-error "$DUMP"
 echo "restore completed"
+
+# Role membership is cluster-level and never in a dump: the migration granted
+# app_tenant and app_sensitive to the role that ran it so the application can
+# SET LOCAL ROLE to them; grant them to the restoring login the same way.
+psql "$URL" -qc "DO \$\$ BEGIN EXECUTE format('GRANT app_tenant, app_sensitive TO %I', current_user); END \$\$;" >/dev/null
+echo "role membership granted to the restoring login"
+
+# Prove the tenant path, not only the system client: establish a context the
+# way src/lib/tenancy/context.ts does and read a forced table as app_tenant.
+# A missing GRANT fails here, before anyone repoints the application.
+TENANT_PROOF="$(psql "$URL" -tA -v ON_ERROR_STOP=1 <<'SQL'
+BEGIN;
+SELECT set_config('app.current_user_id', 'restore-proof', true);
+SELECT set_config('app.current_organization_id', '', true);
+SET LOCAL ROLE app_tenant;
+SELECT 'tenant-path-ok:' || count(*) FROM "User";
+ROLLBACK;
+SQL
+)" || { echo "restore.sh: the TENANT PATH does not work on the restored database (grants missing?)" >&2; exit 5; }
+echo "tenant path: $(echo "$TENANT_PROOF" | grep tenant-path-ok)"
+SENSITIVE_PROOF="$(psql "$URL" -tA -v ON_ERROR_STOP=1 <<'SQL'
+BEGIN;
+SELECT set_config('app.current_user_id', 'restore-proof', true);
+SET LOCAL ROLE app_sensitive;
+SELECT 'sensitive-path-ok:' || count(*) FROM sensitive.self_identification;
+ROLLBACK;
+SQL
+)" || { echo "restore.sh: the SENSITIVE PATH does not work on the restored database" >&2; exit 5; }
+echo "sensitive path: $(echo "$SENSITIVE_PROOF" | grep sensitive-path-ok)"
 
 PENDING="$(psql "$URL" -tAc 'SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL')"
 APPLIED="$(psql "$URL" -tAc 'SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL')"

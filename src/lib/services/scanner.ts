@@ -10,6 +10,7 @@ import { parseJson } from '@/lib/types';
 import type { Country, JobType, WorkMode } from '@/lib/types';
 import { loadResumeContent } from '@/lib/candidate/profile';
 import { withTenant } from '@/lib/tenancy/context';
+import { redactError } from '@/lib/log';
 
 export interface ScanResult {
   agentId: string;
@@ -182,7 +183,7 @@ export async function runAllScans(userId: string): Promise<ScanRun> {
     try {
       results.push(await runAgentScan(userId, agent.id));
     } catch (error) {
-      console.error(`[scanner] agent ${agent.id} failed:`, error);
+      console.error(`[scanner] agent ${agent.id} failed:`, redactError(error));
       errors.push({
         agentName: agent.name,
         message: error instanceof Error ? error.message : 'The scan could not be completed.',

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { LIMITS, clientAddress, rateLimit } from '@/lib/rate-limit';
 import { SCIM_ERROR_SCHEMA, ScimError, authenticateScim, type ScimPrincipal } from './service';
+import { redactError } from '@/lib/log';
 
 /**
  * The SCIM route wrapper: bearer authentication, a per-token rate limit, the
@@ -36,7 +37,7 @@ export function scimRoute<Args extends unknown[]>(handler: (principal: ScimPrinc
     } catch (error) {
       if (error instanceof ScimError) return scimError(error.status, error.message, error.scimType);
       if (error instanceof SyntaxError || error instanceof TypeError) return scimError(400, 'The request body is not a JSON object.', 'invalidSyntax');
-      console.error('[scim] unhandled error:', error);
+      console.error('[scim] unhandled error:', redactError(error));
       return scimError(500, 'Something went wrong.');
     }
   };

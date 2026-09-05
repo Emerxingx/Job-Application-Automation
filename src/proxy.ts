@@ -171,7 +171,11 @@ export function isCrossSiteWrite(method: string, headers: { get(name: string): s
   if (SAFE_METHODS.has(method.toUpperCase())) return false;
   if (BEARER_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + '/'))) return false;
   const fetchSite = headers.get('sec-fetch-site');
-  if (fetchSite) return !(fetchSite === 'same-origin' || fetchSite === 'same-site' || fetchSite === 'none');
+  // Stage 23 review (L7): `same-site` is a SIBLING origin (another subdomain);
+  // with HSTS `includeSubDomains` there will be some, and none of them may
+  // write here with the cookie. Only our own origin, or a navigation the
+  // user typed (`none`), passes.
+  if (fetchSite) return !(fetchSite === 'same-origin' || fetchSite === 'none');
   const origin = headers.get('origin');
   if (!origin || !host) return false;
   try {
@@ -187,7 +191,13 @@ export async function proxy(request: NextRequest) {
   // A cross-site write carrying the session cookie is refused before anything
   // else looks at it - the cookie is the only thing an attacker's page can
   // borrow, so the check applies only when it is present.
-  if (request.cookies.get('jobpilot_session') && isCrossSiteWrite(request.method, request.headers, request.headers.get('host'), pathname)) {
+  // The CMS's own cookie (`payload-token`) is a credential a cross-site page
+  // can borrow just the same, so the check covers both (Stage 23 review, L7).
+  // The comparison is against `Host`, not a forwarded host header: a
+  // forwarded header is client-writable when no proxy sets it, and comparing
+  // Origin against it would let an attacker satisfy the check with two
+  // headers of their own choosing.
+  if ((request.cookies.get('jobpilot_session') || request.cookies.get('payload-token')) && isCrossSiteWrite(request.method, request.headers, request.headers.get('host'), pathname)) {
     return NextResponse.json({ error: 'Cross-site request refused.' }, { status: 403 });
   }
 

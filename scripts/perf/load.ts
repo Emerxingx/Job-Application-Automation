@@ -75,8 +75,13 @@ async function hammer(route: Route, cookie: string | null) {
         const res = await fetch(`${base}${route.path}`, { headers: cookie && route.auth ? { cookie, 'sec-fetch-site': 'same-origin' } : {}, redirect: 'manual' });
         await res.arrayBuffer();
         requests += 1;
-        if (res.status === 429 && route.limited) limited += 1;
-        else if (res.status >= 400 || (route.auth && res.status >= 300)) errors += 1;
+        // Stage 23 review (L8): a 429 measures the limiter, not the route, so
+        // its latency is counted apart and never enters the percentiles.
+        if (res.status === 429 && route.limited) {
+          limited += 1;
+          continue;
+        }
+        if (res.status >= 400 || (route.auth && res.status >= 300)) errors += 1;
       } catch {
         requests += 1;
         errors += 1;

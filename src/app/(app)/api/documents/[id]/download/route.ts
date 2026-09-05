@@ -2,6 +2,7 @@ import { db } from '@/lib/db';
 import { verifyDocumentLink } from '@/lib/documents/sign';
 import { CONTENT_TYPES, DocumentIntegrityError, documentFileName, readDocumentBytes, type DocumentFormat } from '@/lib/documents/versions';
 import { fail, route } from '@/lib/api';
+import { redactError } from '@/lib/log';
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -35,7 +36,7 @@ export const GET = route(async (request: Request, { params }: Params) => {
     if (error instanceof DocumentIntegrityError) {
       // A stored object that is missing or altered is a serious signal; the
       // id is logged (never the content) and the download is refused.
-      console.error(`[documents] integrity check failed for ${error.documentId}: ${error.message}`);
+      console.error(`[documents] integrity check failed for ${error.documentId}: ${redactError(error).message}`);
       return fail('The stored document failed its integrity check and was not served.', 409);
     }
     throw error;

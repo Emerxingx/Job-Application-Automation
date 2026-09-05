@@ -46,6 +46,7 @@ import {
   type ApiScope,
   type AuthenticatedApiKey,
 } from './api-keys';
+import { redactError } from '@/lib/log';
 
 // --- Errors -----------------------------------------------------------------
 
@@ -284,7 +285,7 @@ export function v1ErrorResponse(error: unknown): NextResponse {
       param: issue?.path.join('.') || undefined,
     });
   }
-  console.error('[api/v1] unhandled error:', error);
+  console.error('[api/v1] unhandled error:', redactError(error));
   // The message is fixed rather than echoed. An exception string can carry
   // a query fragment or a file path, and a public API is exactly the wrong
   // place to hand those out.

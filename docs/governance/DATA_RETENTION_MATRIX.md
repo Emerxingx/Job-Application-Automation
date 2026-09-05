@@ -14,9 +14,12 @@ so they still read correctly after erasure. `User.anonymizedAt` marks this.
 | Data | Class | Default retention | Trigger | Notes | Enforcement (Stage 23, ADR-0037) |
 | --- | --- | --- | --- | --- | --- |
 | Candidate profile & digital twin | CONFIDENTIAL | Life of account + 30 days | Account closure | Scrubbed in place | ON EVENT — deleted by account erasure (`executeErasure`, Stage 23) |
-| Career evidence | CONFIDENTIAL | Life of account + 30 days | Account closure | | ON EVENT — deleted by account erasure |
+| Career evidence | CONFIDENTIAL | Life of account; deleted when the account's erasure runs (fourteen-day grace after the request) | Account erasure | | ON EVENT — deleted by account erasure |
 | Sensitive demographics | **RESTRICTED** | Life of account, **erased immediately on withdrawal of consent** | Consent withdrawal | No derived copies | ON EVENT — `eraseSelfIdentification` on withdrawal and on erasure |
-| Résumés & documents | CONFIDENTIAL | Life of account + 30 days | Account closure | | ON EVENT — deleted by account erasure (rows and objects) |
+| Résumés & documents | CONFIDENTIAL | Life of account; deleted when the account's erasure runs (fourteen-day grace after the request) | Account erasure | A submitted version attached to no application is immutable and is kept with its object (the erasure reports the count) | ON EVENT — deleted by account erasure (rows and objects) |
+| Application question bank (`ApplicationQuestion`: questions, answers, evidence ids) | CONFIDENTIAL | Life of account | Account erasure | Stage 23 review H3 | ON EVENT — deleted by account erasure |
+| Webhook endpoints, queued outbound events, idempotency records | CONFIDENTIAL | Life of account (idempotency records expire in 24 h and are not yet swept) | Account erasure | | ON EVENT — deleted by account erasure |
+| Support messages written by the person | CONFIDENTIAL | Life of the ticket | Account erasure | | ON EVENT — body, author name and attachments replaced by account erasure; the row stays for the support record |
 | **Submitted document versions** | CONFIDENTIAL | **7 years** | — | Candidates must be able to retrieve what was sent on their behalf | STATUTORY-STYLE KEEP for the account's life; leave ONLY through the owner's erasure cascade (trigger); no age-based sweep |
 | Applications & Job Folders | CONFIDENTIAL | 7 years | — | Immutable submitted artefacts | KEEP; deleted with the person on erasure; no age-based sweep (NOT AUTOMATED at 7 years) |
 | Folder children — status history, contacts, interviews, assessments, follow-ups, notes (Stage 10) | CONFIDENTIAL | With the application (7 years) | Cascade from the application and from the user (erasure) | Contact names and emails are personal data of third parties; audit rows carry ids and kinds only | ON EVENT — cascade |
@@ -29,9 +32,9 @@ so they still read correctly after erasure. `User.anonymizedAt` marks this.
 | Employer pipelines & submissions | CONFIDENTIAL | 3 years | — | | NOT AUTOMATED — a contract term, not a platform default; the candidate's identity is scrubbed on erasure |
 | Staffing contracts & placements | CONFIDENTIAL | 7 years | — | Guarantee periods and disputes | NOT AUTOMATED — contract records; the candidate's identity is scrubbed on erasure, the placement row stays (RESTRICT) |
 | Invoices, payments, credit notes | CONFIDENTIAL | **7 years** | — | **Survives account erasure** — statutory | STATUTORY KEEP — never swept, never erased; bill-to snapshot on the row |
-| Audit events | INTERNAL | 7 years | — | **Append-only; never edited or deleted** | NEVER — append-only, hash-chained; the sweep and the erasure refuse it statically |
+| Audit events | INTERNAL | 7 years | — | **Append-only; never deleted.** The ONE write: account erasure replaces the actor's address, IP and user agent on the person's own rows (the action, the ids and the summary stay). `prevHash`/`hash` columns exist but NO code writes them (Stage 03 evidence item 21; corrected in the Stage 23 review) — a hash chain is a Stage 24+ item and must hash a digest of the address | NEVER deleted — the sweep refuses it statically; erasure scrubs the actor identity only |
 | `ai_runs` | INTERNAL | 2 years | — | Prompt regression analysis and cost reporting | ENFORCED BY SWEEP — two years; deleted with the person on erasure |
-| Sessions | CONFIDENTIAL | 30 days, or immediately on revocation | Logout / revoke | | ENFORCED BY SWEEP — thirty days after expiry or revocation; deleted on erasure |
+| Sessions | CONFIDENTIAL | 30 days after expiry or revocation (a revoked row is the revocation record until then) | Logout / revoke | | ENFORCED BY SWEEP — thirty days after expiry or revocation; deleted on erasure |
 | Rate-limit counters | INTERNAL | Window duration | — | Ephemeral | EPHEMERAL — in-process window |
 | Analytics marts | INTERNAL | 3 years | — | Aggregate; small cohorts suppressed | ENFORCED BY SWEEP — three years for the aggregate marts |
 | Candidate outcome and match marts — `CandidateOutcomeMart`, `CandidateMatchMart` (Stage 13) | CONFIDENTIAL | With the account (rebuilt from the application rows; deleted with the user) | Erasure cascade | Per-user counts by day and dimension; no free text beyond a job title, company or keyword; user-owned under RLS | ON EVENT — deleted with the person |

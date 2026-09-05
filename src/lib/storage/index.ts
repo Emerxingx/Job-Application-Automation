@@ -2,6 +2,7 @@ import path from 'path';
 import type { TailoringNotes } from '../types';
 import type { StorageProvider } from './provider';
 import { LocalStorageProvider } from './local';
+import { redactError } from '@/lib/log';
 
 export type { StorageProvider, StoredObject } from './provider';
 
@@ -52,7 +53,7 @@ export async function getStorageProvider(): Promise<StorageProvider> {
         // this server rather than leaving the country; the error is logged
         // once here and the fallback is remembered so the failure is not
         // re-attempted (and re-logged) on every folder.
-        console.error('[storage] S3 provider refused; using the local filesystem:', error instanceof Error ? error.message : error);
+        console.error('[storage] S3 provider refused; using the local filesystem:', redactError(error).message);
       }
     }
   } else if (configured !== 'local') {
@@ -135,7 +136,7 @@ export async function createApplicationFolder(input: FolderInput): Promise<strin
 
     return relative;
   } catch (error) {
-    console.error('[storage] could not write application folder:', error);
+    console.error('[storage] could not write application folder:', redactError(error));
     return '';
   }
 }

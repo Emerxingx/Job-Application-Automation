@@ -13,6 +13,7 @@ import { AnalyticsFreshness } from '@/components/analytics-freshness';
 import { PeriodPicker } from './period-picker';
 import { parsePeriod, resolvePeriod } from './periods';
 import { FunnelPanel, KeywordList, KpiCard, SectionCard, type Delta, type FunnelStageView, type KeywordRowView } from './panels';
+import { redactError } from '@/lib/log';
 
 export const metadata = { title: 'Analytics' };
 export const dynamic = 'force-dynamic';
@@ -74,7 +75,7 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Pr
   // Never under a support impersonation (Stage 20 review, M7): a read-only
   // session writes nothing, not even the person's own marts.
   if (!built?.analyticsBuiltAt && !(await currentImpersonation())) {
-    await refreshCandidateMarts(user.id).catch((error) => console.error('[analytics] first-visit refresh failed:', error instanceof Error ? error.message : error));
+    await refreshCandidateMarts(user.id).catch((error) => console.error('[analytics] first-visit refresh failed:', redactError(error).message));
   }
   const lifetime = await run((tx) => readCandidateTotals(tx, user.id));
 

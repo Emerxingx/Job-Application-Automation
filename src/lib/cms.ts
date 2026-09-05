@@ -1,5 +1,6 @@
 import { getPayload } from 'payload';
 import config from '@payload-config';
+import { redactError } from '@/lib/log';
 
 /**
  * Read access to CMS content for the public site.
@@ -113,7 +114,7 @@ export async function getLandingContent(): Promise<LandingContent> {
     };
   } catch (error) {
     // A CMS problem must never take down the public marketing page.
-    console.error('[cms] could not load landing content; using built-in copy:', error);
+    console.error('[cms] could not load landing content; using built-in copy:', redactError(error));
     return empty;
   }
 }
@@ -164,7 +165,7 @@ export async function getDashboardLayout(): Promise<DashboardWidget[]> {
     }
     return DEFAULT_DASHBOARD_LAYOUT;
   } catch (error) {
-    console.error('[cms] could not load dashboard layout; using built-in default:', error);
+    console.error('[cms] could not load dashboard layout; using built-in default:', redactError(error));
     return DEFAULT_DASHBOARD_LAYOUT;
   }
 }

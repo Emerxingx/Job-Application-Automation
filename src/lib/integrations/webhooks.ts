@@ -91,6 +91,7 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { db } from '../db';
 import { parseJson } from '../types';
+import { redactError } from '@/lib/log';
 
 // --- Constants --------------------------------------------------------------
 
@@ -689,7 +690,7 @@ export async function emitEvent(input: EmitEventInput): Promise<EmitEventResult 
 
     return { eventId: event.id, scheduled: interested.length };
   } catch (error) {
-    console.error('[webhooks] could not queue event:', error);
+    console.error('[webhooks] could not queue event:', redactError(error));
     return null;
   }
 }

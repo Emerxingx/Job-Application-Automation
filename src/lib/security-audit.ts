@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { Prisma } from '@prisma/client';
 import { db } from './db';
+import { redactError } from '@/lib/log';
 
 /**
  * Security and account events, written to the same append-only `AuditLog`
@@ -118,6 +119,8 @@ export type SecurityEvent =
   | 'analytics.exported'
   | 'privacy.erasure.requested'
   | 'privacy.erasure.canceled'
+  // Stage 23 review (M1): execution found a live subscription or a sole ownership and left the request scheduled.
+  | 'privacy.erasure.deferred'
   | 'privacy.erased'
   | 'retention.swept'
   | 'sso.connection.updated'
@@ -207,7 +210,7 @@ export async function recordSecurityEvent(
       },
     });
   } catch (error) {
-    console.error(`[security-audit] failed to record ${input.event}:`, error instanceof Error ? error.message : error);
+    console.error(`[security-audit] failed to record ${input.event}:`, redactError(error).message);
     // `strict` is for accesses whose audit is a precondition (ADR-0007: every
     // access to the sensitive schema is audited — so an access that cannot be
     // audited must not happen). The caller writes the audit FIRST and aborts on

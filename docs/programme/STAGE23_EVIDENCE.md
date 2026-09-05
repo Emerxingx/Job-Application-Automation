@@ -72,7 +72,7 @@ re-measured row by row.
   placed candidate's identity are scrubbed on those records; the records
   themselves are the organisation's, under its retention.
 
-## 4. Accessibility - `PASS` (43 rendered pages, axe WCAG 2.0/2.1/2.2 A+AA, light theme)
+## 4. Accessibility - `PASS` (42 rendered pages, axe WCAG 2.0/2.1/2.2 A+AA, light theme)
 
 `npm run a11y` (`a11y/`, Playwright + axe-core 4.13, Chromium) against the
 built application on the seeded test database, one stored session:
@@ -80,10 +80,10 @@ built application on the seeded test database, one stored session:
 | Run | Result | What it found |
 | --- | --- | --- |
 | 1 | 2 / 42 pages passed | `color-contrast` on 13 pages (tokens `--faint` 3.7:1, `--brand-500` 4.47:1 with white text, `--success` 4.1:1); `aria-valid-attr-value` (a combobox naming an unrendered listbox); 27 pages failed to sign in - the per-account rate limit, correct |
-| 2 | 21 / 43 | after the token fixes and one stored session: no `<main>` on `/`, `/login`, `/signup`; `aria-allowed-attr` (the combobox lacked its role); an unlabelled disabled radio and 13 px checkboxes on Settings; `--warn` 2.6:1 on every console page; an inline link indistinguishable from its text |
-| 3 | 32 / 43 | eleven console pages rendered the access-denied view for a support-rank account, whose own `<main>` nested inside the shell's |
-| 4 | 41 / 43 | unlabelled audit filters; underline-less external links on the taxonomy page |
-| 5 | **43 / 43** | - |
+| 2 | 21 / 42 | after the token fixes and one stored session: no `<main>` on `/`, `/login`, `/signup`; `aria-allowed-attr` (the combobox lacked its role); an unlabelled disabled radio and 13 px checkboxes on Settings; `--warn` 2.6:1 on every console page; an inline link indistinguishable from its text |
+| 3 | 32 / 42 | eleven console pages rendered the access-denied view for a support-rank account, whose own `<main>` nested inside the shell's |
+| 4 | 41 / 42 | unlabelled audit filters; underline-less external links on the taxonomy page |
+| 5 | **42 / 42** | - |
 
 Fixes: `--faint` 107 101 95 (5.7:1), `--brand-500` 11 102 207 (5.5:1),
 `--success` 18 120 77 (5.5:1), `--warn` 133 88 0 (6.2:1); `role="combobox"`
@@ -113,7 +113,11 @@ build machine, local PostgreSQL; `PERFORMANCE_BUDGETS.md`):
 | `/console` | 495 | 0 | 0 | 62 | 130 | 153 | 175 | 2000 |
 | `/console/revenue` | 360 | 0 | 0 | 45 | 177 | 203 | 286 | 2000 |
 
-The health check's 429s are its rate limit doing its job. `npm run
+The health check's 429s are its rate limit doing its job - and, as the
+review noted (L8), its latency row above is the latency of those 429s
+(4172 of 4232 answers), i.e. the limiter's, not the check's. The script
+now keeps a 429 out of the percentiles; the health row is RE-MEASURED at
+Stage 24 with the corrected script and the memoised route. `npm run
 perf:rollup` (20 000 submissions, 60 000 events, one organisation, 90
 days, local database): `rollupOrganizations` read 58 446 rows and wrote
 806 mart rows in 1.17 s (50 127 source rows/s; budget 60 s);
@@ -124,9 +128,14 @@ MEASURED (Next 16's build prints no size table).
 
 ## 6. Backup, restore, recovery, incidents - `PASS` (local) / `NOT VERIFIED` (provider)
 
-- `npm run db:backup` / `db:restore` rehearsed: 56 migrations applied on
-  the restored copy, 157 tables under forced RLS, identical row counts, no
-  drift, checksum verified (`BACKUP_RESTORE.md`, full log).
+- `npm run db:backup` / `db:restore` rehearsed TWICE: the first run
+  verified 56 migrations, 157 forced tables, identical counts, no drift
+  and a checksum - and, the review found (H2), had dropped every grant, so
+  the tenant path could read nothing on the restored copy while every
+  check passed. The second run keeps privileges, grants role membership,
+  proves the tenant and sensitive paths in the script, and then runs the
+  tenancy, organisation and session suites against the restored database
+  (31/31). Full log in `BACKUP_RESTORE.md`.
 - `DISASTER_RECOVERY.md`: proposed RPO/RTO per tier, six scenarios with the
   response, the rehearsal record (local PASS; provider PITR and rollback
   NOT REHEARSED), founder decisions listed.
@@ -140,9 +149,9 @@ MEASURED (Next 16's build prints no size table).
 | --- | --- |
 | `npm run lint:ci` | 0 errors, 8 warnings (baseline 8) |
 | `npx tsc --noEmit` | 0 errors |
-| `npm test` (CI=true, both URLs on a fresh `jobpilot_test23`, 56 migrations) | 1296 / 1296, 0 skipped (19 new: 14 static, 5 database) |
+| `npm test` (CI=true, both URLs on a fresh `jobpilot_test23`, 56 migrations) | 1302 / 1302, 0 skipped (25 new: 17 static, 7 database, 1 storage) - after the review |
 | `npm run build` | exit 0 (worktree with its own dependencies) |
-| `npm run a11y` | 43 / 43 pages |
+| `npm run a11y` | 42 / 42 pages |
 | `npm run perf:load` | 11 / 11 routes within budget, 0 errors |
 | Migration rehearsal | unchanged history (56); drift clean on the restored copy |
 
@@ -180,4 +189,37 @@ test NOT VERIFIED → NOT VERIFIED (external action recorded).
 
 ## 10. Independent review
 
-Pending; recorded here and in `AUTONOMOUS_STATUS.json` when processed.
+An independent adversarial review of `766ee35..HEAD` (read-only, the same
+brief as Stages 19-21) returned 3 HIGH, 7 MEDIUM, 11 LOW and 5 INFO
+findings. Every HIGH and MEDIUM is fixed; every LOW is fixed or stated;
+the INFO items are recorded in ADR-0037. Two findings were false PASSes in
+this stage's own evidence (H2, and the "hash-chained" audit claim under
+INFO/H3), which is what an independent review is for.
+
+| Id | Sev | Finding | Resolution |
+| --- | --- | --- | --- |
+| H1 | HIGH | The Settings erasure control read `.data` from a bare payload, so a scheduled erasure never showed and could not be cancelled from the UI | Fixed: reads the payload; the copy now also states the payment provider's record is not reached |
+| H2 | HIGH | `backup.sh --no-privileges` dropped the RLS grants; the restored database passed every rehearsal check and could serve nothing to the tenant path | Fixed: privileges kept; `restore.sh` grants role membership and proves the tenant and sensitive paths; re-rehearsed, tenancy suite green on the restored copy; gate row reworded |
+| H3 | HIGH | Erasure missed `ApplicationQuestion`, `SupportMessage`, `Referral` (referee), `WebhookEndpoint`, `OutboundEvent`, `ApiIdempotencyRecord`, the person's own `AuditLog` actor identity, and an orphan submitted version's object | Fixed: deleted or scrubbed, each seeded and asserted in `privacy.test.ts`; the orphan's object is kept and counted; the matrix lists the new rows; the audit hash-chain claim corrected (columns unwired) |
+| M1 | MED | A subscription taken out inside the grace period was erased around | Fixed: blockers re-checked at execution (deferred + audited); checkout and a trial refuse while scheduled; tested |
+| M2 | MED | Nine server-side sites still logged the raw error; the "every unhandled error" claim was false | Fixed: all through `redactError`; a static scan of every `console.error`/`warn` under `src` refuses a raw argument or `.message` |
+| M3 | MED | `/api/health` was an unauthenticated query amplifier with a bypassable per-address limiter, and printed counts and backend names | Fixed: memoised 10 s per instance, a per-instance budget across addresses, fixed words only; tested (memo, 61st request 429) |
+| M4 | MED | The DR runbook described a re-execution after restore that did not exist | Fixed: `unfinishedErasures()` + sweep re-execution with `force`; tested by simulating the restore |
+| M5 | MED | S3 `deletePrefix` read one listing page | Fixed: continuation-token loop, XML entities decoded; two-page fixture test |
+| M6 | MED | `whsec_` not redacted; the "long hex/base64" claim had no pattern | Fixed: both patterns added and tested |
+| M7 | MED | The seed re-elevated a public-password account to `admin` on every run, in any environment | Fixed: no demo account in production; role set on creation only |
+| L1 | LOW | Cancel could race execution | Fixed: conditional claim inside the transaction; cancel is conditional too |
+| L2 | LOW | Number rule redacted invoice and ticket numbers and timestamps | Fixed: phone shapes only; tested |
+| L3 | LOW | `redactError` could throw; dropped `cause` | Fixed: never throws; one level of cause; tested |
+| L4 | LOW | Unbounded sweep statements; opaque erasure failures | Partly: failures logged with the user id and redacted reason; batching NOT done (stated: first-run lock duration is a Stage 24 operational note) |
+| L5 | LOW | Matrix wording vs code (sessions, documents, question bank) | Fixed in the matrix |
+| L6 | LOW | Secret-scan host exemption porous | Fixed: only loopback or placeholder hosts/credentials exempt |
+| L7 | LOW | CSRF scope: CMS cookie uncovered; `same-site` allowed; forwarded host | Fixed: both cookies; `same-site` refused; `Host` kept deliberately (a forwarded header is client-writable) and stated |
+| L8 | LOW | Health perf row measured 429s; throughput script's cleanup and password | Fixed: 429s out of the percentiles (health re-measured at Stage 24); cleanup scoped to the run; production refused; unverifiable hash |
+| L9 | LOW | Weak assertions (unscoped audit count; children of `/api/health` asserted public; no 429 branch) | Fixed |
+| L10 | LOW | A sole owner's erasure orphaned the organisation | Fixed: blocker at request and execution; tested |
+| L11 | LOW | 43 pages was 42 + the setup project | Fixed everywhere |
+| INFO | - | `interest-cohort` removed; HSTS/COOP notes; payment-provider PII not reached; `force` has no staff path; `.includes` evades the entitlement regex | Header removed; the rest recorded in ADR-0037 |
+
+After the fixes: lint 0 / 8, typecheck 0, `npm test` 1302 / 1302 on the
+fresh database, build exit 0.

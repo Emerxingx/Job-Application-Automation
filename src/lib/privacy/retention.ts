@@ -1,7 +1,8 @@
 import { db } from '@/lib/db';
+import { redactError } from '@/lib/log';
 import { pruneReferences } from '@/lib/mailbox/service';
 import { recordSecurityEvent } from '@/lib/security-audit';
-import { dueErasures, executeErasure, retryFilePurge } from './erasure';
+import { dueErasures, executeErasure, retryFilePurge, unfinishedErasures } from './erasure';
 
 /**
  * Stage 23 (ADR-0037) - the platform retention sweep: the rows of
@@ -49,6 +50,8 @@ export interface RetentionReport {
   mailboxReferences: number;
   martRows: number;
   erasures: number;
+  /** Completed requests whose person was NOT scrubbed (a restore to before the erasure ran) re-executed - review M4. */
+  erasuresResumed: number;
   filePurgesRetried: number;
   erasureErrors: number;
 }
@@ -75,12 +78,25 @@ export async function sweepRetention(now = new Date()): Promise<RetentionReport>
 
   let erasures = 0;
   let erasureErrors = 0;
+  // A failure is logged with the user id and the redacted reason (review
+  // L4): a count of one told the operator nothing.
   for (const userId of await dueErasures(now)) {
     try {
       await executeErasure(userId, { now });
       erasures += 1;
-    } catch {
+    } catch (error) {
       erasureErrors += 1;
+      console.error(`[retention] erasure of ${userId} failed:`, redactError(error).message);
+    }
+  }
+  let erasuresResumed = 0;
+  for (const userId of await unfinishedErasures()) {
+    try {
+      await executeErasure(userId, { now, force: true });
+      erasuresResumed += 1;
+    } catch (error) {
+      erasureErrors += 1;
+      console.error(`[retention] re-execution of the erasure of ${userId} after a restore failed:`, redactError(error).message);
     }
   }
   let filePurgesRetried = 0;
@@ -88,12 +104,13 @@ export async function sweepRetention(now = new Date()): Promise<RetentionReport>
     try {
       await retryFilePurge(r.userId);
       filePurgesRetried += 1;
-    } catch {
+    } catch (error) {
       erasureErrors += 1;
+      console.error(`[retention] file purge for ${r.userId} failed:`, redactError(error).message);
     }
   }
 
-  const report: RetentionReport = { sessions, aiRuns, rollupRuns, mailboxReferences, martRows, erasures, filePurgesRetried, erasureErrors };
+  const report: RetentionReport = { sessions, aiRuns, rollupRuns, mailboxReferences, martRows, erasures, erasuresResumed, filePurgesRetried, erasureErrors };
   await recordSecurityEvent({ event: 'retention.swept', actor: { type: 'system' }, entityType: 'RetentionSweep', summary: `Retention sweep: ${sessions} sessions, ${aiRuns} AI runs, ${rollupRuns} rollup runs, ${mailboxReferences} mailbox references, ${martRows} mart rows removed; ${erasures} erasure(s) executed.`, detail: { ...report } });
   return report;
 }

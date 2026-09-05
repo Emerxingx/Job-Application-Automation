@@ -311,6 +311,8 @@ export async function startTrial(userId: string, planCode: string, days: number,
   // expired or revoked - means it has been had. The rows are the trail (ADR-0030).
   const trialled = await db.entitlement.findFirst({ where: { userId, source: 'trial', sourceRef: { endsWith: `:${plan.code}` } }, select: { id: true } });
   if (trialled) throw new Error('This account has already had a trial of that plan.');
+  // Stage 23 review (M1): no trial starts on an account whose erasure is scheduled.
+  if ((await db.deletionRequest.findUnique({ where: { userId }, select: { status: true } }))?.status === 'scheduled') throw new Error('An account erasure is scheduled for this account; it must be cancelled before a trial starts.');
   const now = new Date();
   const trialEndsAt = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
   const periodEnd = new Date(now);

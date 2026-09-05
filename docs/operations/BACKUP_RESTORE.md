@@ -79,6 +79,48 @@ same row counts, every table under forced RLS with its policies, and no
 drift from `prisma/schema.prisma`. Time to restore: seconds at this size;
 NOT measured at production size.
 
+## What the first rehearsal missed, and the second rehearsal (review H2)
+
+The independent review of Stage 23 found that the dump above was taken
+with `--no-privileges`: every `GRANT` and `ALTER DEFAULT PRIVILEGES` the
+RLS migration issued to `app_tenant` and `app_sensitive` was dropped, role
+membership is never in a dump, and the restored history was marked applied
+so `migrate deploy` would never re-issue them. The checks above (policy
+count, drift, row counts, `/api/health`) all passed on a database the
+TENANT PATH could not read: `SET LOCAL ROLE app_tenant` followed by any
+query would have failed with "permission denied". A false PASS, caught by
+review, not by the rehearsal.
+
+Fixed: `backup.sh` keeps privileges (`--no-owner` only); `restore.sh`
+grants `app_tenant` and `app_sensitive` to the restoring login and then
+PROVES both paths inside a transaction (`set_config` + `SET LOCAL ROLE
+app_tenant` + a read of a forced table; the same for the sensitive
+schema), exiting non-zero if either fails. Re-run 2026-09-05 (source
+`jobpilot_test21`, target `jobpilot_restore` recreated empty):
+
+```
+== backup 2026-09-05T19:39:45Z
+backup written: jobpilot-20260905T193945Z.dump (726066 bytes), checksum 8523fe3aeed261d1…
+== restore
+checksum verified
+restore completed
+role membership granted to the restoring login
+tenant path: tenant-path-ok:0
+sensitive path: sensitive-path-ok:0
+migrations applied: 56, pending or failed: 0
+tables with forced row-level security: 157
+User             1 rows
+Organization     214 rows
+AuditLog         219 rows
+ConsentRecord    2 rows
+== the application's own tenant path on the restored copy
+tests/tenancy-isolation.test.ts + organizations + sessions, TENANCY_TEST_DATABASE_URL=<restored>: 31 / 31 pass
+```
+
+The last line is the proof the first rehearsal lacked: the real Prisma
+client, through the migrated schema, with filters removed, isolating
+tenants on the restored database.
+
 ## Schedule and retention (proposed, to be confirmed at Stage 24)
 
 | What | Frequency | Retention | Where |

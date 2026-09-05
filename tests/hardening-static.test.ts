@@ -54,7 +54,7 @@ describe('Stage 23 - the edge gate: CSRF and the health check', () => {
   it('the browser\'s own fetch metadata decides when present', () => {
     assert.equal(isCrossSiteWrite('POST', headers({ 'sec-fetch-site': 'cross-site' }), 'app.example', '/api/profile'), true);
     assert.equal(isCrossSiteWrite('POST', headers({ 'sec-fetch-site': 'same-origin' }), 'app.example', '/api/profile'), false);
-    assert.equal(isCrossSiteWrite('POST', headers({ 'sec-fetch-site': 'same-site' }), 'app.example', '/api/profile'), false);
+    assert.equal(isCrossSiteWrite('POST', headers({ 'sec-fetch-site': 'same-site' }), 'app.example', '/api/profile'), true, 'a sibling subdomain is another origin (review L7)');
     assert.equal(isCrossSiteWrite('POST', headers({ 'sec-fetch-site': 'none' }), 'app.example', '/api/profile'), false, 'a navigation the user typed');
     assert.equal(isCrossSiteWrite('DELETE', headers({ 'sec-fetch-site': 'cross-site', origin: 'https://app.example' }), 'app.example', '/api/profile'), true, 'fetch metadata outranks a matching Origin');
   });
@@ -70,7 +70,7 @@ describe('Stage 23 - the edge gate: CSRF and the health check', () => {
 
   it('the proxy applies the check only when the session cookie is present, before the public-path decision', () => {
     const proxy = read('src', 'proxy.ts');
-    const check = proxy.indexOf("request.cookies.get('jobpilot_session') && isCrossSiteWrite(");
+    const check = proxy.indexOf("(request.cookies.get('jobpilot_session') || request.cookies.get('payload-token')) && isCrossSiteWrite(");
     const publicDecision = proxy.indexOf('if (isPublicPath(pathname)) return NextResponse.next();');
     assert.ok(check > 0 && publicDecision > check, 'a cross-site write to a public route (login, signup) is refused too');
     assert.match(proxy, /status: 403/);
@@ -79,10 +79,12 @@ describe('Stage 23 - the edge gate: CSRF and the health check', () => {
   it('the health check is public and nothing else new is', () => {
     assert.equal(isPublicPath('/api/health'), true);
     assert.equal(isPublicPath('/api/healthz'), false);
-    assert.equal(isPublicPath('/api/health/anything'), true, 'a prefix, like the others; the route has no children');
     const route = read('src', 'app', '(app)', 'api', 'health', 'route.ts');
     assert.match(route, /rateLimit\('health', clientAddress\(request\)/);
+    assert.match(route, /rateLimit\('health:all', 'all', GLOBAL_LIMIT\)/, 'a per-instance budget across every address (review M3)');
+    assert.match(route, /MEMO_MS/, 'the answer is memoised');
     assert.ok(!/DATABASE_URL|hostname|process\.env|describeDatabaseUrl/.test(route), 'the health body names no host or environment');
+    assert.ok(!/detail: `\$\{/.test(route), 'no detail carries a number or a name; fixed words only');
     assert.match(route, /'Cache-Control': 'no-store'/);
   });
 });
@@ -99,8 +101,25 @@ describe('Stage 23 - log redaction', () => {
     assert.equal(redact('jp_live_8f3a0123456789abcdef used'), '[redacted-key] used');
     assert.equal(redact('Unique constraint failed on email: jane.doe@example.com'), 'Unique constraint failed on email: [redacted-email]');
     assert.equal(redact('call +1 (604) 555-0199 now'), 'call [redacted-number] now');
+    assert.equal(redact('call (604) 555-0199 or 604-555-0199'), 'call [redacted-number] or [redacted-number]');
     assert.equal(redact('row 42 of Application not found'), 'row 42 of Application not found', 'short numbers and ids survive');
     assert.equal(redact('P2002 on cuid cm1abcd23ef4567890'), 'P2002 on cuid cm1abcd23ef4567890');
+    // Review L2: operational identifiers the person on call needs survive.
+    assert.equal(redact('invoice INV-2026-000123 and ticket TKT-2026-000123 at 2026-09-05 12:00:00'), 'invoice INV-2026-000123 and ticket TKT-2026-000123 at 2026-09-05 12:00:00');
+    // Review M6: a webhook signing secret has no live/test infix; a long hex or base64 blob is a key or a digest.
+    assert.equal(redact('whsec_a1b2c3d4e5f6g7h8 rejected'), '[redacted-key] rejected');
+    assert.equal(redact('secret 3f9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b9c8d7e6f5a4b3c2d1e0f9a leaked'), 'secret [redacted-hex] leaked');
+    assert.equal(redact('key Zm9vYmFyYmF6cXV4MTIzNDU2Nzg5MGFiY2RlZmdoaWprbG1ub3A= leaked'), 'key [redacted-blob] leaked');
+    assert.equal(redact('at /home/user/Job-Application-Automation/src/lib/privacy/erasure.ts:12'), 'at /home/user/Job-Application-Automation/src/lib/privacy/erasure.ts:12', 'a path survives');
+  });
+
+  it('the redactor never throws and carries a redacted cause (review L3)', () => {
+    const hostile = Object.create(null) as object;
+    assert.deepEqual(redactError(hostile), { name: 'Error', message: '[unprintable]' });
+    const throwing = { [Symbol.toPrimitive]: () => { throw new Error('nope'); } };
+    assert.deepEqual(redactError(throwing), { name: 'Error', message: '[unprintable]' });
+    const withCause = new Error('outer', { cause: new Error('inner jane@example.com') });
+    assert.deepEqual(redactError(withCause).cause, { name: 'Error', message: 'inner [redacted-email]' });
   });
 
   it('never logs the error object; name, redacted message and redacted stack only', () => {
@@ -112,6 +131,25 @@ describe('Stage 23 - log redaction', () => {
     assert.deepEqual(redactError('plain jane@example.com'), { name: 'Error', message: 'plain [redacted-email]' });
     assert.match(read('src', 'lib', 'api.ts'), /console\.error\('\[api\] unhandled error:', redactError\(error\)\)/);
     assert.ok(!/console\.error\('\[api\] unhandled error:', error\)/.test(read('src', 'lib', 'api.ts')));
+  });
+
+  it('no server-side log line carries a raw error object or an unredacted message (review M2)', () => {
+    // Every `console.error` / `console.warn` under src whose argument is the
+    // caught error itself, or its `.message`, must go through the redactor.
+    // Client components (`'use client'`) log to the browser's console and
+    // are outside a server log store; they are the only exemption.
+    const files = execFileSync('git', ['ls-files', 'src'], { cwd: root, encoding: 'utf8' }).split('\n').filter((f) => /\.tsx?$/.test(f));
+    const offenders: string[] = [];
+    for (const f of files) {
+      const text = read(f);
+      if (text.startsWith("'use client'") || f === 'src/lib/log.ts') continue;
+      text.split('\n').forEach((line, i) => {
+        if (!/console\.(error|warn)\(/.test(line)) return;
+        if (/[,(]\s*(error|err|e)\s*\)/.test(line) && !/redactError\((error|err|e)\)/.test(line)) offenders.push(`${f}:${i + 1}`);
+        if (/\b(error|err|e)\.message\b/.test(line) && !/redact/.test(line)) offenders.push(`${f}:${i + 1}`);
+      });
+    }
+    assert.deepEqual(offenders, []);
   });
 });
 
@@ -131,7 +169,8 @@ describe('Stage 23 - secret hygiene', () => {
       ['anthropic key', /\bsk-ant-[A-Za-z0-9\-_]{20,}\b/],
       ['github token', /\b(ghp|gho|ghu|ghs)_[A-Za-z0-9]{30,}\b/],
       ['slack token', /\bxox[abpr]-[A-Za-z0-9-]{20,}\b/],
-      ['connection string with a non-local password', /\b(postgres|postgresql|mysql|redis|mongodb)(\+srv)?:\/\/[^\s/:@'"`]+:[^\s/@'"`]+@(?!(localhost|127\.0\.0\.1|postgres\b|db\b|host\b|HOST\b|\$|\{|<|\[|\.\.\.)|USER:PASSWORD@|user:pass(word)?@)/],
+      // Review L6: only a loopback host, a placeholder host (`<host>`, `$HOST`, `{host}`, `...`) or a placeholder credential is exempt; a real-looking host with a real-looking password is an offender.
+      ['connection string with a non-local password', /\b(postgres|postgresql|mysql|redis|mongodb)(\+srv)?:\/\/(?![^\s/:@'"`]+:(postgres|password|pass|secret|changeme|PASSWORD|\.\.\.|\$[A-Z_{]|<|\{)[^\s/@'"`]*@)[^\s/:@'"`]+:[^\s/@'"`]+@(?!(localhost|127\.0\.0\.1|\$|\{|<|\[|\.\.\.))/],
     ];
     // tests/db-url.test.ts holds deliberately fake credentials to prove describeDatabaseUrl redacts them.
     const skip = (f: string) => /^(package-lock\.json|mobile\/package-lock\.json|tests\/db-url\.test\.ts)$/.test(f) || /\.(png|jpg|jpeg|gif|webp|ico|woff2?|pdf|docx)$/.test(f) || f === 'tests/hardening-static.test.ts' || f === 'src/lib/log.ts';
@@ -165,9 +204,16 @@ describe('Stage 23 - erasure and retention exist, are audited, and keep the stat
     const src = read('src', 'lib', 'privacy', 'erasure.ts');
     assert.match(src, /anonymizedAt/);
     assert.ok(!/\buser\.delete\(/.test(src) && !/\buser\.deleteMany\(/.test(src), 'the user row is scrubbed, not deleted (invoices and placements restrict it)');
-    for (const t of ['invoice', 'payment', 'refund', 'creditNote', 'placement', 'placementInvoice', 'auditLog', 'consentRecord']) {
+    for (const t of ['invoice', 'payment', 'refund', 'creditNote', 'placement', 'placementInvoice', 'consentRecord']) {
       assert.ok(!new RegExp(`\\b(tx|db)\\.${t}\\.(delete|deleteMany|update|updateMany)\\(`).test(src), `${t} is statutory or evidentiary and is never erased`);
     }
+    // Audit rows are never deleted; the ONE permitted write replaces the actor's address, IP and user agent on the person's own rows (review H3).
+    assert.ok(!/\b(tx|db)\.auditLog\.(delete|deleteMany)\(/.test(src), 'no audit row is ever deleted');
+    const auditWrites = src.match(/\b(tx|db)\.auditLog\.(update|updateMany)\([^)]*\)/g) ?? [];
+    assert.deepEqual(auditWrites, ["tx.auditLog.updateMany({ where: { actorId: userId }, data: { actorEmail: scrubbedEmail, ip: null, userAgent: null } })"]);
+    for (const t of ['applicationQuestion', 'webhookEndpoint', 'outboundEvent', 'apiIdempotencyRecord']) assert.match(src, new RegExp(`tx\\.${t}\\.deleteMany\\(\\{ where: \\{ userId \\} \\}\\)`), `${t} is the person's own data`);
+    assert.match(src, /tx\.supportMessage\.updateMany/);
+    assert.match(src, /tx\.referral\.updateMany\(\{ where: \{ refereeUserId: userId \}/);
     assert.match(src, /privacy\.erased/);
     assert.match(src, /eraseSelfIdentification\(/);
     assert.match(src, /revokeAllSessions\(/);

@@ -26,9 +26,12 @@ const S = randomBytes(3).toString('hex');
 const DAY = 86_400_000;
 
 async function main() {
+  // Stage 23 review (L8): a measurement seeds and deletes rows; never on production.
+  if (process.env.NODE_ENV === 'production') throw new Error('perf:rollup seeds and deletes rows and never runs against a production database.');
+  const startedAt = new Date();
   const end = new Date(Date.UTC(2025, 0, 1));
   const start = new Date(end.getTime() - 90 * DAY);
-  const owner = await db.user.create({ data: { id: `perf_u_${S}`, email: `perf-${S}@perf.invalid`, passwordHash: 'x', fullName: 'Perf', country: 'CA' } });
+  const owner = await db.user.create({ data: { id: `perf_u_${S}`, email: `perf-${S}@perf.invalid`, passwordHash: '!perf:no-password-verifies', fullName: 'Perf', country: 'CA' } });
   const org = await db.organization.create({ data: { id: `perf_org_${S}`, name: 'Perf Employer', slug: `perf-${S}`, type: 'employer', billingEmail: owner.email, memberships: { create: [{ userId: owner.id, role: 'owner', acceptedAt: start }] } } });
   const req = await db.requisition.create({ data: { organizationId: org.id, title: 'Perf', location: 'Vancouver, BC', createdById: owner.id, status: 'open' } });
   console.log(`[perf] seeding ${N} submissions with 3 events each into one organisation (90 days)`);
@@ -71,7 +74,8 @@ async function main() {
 
   await db.organization.delete({ where: { id: org.id } });
   await db.user.delete({ where: { id: owner.id } });
-  await db.rollupRun.deleteMany({ where: { job: { startsWith: 'organization_reporting' }, windowStart: start, windowEnd: end } });
+  // Only the runs this measurement created (by start time), never an operator's history for the same window.
+  await db.rollupRun.deleteMany({ where: { job: { startsWith: 'organization_reporting' }, windowStart: start, windowEnd: end, startedAt: { gte: startedAt } } });
   await db.$disconnect();
 }
 

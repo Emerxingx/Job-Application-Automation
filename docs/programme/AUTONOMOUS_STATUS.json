@@ -34,7 +34,7 @@
     "20": "PASS (engineering) — exit gate PARTIAL; SSO/SCIM IMPLEMENTED-NOT-VALIDATED; independent review processed",
     "21": "PASS (engineering) — exit gate PARTIAL (no event stream, scheduler or warehouse; throughput NOT VERIFIED); independent review processed",
     "22": "BLOCKED_BY_DESIGN — gate recorded (STAGE22_GATE.md), nothing built",
-    "23": "PASS (engineering) — exit gate PARTIAL (penetration test EXTERNAL; provider PITR, production performance, monitoring/on-call, nonce CSP, shared rate-limit store open); independent review pending",
+    "23": "PASS (engineering) — exit gate PARTIAL (penetration test EXTERNAL; provider PITR, production performance, monitoring/on-call, nonce CSP, shared rate-limit store open); independent review processed (3 HIGH / 7 MEDIUM / 11 LOW; all HIGH and MEDIUM fixed)",
     "24": "NOT_STARTED"
   },
   "stage_01_progress": {
@@ -823,23 +823,23 @@
     "verdict": "Stage 22 BLOCKED BY DESIGN, as the plan states. Nothing was built. The programme continues to Stage 23."
   },
   "stage_23_progress": {
-    "security": "DONE — security-headers.mjs on every route (no script-src, stated); isCrossSiteWrite in src/proxy.ts before the public-path decision; /api/health (public, rate-limited, booleans only); src/lib/log.ts redactError at the one error log; secret-hygiene static test; CI sbom job (CycloneDX, 486 components locally)",
-    "privacy": "DONE — src/lib/privacy/erasure.ts (DeletionRequest lifecycle, 14-day grace, scrub in place, cascade deletes, sensitive + mailbox through their modules, files removed, audited), /api/account/erasure + Settings control; src/lib/privacy/retention.ts + npm run retention:sweep; DATA_RETENTION_MATRIX enforcement column",
-    "accessibility": "DONE — a11y/ (Playwright + axe-core, WCAG 2.0/2.1/2.2 A+AA, 43 pages, one stored session), CI accessibility job; five runs, real defects fixed (four colour tokens, combobox role/controls, main landmarks, labels, 24px targets, underlined inline links, access-denied landmark); 43/43 green; dark theme NOT measured",
+    "security": "DONE — security-headers.mjs on every route (no script-src, stated); isCrossSiteWrite in src/proxy.ts before the public-path decision (both cookies; same-site refused); /api/health (public, rate-limited per address and per instance, memoised, fixed words only); src/lib/log.ts redactError at EVERY server-side error log (static scan); secret-hygiene static test; CI sbom job (CycloneDX, 486 components locally)",
+    "privacy": "DONE — src/lib/privacy/erasure.ts (DeletionRequest lifecycle, 14-day grace, blockers re-checked at execution, scrub in place across every table the review named, cascade deletes, sensitive + mailbox through their modules, files removed, audited), /api/account/erasure + Settings control (fixed after review H1); src/lib/privacy/retention.ts + npm run retention:sweep (re-executes after a restore); DATA_RETENTION_MATRIX enforcement column; the AuditLog hash chain is UNWIRED and no longer claimed",
+    "accessibility": "DONE — a11y/ (Playwright + axe-core, WCAG 2.0/2.1/2.2 A+AA, 42 pages, one stored session), CI accessibility job (green on its first CI run); five runs, real defects fixed (four colour tokens, combobox role/controls, main landmarks, labels, 24px targets, underlined inline links, access-denied landmark); 42/42 green; dark theme NOT measured",
     "performance": "DONE (local) — docs/operations/PERFORMANCE_BUDGETS.md; scripts/perf/load.ts and rollup-throughput.ts; all 11 routes within p95 budget, 0 errors; rollup 58 446 rows in 1.17 s, export 806 rows in 0.12 s; production NOT measured; bundle weight NOT measured",
-    "operations": "DONE (local) — scripts/db/backup.sh + restore.sh rehearsed (56 migrations, 157 forced tables, counts, no drift); docs/operations/BACKUP_RESTORE.md, DISASTER_RECOVERY.md (proposed RPO/RTO), INCIDENT_RESPONSE.md; provider PITR NOT VERIFIED",
+    "operations": "DONE (local) — scripts/db/backup.sh + restore.sh rehearsed twice (the review found the first dump dropped the RLS grants; privileges now kept, role membership granted, tenant and sensitive paths proven in the script, tenancy suite 31/31 on the restored copy); docs/operations/BACKUP_RESTORE.md, DISASTER_RECOVERY.md (proposed RPO/RTO), INCIDENT_RESPONSE.md; provider PITR NOT VERIFIED",
     "audit": "DONE — PRODUCTION_READINESS_GATES.md re-measured row by row (G1–G7) against Stages 00–23; SECURITY_PRIVACY_ARCHITECTURE \"not yet assessed\" resolved item by item",
-    "tests": "DONE — tests/hardening-static.test.ts (14), tests/privacy.test.ts (5); sensitive-segregation allow-lists the erasure module by name; 1296/1296 on a fresh database",
+    "tests": "DONE — tests/hardening-static.test.ts (17), tests/privacy.test.ts (8), storage-provider paging (1); sensitive-segregation allow-lists the erasure module by name; 1302/1302 on a fresh database",
     "not_done": "STATED — penetration test (external action PEN-TEST), nonce CSP, shared rate-limit store, provider PITR and production-size restore, monitoring/on-call/SLOs/status page, production performance and Core Web Vitals, dark-theme and interaction accessibility, retention automation for employer pipelines and staffing records, staging rehearsal (R-34)"
   },
   "stage_23_exit_gate": {
     "met": [
       "Every readiness-gate row has a measurement, a rehearsal or a named reason it cannot be measured from here",
-      "WCAG 2.2 AA (axe) green over 43 rendered pages in CI",
+      "WCAG 2.2 AA (axe) green over 42 rendered pages in CI",
       "Performance budgets defined and met locally with a repeatable measurement",
       "Backup and restore rehearsed with a verified log; DR and incident procedures written",
       "Erasure and retention enforced end to end with database proof",
-      "Full gate set green: lint 0/8, typecheck 0, tests 1296/1296 (0 skipped), build 0, a11y 43/43, perf 11/11"
+      "Full gate set green: lint 0/8, typecheck 0, tests 1302/1302 (0 skipped), build 0, a11y 42/42, perf 11/11 (the health row re-measured at Stage 24)"
     ],
     "not_met": [
       "Third-party penetration test (EXTERNAL ACTION)",
