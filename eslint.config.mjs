@@ -43,6 +43,8 @@ const config = [
     // instead — linting them would fail on code we do not author.
     ignores: [
       'node_modules/**',
+      // Stage 14: the Expo app is its own package with its own toolchain (mobile/package.json).
+      'mobile/**',
       '.next/**',
       'out/**',
       'build/**',

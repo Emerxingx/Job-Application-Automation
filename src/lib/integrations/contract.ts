@@ -23,7 +23,10 @@ export const CONTRACT_LOCK_PATH = path.join(process.cwd(), 'docs', 'api', 'opena
 export interface OpenApiOperation {
   operationId: string;
   summary?: string;
+  /** An API scope, or `public` for the one operation that has no key yet (sign-in), which must also declare `security: []`. */
   'x-scope': string;
+  security?: unknown[];
+  requestBody?: { required?: boolean; content?: Record<string, { schema: { $ref: string } }> };
   parameters?: { name: string; in: string; required?: boolean; schema: unknown }[];
   responses: Record<string, { description: string; content?: Record<string, { schema: { $ref: string } }> }>;
 }
@@ -36,6 +39,9 @@ export interface OpenApiDocument {
   components: { schemas: Record<string, unknown>; securitySchemes?: Record<string, unknown> };
   security?: unknown[];
 }
+
+/** The scope vocabulary of api-keys.ts, repeated here so this module stays free of Prisma imports. */
+const KNOWN_SCOPES = new Set(['admin', 'write', 'read', 'apply:write', 'scan:read', 'match:score']);
 
 let cached: OpenApiDocument | null = null;
 
@@ -78,6 +84,16 @@ export function contractProblems(doc: OpenApiDocument = loadContract()): string[
       else if (seenIds.has(op.operationId)) problems.push(`${where}: duplicate operationId ${op.operationId}`);
       else seenIds.add(op.operationId);
       if (!op['x-scope']) problems.push(`${where}: x-scope missing`);
+      else if (op['x-scope'] === 'public') {
+        if (!Array.isArray(op.security) || op.security.length !== 0) problems.push(`${where}: a public operation must declare security: []`);
+      } else if (!KNOWN_SCOPES.has(op['x-scope'])) problems.push(`${where}: unknown x-scope ${op['x-scope']}`);
+      else if (Array.isArray(op.security) && op.security.length === 0) problems.push(`${where}: security: [] on a scoped operation`);
+      const bodyRef = op.requestBody?.content?.['application/json']?.schema?.$ref;
+      if (op.requestBody && !bodyRef) problems.push(`${where}: requestBody without an application/json schema $ref`);
+      if (bodyRef && !refOk(bodyRef)) problems.push(`${where}: unknown request schema ${bodyRef}`);
+      const codes = Object.keys(op.responses);
+      if (op['x-scope'] !== 'public' && !codes.includes('401')) problems.push(`${where}: every keyed operation can answer 401; document it`);
+      if (!codes.includes('429')) problems.push(`${where}: every operation is rate limited and can answer 429; document it`);
       const ok = Object.entries(op.responses).filter(([code]) => code.startsWith('2'));
       if (ok.length === 0) problems.push(`${where}: no 2xx response`);
       for (const [code, res] of Object.entries(op.responses)) {
@@ -92,11 +108,17 @@ export function contractProblems(doc: OpenApiDocument = loadContract()): string[
       }
     }
   }
-  // Every $ref anywhere in the schemas resolves.
+  // Every $ref anywhere in the schemas resolves, and every object schema is
+  // CLOSED (additionalProperties: false): the validation the contract test
+  // runs must fail when a serialiser starts leaking a column, which an open
+  // schema would wave through (Stage 14 review).
   const walk = (v: unknown, at: string) => {
     if (Array.isArray(v)) v.forEach((x, i) => walk(x, `${at}[${i}]`));
     else if (v && typeof v === 'object') {
-      for (const [k, x] of Object.entries(v as Record<string, unknown>)) {
+      const o = v as Record<string, unknown>;
+      if (o.type === 'object' && o.properties && o.additionalProperties !== false) problems.push(`${at}: object schema is not closed (additionalProperties: false)`);
+      if (o.allOf) problems.push(`${at}: allOf composition cannot be closed - flatten it`);
+      for (const [k, x] of Object.entries(o)) {
         if (k === '$ref' && typeof x === 'string' && !refOk(x)) problems.push(`${at}: unresolved $ref ${x}`);
         walk(x, `${at}.${k}`);
       }
@@ -116,8 +138,9 @@ const validators = new Map<string, ValidateFunction>();
 function ajv(): Ajv2020 {
   const doc = loadContract();
   // OpenAPI 3.1 schemas are JSON Schema 2020-12. Formats (date-time) are
-  // documented for clients; they are not validated here (no ajv-formats), and
-  // the contract test checks the date fields parse instead.
+  // documented for clients; they are not validated here (no ajv-formats). The
+  // contract test's `conforms` walks every response and asserts each *At /
+  // *At-suffixed string parses as a date instead.
   const instance = new Ajv2020({ strict: false, allErrors: true, validateFormats: false });
   instance.addSchema({ $id: 'contract', components: { schemas: doc.components.schemas } });
   return instance;

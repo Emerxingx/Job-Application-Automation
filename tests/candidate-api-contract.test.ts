@@ -20,6 +20,7 @@ import { readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { CONTRACT_PATH, contractHash, contractProblems, contractRouteFiles, loadContract, readLock, responseSchemaOf, validateAgainst } from '../src/lib/integrations/contract';
+import { verifyDocumentLink } from '../src/lib/documents/sign';
 
 function routeFilesUnder(dir: string, base = dir): string[] {
   const out: string[] = [];
@@ -35,7 +36,8 @@ describe('candidate API contract - the document', () => {
   it('is structurally sound: 3.1, semver, every operation scoped with a 2xx schema and Error envelopes on every error', () => {
     assert.deepEqual(contractProblems(), []);
     const doc = loadContract();
-    assert.equal(doc.info.version, '1.0.0');
+    assert.equal(doc.info.version, '1.1.0');
+    assert.equal(Object.values(doc.paths).reduce((n, m) => n + Object.keys(m).length, 0), 25, 'thirteen 1.0.0 operations plus twelve additive 1.1.0 operations');
     assert.ok(doc.info['x-frozen-on']);
   });
 
@@ -49,6 +51,25 @@ describe('candidate API contract - the document', () => {
   it('covers exactly the route files under /api/v1, both ways', () => {
     const v1 = path.join(__dirname, '..', 'src', 'app', '(app)', 'api', 'v1');
     assert.deepEqual(contractRouteFiles(), routeFilesUnder(v1));
+  });
+
+  it('exactly one operation is public - the device sign-in - and it says so twice (x-scope public, security [])', () => {
+    const doc = loadContract();
+    const publics = Object.entries(doc.paths).flatMap(([route, methods]) => Object.entries(methods).filter(([, op]) => op['x-scope'] === 'public').map(([m]) => `${m.toUpperCase()} ${route}`));
+    assert.deepEqual(publics, ['POST /v1/auth/sessions']);
+    assert.deepEqual(doc.paths['/v1/auth/sessions'].post.security, []);
+    // No 1.1 operation hands out admin, and nothing in the contract does.
+    const scopes = new Set(Object.values(doc.paths).flatMap((m) => Object.values(m).map((op) => op['x-scope'])));
+    assert.ok(!scopes.has('admin'));
+  });
+
+  it('every object schema is closed: a leaked column fails validation', () => {
+    const doc = loadContract();
+    const me = { object: 'me', id: 'u', fullName: 'A', email: 'a@x', country: 'CA', city: null, headline: null, applicationMode: 'prepare', createdAt: '2026-09-05T00:00:00Z' };
+    assert.equal(validateAgainst('Me', me).ok, true);
+    assert.equal(validateAgainst('Me', { ...me, passwordHash: 'leaked' }).ok, false, 'an extra property is refused');
+    assert.equal(validateAgainst('ApplicationDetail', { object: 'application', id: 'x', internal: 1 }).ok, false);
+    assert.ok(!JSON.stringify(doc.components.schemas).includes('"allOf"'), 'compositions are flattened so they can be closed');
   });
 
   it('the Error envelope schema is what http.ts emits', () => {
@@ -69,17 +90,24 @@ type Keys = typeof import('../src/lib/integrations/api-keys');
 type Handler = (request: Request, args?: { params: Promise<Record<string, string>> }) => Promise<Response>;
 
 const S = randomBytes(4).toString('hex');
+const PASSWORD = `correct-horse-${S}`;
+const DEVICE = { name: 'Test phone', platform: 'ios' as const };
 const A = { id: `api_a_${S}`, email: `api-a-${S}@api.test` };
 const B = { id: `api_b_${S}`, email: `api-b-${S}@api.test` };
 let db: Db;
 let keys: Keys;
 let readKey: string;
 let writeKey: string;
+/** `write` = read + apply:write: what a device key holds (v1.1). */
+let fullKey: string;
 let otherKey: string;
 const ids: Record<string, string> = {};
 
-async function call(handler: Handler, key: string, url: string, params: Record<string, string> = {}, method = 'GET'): Promise<{ status: number; body: unknown }> {
-  const response = await handler(new Request(`https://api.test${url}`, { method, headers: { authorization: `Bearer ${key}` } }), { params: Promise.resolve(params) });
+async function call(handler: Handler, key: string | null, url: string, params: Record<string, string> = {}, method = 'GET', json?: unknown): Promise<{ status: number; body: unknown }> {
+  const headers: Record<string, string> = {};
+  if (key !== null) headers.authorization = `Bearer ${key}`;
+  if (json !== undefined) headers['content-type'] = 'application/json';
+  const response = await handler(new Request(`https://api.test${url}`, { method, headers, body: json === undefined ? undefined : JSON.stringify(json) }), { params: Promise.resolve(params) });
   return { status: response.status, body: await response.json() };
 }
 
@@ -90,6 +118,18 @@ function conforms(method: string, route: string, result: { status: number; body:
   assert.ok(schema, `${method} ${route} ${expected} declares no schema`);
   const v = validateAgainst(schema, result.body);
   assert.ok(v.ok, `${method} ${route} ${expected} does not match ${schema}: ${v.errors.join('; ')}`);
+  datesParse(result.body, `${method} ${route}`);
+}
+
+/** Formats are not validated by ajv (no ajv-formats); every *At string must at least parse. */
+function datesParse(value: unknown, at: string): void {
+  if (Array.isArray(value)) value.forEach((x, i) => datesParse(x, `${at}[${i}]`));
+  else if (value && typeof value === 'object') {
+    for (const [k, x] of Object.entries(value as Record<string, unknown>)) {
+      if (/At$/.test(k) && typeof x === 'string') assert.ok(!Number.isNaN(Date.parse(x)), `${at}.${k} is not a date: ${x}`);
+      datesParse(x, `${at}.${k}`);
+    }
+  }
 }
 
 describe('candidate API contract - against the backend', { skip: SKIP }, () => {
@@ -98,7 +138,10 @@ describe('candidate API contract - against the backend', { skip: SKIP }, () => {
     process.env.JOB_PROVIDER = 'mock';
     ({ db } = await import('../src/lib/db'));
     keys = await import('../src/lib/integrations/api-keys');
-    for (const u of [A, B]) await db.user.create({ data: { id: u.id, email: u.email, passwordHash: 'x', fullName: 'Api Tester', country: 'CA', city: 'Toronto', headline: 'Analyst' } });
+    const { hashPassword } = await import('../src/lib/auth');
+    const passwordHash = await hashPassword(PASSWORD);
+    for (const u of [A, B]) await db.user.create({ data: { id: u.id, email: u.email, passwordHash, fullName: 'Api Tester', country: 'CA', city: 'Toronto', headline: 'Analyst' } });
+    await db.careerEvidence.create({ data: { userId: A.id, kind: 'employment', sourceType: 'manual', claim: 'Senior Data Analyst at Maple Analytics, 2022-03 to present', facts: '{"company":"Maple Analytics"}', status: 'approved', approvedAt: new Date('2026-09-01T00:00:00Z') } });
     const mint = async (userId: string, scopes: string[]) => {
       const g = keys.generateApiKey('test');
       await db.apiKey.create({ data: { userId, name: 'contract', prefix: g.prefix, keyHash: g.keyHash, scopes: JSON.stringify(scopes), environment: 'test', rateLimitPerMinute: 600 } });
@@ -106,7 +149,8 @@ describe('candidate API contract - against the backend', { skip: SKIP }, () => {
     };
     readKey = await mint(A.id, ['read']);
     writeKey = await mint(A.id, ['read', 'apply:write']);
-    otherKey = await mint(B.id, ['read', 'apply:write']);
+    fullKey = await mint(A.id, ['write']);
+    otherKey = await mint(B.id, ['write']);
 
     const agent = await db.agent.create({ data: { userId: A.id, name: 'Analyst agent', keywords: '["sql"]', locations: '["Toronto"]' } });
     const job = await db.job.create({ data: { source: 'mock', externalId: `api-${S}-1`, title: 'Senior Data Analyst', normalizedTitle: 'senior data analyst', company: 'Maple Analytics', location: 'Toronto, ON', country: 'CA', description: 'Analyse things.', applyUrl: 'https://careers.example.test/apply/1', postedAt: new Date('2026-08-20T00:00:00Z'), skills: '["sql"]', requirements: '["3 years"]' } });
@@ -131,7 +175,7 @@ describe('candidate API contract - against the backend', { skip: SKIP }, () => {
     await db.$disconnect();
   });
 
-  const load = async (file: string) => (await import(`../src/app/(app)/api/v1/${file}/route`)) as { GET?: Handler; POST?: Handler };
+  const load = async (file: string) => (await import(`../src/app/(app)/api/v1/${file}/route`)) as { GET?: Handler; POST?: Handler; PUT?: Handler; PATCH?: Handler; DELETE?: Handler };
 
   it('every GET in the contract answers with a body that matches its declared schema', async () => {
     const cases: [string, string, Record<string, string>, string][] = [
@@ -195,5 +239,147 @@ describe('candidate API contract - against the backend', { skip: SKIP }, () => {
     assert.equal(body.documents[0].status, 'submitted', 'sealed on confirmation');
     const again = await call((await load('applications/[applicationId]/confirm')).POST!, writeKey, `/v1/applications/${ids.application}/confirm`, { applicationId: ids.application }, 'POST');
     conforms('post', '/v1/applications/{applicationId}/confirm', again, 409);
+  });
+
+  // --- v1.1: the mobile operations -------------------------------------------------
+
+  it('v1.1 device sign-in: the password mints a device key that works, lists itself as current, signs itself out and is then refused; a wrong password mints nothing', async () => {
+    const { resetRateLimits } = await import('../src/lib/rate-limit');
+    resetRateLimits();
+    const { POST, GET } = await load('auth/sessions');
+    const body = { method: 'password', email: A.email, password: PASSWORD, device: DEVICE };
+    assert.equal(validateAgainst('DeviceSignIn', body).ok, true, 'the request body the app sends matches the request schema');
+    const issued = await call(POST!, null, '/v1/auth/sessions', {}, 'POST', body);
+    conforms('post', '/v1/auth/sessions', issued, 201);
+    const { token, session } = issued.body as { token: string; session: { id: string; platform: string; expiresAt: string | null } };
+    assert.match(token, /^jp_live_/);
+    assert.equal(session.platform, 'ios');
+    assert.ok(session.expiresAt && new Date(session.expiresAt).getTime() > Date.now() + 80 * 24 * 3600 * 1000, 'expires in ~90 days');
+    const row = await db.apiKey.findUniqueOrThrow({ where: { id: session.id } });
+    assert.equal(row.kind, 'device');
+    assert.deepEqual(JSON.parse(row.scopes), ['write'], 'write = read + apply:write, never admin');
+    assert.ok(!JSON.stringify(row).includes(token.slice(-20)), 'the secret is not stored');
+
+    conforms('get', '/v1/me', await call((await load('me')).GET!, token, '/v1/me', {}), 200);
+    const devices = await call(GET!, token, '/v1/auth/sessions', {});
+    conforms('get', '/v1/auth/sessions', devices, 200);
+    const list = (devices.body as { data: { id: string; current: boolean }[] }).data;
+    assert.equal(list.find((d) => d.id === session.id)?.current, true);
+    assert.ok(list.every((d) => !('keyHash' in d)));
+
+    const wrong = await call(POST!, null, '/v1/auth/sessions', {}, 'POST', { ...body, password: 'nope' });
+    conforms('post', '/v1/auth/sessions', wrong, 401);
+    assert.equal(await db.apiKey.count({ where: { userId: A.id, kind: 'device', revokedAt: null } }), 1, 'a failed sign-in mints nothing');
+    const noProvider = await call(POST!, null, '/v1/auth/sessions', {}, 'POST', { method: 'supabase', accessToken: 'x'.repeat(40), device: DEVICE });
+    conforms('post', '/v1/auth/sessions', noProvider, 503);
+    assert.equal((noProvider.body as { error: { code: string } }).error.code, 'unavailable');
+
+    const out = await call((await load('auth/sessions/current')).DELETE!, token, '/v1/auth/sessions/current', {}, 'DELETE');
+    conforms('delete', '/v1/auth/sessions/current', out, 200);
+    conforms('get', '/v1/me', await call((await load('me')).GET!, token, '/v1/me', {}), 401);
+    // An integration key cannot be signed out this way.
+    conforms('delete', '/v1/auth/sessions/current', await call((await load('auth/sessions/current')).DELETE!, readKey, '/v1/auth/sessions/current', {}, 'DELETE'), 409);
+  });
+
+  it('v1.1 devices are revoked by the owner (scoped), by a password change, and never by a stranger', async () => {
+    const { resetRateLimits } = await import('../src/lib/rate-limit');
+    resetRateLimits();
+    const { POST } = await load('auth/sessions');
+    const mintDevice = async (name: string) => ((await call(POST!, null, '/v1/auth/sessions', {}, 'POST', { method: 'password', email: A.email, password: PASSWORD, device: { name, platform: 'android' } })).body as { token: string; session: { id: string } });
+    const one = await mintDevice('Phone one');
+    const two = await mintDevice('Phone two');
+    const revoke = (await load('auth/sessions/[sessionId]')).DELETE!;
+    // B cannot revoke A's device: 404, and the device still works.
+    conforms('delete', '/v1/auth/sessions/{sessionId}', await call(revoke, otherKey, `/v1/auth/sessions/${one.session.id}`, { sessionId: one.session.id }, 'DELETE'), 404);
+    conforms('get', '/v1/me', await call((await load('me')).GET!, one.token, '/v1/me', {}), 200);
+    // A revokes device one from device two.
+    conforms('delete', '/v1/auth/sessions/{sessionId}', await call(revoke, two.token, `/v1/auth/sessions/${one.session.id}`, { sessionId: one.session.id }, 'DELETE'), 200);
+    conforms('get', '/v1/me', await call((await load('me')).GET!, one.token, '/v1/me', {}), 401);
+    // A password change revokes every device (the password route calls exactly this).
+    const { revokeAllDeviceSessions } = await import('../src/lib/integrations/device-sessions');
+    assert.equal(await revokeAllDeviceSessions(A.id, 'password_change'), 1);
+    conforms('get', '/v1/me', await call((await load('me')).GET!, two.token, '/v1/me', {}), 401);
+    const audit = await db.auditLog.findMany({ where: { actorId: A.id, action: { in: ['auth.device.issued', 'auth.device.revoked'] } } });
+    assert.ok(audit.length >= 3);
+    assert.ok(audit.every((a) => !a.after.includes('jp_live_')), 'no audit row carries a key');
+  });
+
+  it('v1.1 PATCH /me edits name, city, headline and mode; the unreachable mode is refused; an empty patch is 400', async () => {
+    const { PATCH } = await load('me') as { PATCH: Handler };
+    const edited = await call(PATCH, fullKey, '/v1/me', {}, 'PATCH', { headline: 'Lead Analyst', city: null, applicationMode: 'prepare' });
+    conforms('patch', '/v1/me', edited, 200);
+    assert.deepEqual([(edited.body as { headline: string }).headline, (edited.body as { city: string | null }).city, (edited.body as { applicationMode: string }).applicationMode], ['Lead Analyst', null, 'prepare']);
+    conforms('patch', '/v1/me', await call(PATCH, fullKey, '/v1/me', {}, 'PATCH', { applicationMode: 'approved_auto_apply' }), 403);
+    conforms('patch', '/v1/me', await call(PATCH, fullKey, '/v1/me', {}, 'PATCH', {}), 400);
+    conforms('patch', '/v1/me', await call(PATCH, fullKey, '/v1/me', {}, 'PATCH', { email: 'new@x.test' }), 400);
+    conforms('patch', '/v1/me', await call(PATCH, readKey, '/v1/me', {}, 'PATCH', { headline: 'x' }), 403);
+    await db.user.update({ where: { id: A.id }, data: { applicationMode: 'review_submit', city: 'Toronto' } });
+  });
+
+  it('v1.1 consents: listed with state; marketing can be granted and withdrawn; a required purpose cannot be withdrawn here; an unavailable purpose fails closed', async () => {
+    const list = await call((await load('consents')).GET!, readKey, '/v1/consents', {});
+    conforms('get', '/v1/consents', list, 200);
+    const consents = (list.body as { data: { purpose: string; granted: boolean; available: boolean; required: boolean }[] }).data;
+    assert.equal(consents.length, 6);
+    assert.equal(consents.find((c) => c.purpose === 'cross_border_ai_processing')?.available, false);
+    assert.equal(consents.find((c) => c.purpose === 'terms_of_service')?.required, true);
+    const { PUT } = await load('consents/[purpose]') as { PUT: Handler };
+    const granted = await call(PUT, fullKey, '/v1/consents/marketing_email', { purpose: 'marketing_email' }, 'PUT', { granted: true });
+    conforms('put', '/v1/consents/{purpose}', granted, 200);
+    assert.equal((granted.body as { granted: boolean }).granted, true);
+    assert.equal(await db.consentRecord.count({ where: { userId: A.id, purpose: 'marketing_email', revokedAt: null } }), 1);
+    await call(PUT, fullKey, '/v1/consents/marketing_email', { purpose: 'marketing_email' }, 'PUT', { granted: true });
+    assert.equal(await db.consentRecord.count({ where: { userId: A.id, purpose: 'marketing_email', revokedAt: null } }), 1, 'granting twice records once');
+    const withdrawn = await call(PUT, fullKey, '/v1/consents/marketing_email', { purpose: 'marketing_email' }, 'PUT', { granted: false });
+    conforms('put', '/v1/consents/{purpose}', withdrawn, 200);
+    assert.equal((withdrawn.body as { granted: boolean }).granted, false);
+    conforms('put', '/v1/consents/{purpose}', await call(PUT, fullKey, '/v1/consents/terms_of_service', { purpose: 'terms_of_service' }, 'PUT', { granted: false }), 409);
+    conforms('put', '/v1/consents/{purpose}', await call(PUT, fullKey, '/v1/consents/cross_border_ai_processing', { purpose: 'cross_border_ai_processing' }, 'PUT', { granted: true }), 409);
+    assert.equal(await db.consentRecord.count({ where: { userId: A.id, purpose: 'cross_border_ai_processing' } }), 0);
+    conforms('put', '/v1/consents/{purpose}', await call(PUT, fullKey, '/v1/consents/telepathy', { purpose: 'telepathy' }, 'PUT', { granted: true }), 404);
+  });
+
+  it('v1.1 saved jobs: save is idempotent and scoped to matched postings, shows on the job detail, lists, and unsaves', async () => {
+    const { PUT, DELETE } = await load('jobs/[jobId]/saved') as { PUT: Handler; DELETE: Handler };
+    const saved = await call(PUT, fullKey, `/v1/jobs/${ids.job}/saved`, { jobId: ids.job }, 'PUT');
+    conforms('put', '/v1/jobs/{jobId}/saved', saved, 200);
+    conforms('put', '/v1/jobs/{jobId}/saved', await call(PUT, fullKey, `/v1/jobs/${ids.job}/saved`, { jobId: ids.job }, 'PUT'), 200);
+    assert.equal(await db.savedJob.count({ where: { userId: A.id } }), 1);
+    conforms('put', '/v1/jobs/{jobId}/saved', await call(PUT, otherKey, `/v1/jobs/${ids.job}/saved`, { jobId: ids.job }, 'PUT'), 404);
+    const detail = await call((await load('jobs/[jobId]')).GET!, readKey, `/v1/jobs/${ids.job}`, { jobId: ids.job });
+    conforms('get', '/v1/jobs/{jobId}', detail, 200);
+    assert.equal((detail.body as { saved: boolean }).saved, true);
+    const list = await call((await load('saved-jobs')).GET!, readKey, '/v1/saved-jobs', {});
+    conforms('get', '/v1/saved-jobs', list, 200);
+    assert.equal((list.body as { pagination: { total: number } }).pagination.total, 1);
+    assert.equal(((await call((await load('saved-jobs')).GET!, otherKey, '/v1/saved-jobs', {})).body as { pagination: { total: number } }).pagination.total, 0);
+    conforms('delete', '/v1/jobs/{jobId}/saved', await call(DELETE, fullKey, `/v1/jobs/${ids.job}/saved`, { jobId: ids.job }, 'DELETE'), 200);
+    conforms('delete', '/v1/jobs/{jobId}/saved', await call(DELETE, fullKey, `/v1/jobs/${ids.job}/saved`, { jobId: ids.job }, 'DELETE'), 200);
+    assert.equal(await db.savedJob.count({ where: { userId: A.id } }), 0);
+  });
+
+  it('v1.1 a document link is a valid signed link bound to the owner, 201, and 404 for a stranger', async () => {
+    const doc = await db.documentVersion.findFirstOrThrow({ where: { userId: A.id, applicationId: ids.application } });
+    const { POST } = await load(`applications/[applicationId]/documents/[documentId]/link`);
+    const params = { applicationId: ids.application, documentId: doc.id };
+    const link = await call(POST!, readKey, `/v1/applications/${ids.application}/documents/${doc.id}/link`, params, 'POST');
+    conforms('post', '/v1/applications/{applicationId}/documents/{documentId}/link', link, 201);
+    const url = new URL((link.body as { url: string }).url);
+    assert.equal(url.origin, 'https://api.test');
+    assert.equal(verifyDocumentLink({ documentId: doc.id, userId: url.searchParams.get('u') ?? '', expiresAt: Number(url.searchParams.get('exp')), signature: url.searchParams.get('sig') ?? '' }), 'ok');
+    assert.equal(url.searchParams.get('u'), A.id);
+    conforms('post', '/v1/applications/{applicationId}/documents/{documentId}/link', await call(POST!, otherKey, `/v1/applications/${ids.application}/documents/${doc.id}/link`, params, 'POST'), 404);
+  });
+
+  it('v1.1 evidence is the vault read-only: claims, never facts; a stranger sees none; the status filter is enforced', async () => {
+    const list = await call((await load('evidence')).GET!, readKey, '/v1/evidence', {});
+    conforms('get', '/v1/evidence', list, 200);
+    const body = list.body as { data: { claim: string; status: string }[]; pagination: { total: number } };
+    assert.equal(body.pagination.total, 1);
+    assert.match(body.data[0].claim, /Senior Data Analyst/);
+    assert.ok(!JSON.stringify(body).includes('"facts"'));
+    assert.equal(((await call((await load('evidence')).GET!, otherKey, '/v1/evidence', {})).body as { pagination: { total: number } }).pagination.total, 0);
+    conforms('get', '/v1/evidence', await call((await load('evidence')).GET!, readKey, '/v1/evidence?status=bogus', {}), 400);
+    assert.equal(((await call((await load('evidence')).GET!, readKey, '/v1/evidence?status=revoked', {})).body as { pagination: { total: number } }).pagination.total, 0);
   });
 });

@@ -26,7 +26,7 @@ remediation has begun.**
 npm ci                # install from the lockfile
 npm run dev           # http://localhost:3000
 npx tsc --noEmit      # typecheck  — PASSES
-npm test              # 1070 tests  — PASSES with the two database URLs below set; the
+npm test              # 1087 tests  — PASSES with the two database URLs below set; the
                       #   database suites skip WITH A REASON without them and THROW
                       #   when CI=true, so CI cannot pass by skipping them
 npm run build         # production — PASSES
@@ -49,12 +49,15 @@ npm run db:seed            # plans + demo account (+ its personal workspace and 
 npm run db:push            # LOCAL prototyping only — never staging or production
 npm run cms:importmap      # regenerate the tracked Payload import map
 npm run cms:types          # regenerate payload-types.ts
+
+# The mobile app (Stage 14) is its own package: cd mobile && npm ci && npm run verify
+#   (api:types diff · typecheck · 24 node:test suites · Metro web bundle). Never run on a device here.
 ```
 
 ## Things that will surprise you
 
 1. **The database is PostgreSQL with a versioned migration history** since
-   Stage 01 (`ADR-0002`). Thirty-five migrations under `prisma/migrations/`; CI applies
+   Stage 01 (`ADR-0002`). Thirty-six migrations under `prisma/migrations/`; CI applies
    them to an empty database and fails on drift. `DATABASE_URL` is the
    transaction pooler, `DIRECT_URL` the session endpoint for migrations. The RLS
    migration is **generated** from `src/lib/tenancy/rls-tables.ts` — regenerate
@@ -299,18 +302,28 @@ npm run cms:types          # regenerate payload-types.ts
     candidate's refresh, or the first-visit rebuild. No industry dimension
     exists; do not fake one.
 
-25. **`/api/v1` is a frozen contract** (Stage 14, ADR-0028).
-    `docs/api/openapi.candidate.v1.json` names every operation, scope and
-    schema; `openapi.candidate.v1.lock` holds its hash, and
+25. **`/api/v1` is a frozen contract, and the mobile app consumes only it**
+    (Stage 14, ADR-0028, ADR-0029). `docs/api/openapi.candidate.v1.json`
+    (1.1.0) names every operation, scope and schema; every object schema is
+    CLOSED and every operation documents 401 and 429 (`contractProblems()`
+    enforces both); `openapi.candidate.v1.lock` holds its hash, and
     `tests/candidate-api-contract.test.ts` fails when the document, the lock
     or the route files under `src/app/(app)/api/v1` disagree, and validates
-    every response against the schema (ajv). To change the API: edit the
-    document and the code together, run `npm run api:freeze`, and bump the
-    minor version for an additive change — a breaking change is version 2 at
-    a new path, never an edit. Every v1 route goes through `v1Route`
-    (key auth, scope, rate limit, the one error envelope); the two writes are
-    the applicant's own confirm and instructed submit. The Expo app is NOT
-    built; nothing in the repository is a mobile client.
+    every response against its schema (ajv, closed - a leaked column fails).
+    To change the API: edit the document and the code together, run
+    `npm run api:freeze`, bump the minor version for an additive change - a
+    breaking change is version 2 at a new path, never an edit - then
+    `cd mobile && npm run api:types` (CI diffs the generated types). Every
+    v1 route goes through `v1Route` (key auth, scope, rate limit, the one
+    error envelope); the ONE public operation is the device sign-in
+    (`v1PublicRoute`, address-limited), which mints an `ApiKey` of kind
+    `device` (scope `write`, never `admin`, expiring, capped, revoked with
+    the sessions on password change). The two employer-facing writes are the
+    applicant's own confirm and instructed submit; `confirm` claims the
+    record under the same advisory lock as `submit`. **The Expo app lives in
+    `mobile/`** - its own package, lockfile and CI job; excluded from the root
+    tsconfig and eslint; `mobile/README.md` is the recipe. It has NEVER run
+    on a device: do not claim device-level behaviour.
 
 ## Conventions worth preserving
 

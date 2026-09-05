@@ -4,6 +4,7 @@ import { getSessionId, hashPassword, requireUser, revokeAllSessions, verifyPassw
 import { describeWait, fail, ok, route, tooMany } from '@/lib/api';
 import { LIMITS, rateLimit } from '@/lib/rate-limit';
 import { recordSecurityEvent, requestMeta } from '@/lib/security-audit';
+import { revokeAllDeviceSessions } from '@/lib/integrations/device-sessions';
 
 const schema = z.object({
   currentPassword: z.string().min(1, 'Enter your current password.'),
@@ -50,6 +51,8 @@ export const POST = route(async (request: Request) => {
   // the explicit revoke records WHY in the row and makes the session list
   // honest immediately.
   const revoked = await revokeAllSessions(user.id, 'password_change', { except: current });
+  // Stage 14: a phone signed in on the old credential is a session too.
+  const revokedDevices = await revokeAllDeviceSessions(user.id, 'password_change');
   if (current) {
     // Keep the current session alive across its own password change: it was
     // created before `passwordChangedAt`, so bump its createdAt to now.
@@ -60,8 +63,8 @@ export const POST = route(async (request: Request) => {
     event: 'auth.password.changed',
     user,
     summary: 'Password changed; other sessions revoked',
-    detail: { revokedOtherSessions: revoked },
+    detail: { revokedOtherSessions: revoked, revokedDevices },
     meta,
   });
-  return ok({ ok: true, revokedOtherSessions: revoked });
+  return ok({ ok: true, revokedOtherSessions: revoked, revokedDevices });
 });

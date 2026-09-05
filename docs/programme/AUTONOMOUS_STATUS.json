@@ -1,7 +1,7 @@
 {
   "$comment": "Machine-readable controller for the autonomous build programme. Authoritative over any chat transcript: if this file and a conversation disagree, this file wins. Updated at every stage checkpoint.",
   "schema_version": 1,
-  "updated_at": "2026-09-03T15:50:00Z",
+  "updated_at": "2026-09-05T11:00:00Z",
   "current_stage": "14",
   "last_completed_stage": "00",
   "current_branch": "claude/stage-14-candidate-api-contract",
@@ -25,7 +25,7 @@
     "11": "PASS_ENGINEERING_EXIT_BLOCKED_CREDENTIALS",
     "12": "PASS_ENGINEERING_EXIT_BLOCKED_CREDENTIALS",
     "13": "PASS_ENGINEERING_EXIT_PARTIAL",
-    "14": "PASS_CONTRACT_OBJECTIVE_PARTIAL",
+    "14": "PASS_ENGINEERING_EXIT_PARTIAL",
     "15": "NOT_STARTED",
     "16": "NOT_STARTED",
     "17": "NOT_STARTED",
@@ -83,7 +83,7 @@
     ],
     "verdict": "Stage 01 is PARTIAL, not PASS. Every unmet item traces to the staging project being unreachable from the build environment, except tenant-path adoption, which is engineering and continues in Stage 02 alongside the schema work that touches those handlers."
   },
-  "next_requirement": "Stage 05 engineering is complete; its exit is PARTIAL: the two conditions that need a live, credentialed source (≥2 lawful sources live; Adzuna PRODUCTION-VALIDATED) are BLOCKED on ADZUNA_APP_ID / ADZUNA_APP_KEY and a recorded terms review (external action ADZUNA-LIVE-VALIDATION). Independent work continues: Stage 06 (normalization, deduplication, freshness) begins on a branch stacked on Stage 05 — canonical job with normalized_title / occupation_family / canonical_hash, deduplication preserving provenance across sources, closure detection, expiry, quality scoring.",
+  "next_requirement": "Stage 14 engineering is complete; its exit is PARTIAL on device-level proofs (NOT VERIFIED here) and push (NOT IMPLEMENTED, ADR-0011). Independent work continues: Stage 15 (payments, subscriptions, entitlements) begins on a branch stacked on Stage 14 — an explicit entitlement layer per ADR-0010, PlanPrice and BillingProfile wired, webhook idempotency and ordering proven, refund never silently revokes; Stripe stays IMPLEMENTED-NOT-VALIDATED without a test-mode key (CREDENTIAL blocker), so the Stage 15 exit will be BLOCKED on SANDBOX-VALIDATED.",
   "blockers": [
     {
       "id": "ATS-SANDBOX-CREDENTIAL",
@@ -213,6 +213,13 @@
       "action": "Provide Adzuna credentials as secrets, record the API terms at /console/sources, enable the source, run a health check and one discovery, attach the redacted run row.",
       "why": "ADR-0008 and the Stage 05 exit gate: an integration is promoted only on an observed run against the real service.",
       "status": "REQUIRED_BEFORE_LIVE_JOB_DATA"
+    },
+    {
+      "id": "MOBILE-DEVICE-VALIDATION",
+      "stage": "14",
+      "type": "FOUNDER_PRODUCT_DECISION / EXTERNAL_SERVICE",
+      "action": "Run mobile/ on iOS and Android (Expo Go: cd mobile && EXPO_PUBLIC_API_BASE_URL=https://<deployment> npm start); confirm sign-in, the Keychain / Keystore write, VoiceOver / TalkBack on the folder screen, a network drop mid-tap; then decide on a store build (Apple Developer and Google Play accounts, paid).",
+      "status": "OPEN"
     }
   ],
   "invariants_never_to_break": [
@@ -541,48 +548,30 @@
     "verdict": "Stage 13 passes every engineering gate that can be run here and is PARTIAL at its exit on the inherited absence of an event stream and a scheduler, and on the absence of an industry classification, all stated. Merge posture inherited from the stack."
   },
   "stage_14_progress": {
-    "contract": "DONE — docs/api/openapi.candidate.v1.json (OpenAPI 3.1, 1.0.0, frozen 2026-09-03): thirteen operations for the candidate surface, every response a component schema, every error the one envelope, x-scope on every operation",
-    "routes": "DONE — nine new v1 routes (me, recommendations, jobs/{id}, matches/{id}, applications/{id}, confirm, submit, interviews, notifications) on v1Route: key auth, scopes, rate limits, the envelope; ownership through the key's user; no staff, billing or document bytes; the two writes are the applicant's confirm and instructed submit (Stage 12 rules)",
-    "freeze": "DONE — openapi.candidate.v1.lock (version + SHA-256 of the canonical document); npm run api:freeze; the test fails on drift; ADR-0028 change rule (breaking = v2 at a new path)",
-    "contract_tests": "DONE — pure structure + route-file parity both ways + envelope; database: every GET validated against its schema with real keys, ownership 404s, scope refusal, 401, the two writes through the status machine, never-automated values absent, contact addresses absent",
-    "mobile_app": "NOT IMPLEMENTED — no React Native / Expo toolchain in this environment; the plan sequences the app after the frozen contract; push notifications wait on ADR-0011; no generated client",
-    "independent_review": "PENDING"
+    "contract": "DONE — docs/api/openapi.candidate.v1.json 1.1.0 (1.0.0 frozen 2026-09-03; additive amendment 2026-09-05): 25 operations on 22 paths, 37 schemas, every object closed, 401/429 on every operation, one public operation (the device sign-in); lock re-frozen; ADR-0028 amended",
+    "routes": "DONE — nine 1.0 routes plus the 1.1 routes (auth/sessions ×3, PATCH me, consents ×2, jobs/{id}/saved, saved-jobs, documents/{id}/link, evidence); ownership through the key's user; device keys per ADR-0029 (kind device, scope write, expiring, capped, revoked by owner / password change / sign-out-everywhere, listed beside browser sessions)",
+    "freeze": "DONE — openapi.candidate.v1.lock 1.1.0; npm run api:freeze; contractProblems enforces closed schemas, 401/429, scope vocabulary, public ⇔ security []",
+    "contract_tests": "DONE — 17 tests (6 pure, 11 database): 1.0 GETs against schemas with dates parsed, ownership, scope refusal, locked confirm, submit refusals; 1.1: device flow end to end with a real password hash, revocation scoping, PATCH me, consents fail-closed, saved jobs, signed document link, evidence",
+    "migration": "DONE — 20260905100000_api_key_kind (ApiKey.kind, ApiKey.platform; additive); rehearsal on a fresh database: 36 applied, drift clean, 120 forced tables",
+    "mobile_app": "DONE (engineering) — mobile/: Expo SDK 57 + expo-router + TypeScript strict; sign-in, onboarding notice, recommendations, saved, job detail with eligibility, match analysis, applications, folder with review + confirm + instructed submit + signed document links, interviews, activity, profile, edit, evidence, analytics, privacy & consent, devices, sign out; loading/error/empty/offline states; read-only cache, no offline queue; secure-store device key; contrast computed; 24 tests; Metro web bundle; own CI job. NOT VERIFIED on a device; push NOT IMPLEMENTED (ADR-0011); biometric unlock and certificate pinning NOT IMPLEMENTED",
+    "independent_review": "DONE (1.0.0): 2 MEDIUM fixed (advisory-locked confirm; closed schemas), 3 LOW fixed (date parsing claim, 401/429 documentation, policy-keyed redaction), 2 LOW recorded as deliberate (ATS lookup stays; notifications carry mailbox detections by id). Second pass on 1.1.0 and the app: see STAGE14_EVIDENCE.md §11"
   },
   "stage_14_exit_gate": {
     "met": [
-      "Contract published for the candidate surface (thirteen operations)",
-      "Contract frozen and versioned before app work begins (hash lock, test-enforced, change rule)",
-      "Contract tests run in CI against the web backend",
-      "Same auth as web, no privileged endpoints, no personal data in a notification payload",
-      "Full gate set green with the documented command only: lint 0/8, typecheck 0, 1078/1078 tests (0 skipped), build 0"
+      "Contract published for the candidate surface (25 operations, closed schemas)",
+      "Contract frozen and versioned before app work began (1.0.0 on 2026-09-03; the app built on 2026-09-05 against the additive 1.1.0)",
+      "Contract tests run in CI against the web backend (17)",
+      "Mobile consumes only the published contract — generated types diffed in CI, path parity, no direct fetch (test-enforced)",
+      "Same auth as web, platform-secure storage, no privileged endpoints — ADR-0029 (engineering; the secure-store write is NOT VERIFIED on a device)",
+      "Offline behaviour: read-only cache, no offline submission (policy tested; a real drop NOT VERIFIED)",
+      "Full gate set green with the documented command only: lint 0/8, typecheck 0, 1087/1087 tests (0 skipped), build 0; mobile: typecheck 0, 24/24, web bundle 0 errors"
     ],
     "not_met": [
-      "Mobile consumes only the published contract — NOT TESTABLE: the app is NOT IMPLEMENTED",
-      "Device matrix, offline behaviour, push notifications — app not built; push waits on ADR-0011",
+      "Device matrix — NOT VERIFIED: no device or emulator in this environment",
+      "Push notifications — NOT IMPLEMENTED: waits on ADR-0011",
+      "Biometric unlock, certificate pinning — NOT IMPLEMENTED",
       "Staging rehearsal (NOT VERIFIED — R-34)"
     ],
-    "verdict": "Stage 14 meets its exit gate as the plan words it — the contract is frozen and versioned before app work begins — and is PARTIAL on the stage's objective, the app, which is not built here and stated. Merge posture inherited from the stack."
-  },
-  "pause_checkpoint": {
-    "requested_by": "operator, 2026-09-03 (mid Stage 14 wrap-up)",
-    "state": "PAUSED — safe checkpoint; no stage, remediation cycle or major task in flight",
-    "current_stage": "14 — Candidate mobile: the API contract (PASS on the contract gate; objective PARTIAL, the Expo app is NOT built)",
-    "current_branch": "claude/stage-14-candidate-api-contract (stacked on claude/stage-13-candidate-analytics)",
-    "current_head": "bf6318d = Stage 14 content (cf14846) + status sync; this checkpoint commit sits on top and is the branch tip on origin",
-    "current_pr": "https://github.com/Emerxingx/Job-Application-Automation/pull/26 (draft, subscribed)",
-    "completed_work": [
-      "Stages 01–13 delivered as stacked draft PRs #13–#25 with evidence documents and independent reviews recorded",
-      "Stage 14: OpenAPI 3.1 contract docs/api/openapi.candidate.v1.json (13 operations) + hash lock, npm run api:freeze, nine new v1 routes, src/lib/integrations/candidate-api.ts, tests/candidate-api-contract.test.ts, ADR-0028, STAGE14_EVIDENCE.md, registers and STAGE_STATUS updated, draft PR #26 opened and subscribed"
-    ],
-    "test_status": "On bf6318d (unchanged by this checkpoint, which touches docs only): npm run lint:ci 0 errors / 8 warnings; npx tsc --noEmit 0; npm test 1078/1078 with both database URLs set against local PostgreSQL 16 (35 migrations, drift clean); npm run build 0. CI on PR #26 not yet observed.",
-    "remaining_work": [
-      "Stage 14: the independent adversarial review was stopped for this pause before reporting — re-run it (tenant leakage through the key's user, data exposure in the contract, submit/confirm routes, enum/format correctness, freeze rule, merged-notification pagination, false PASS, dead code), fix findings, fill STAGE14_EVIDENCE.md §10 and independent_review here",
-      "Watch CI on PRs #23–#26 (not yet confirmed green at the pause); #21/#22 were green at last check",
-      "Stage 15 (Payments): entitlement layer per ADR-0010 in a worktree stacked on the Stage 14 head; Stripe stays IMPLEMENTED-NOT-VALIDATED (no key) so its exit is BLOCKED on the credential",
-      "Stages 16–24 per docs/programme/MASTER_BUILD_PLAN.md; Stage 22 gated (ADR-0016); run_complete stays false until Stage 24; stop before public go-live"
-    ],
-    "external_blockers": "See blockers[] — Supabase staging unreachable from this environment (raw TCP), no Stripe/Adzuna/Anthropic/ATS sandbox credentials, taxonomy licences unrecorded, pgvector blocked. None was changed by this checkpoint.",
-    "check_in_trigger": "trig_01BKHMsQzJMggVMpQT8She2z DISABLED for the pause (name \"Re-check PRs #13–#26 (paused at operator request)\")",
-    "exact_next_action_on_resume": "1) git fetch origin && git checkout claude/stage-14-candidate-api-contract && git pull; 2) re-enable the check-in trigger (update_trigger enabled=true, run_once_at ≈ now+65min) and re-subscribe to PRs #13–#26; 3) launch the Stage 14 independent review agent against the branch head, act on its findings, record §10 of STAGE14_EVIDENCE.md and independent_review here, rerun the four gates, push; 4) then start Stage 15 in a worktree stacked on the Stage 14 head."
+    "verdict": "Stage 14 is PASS on engineering — contract, backend proof, and an app that consumes only the contract — and PARTIAL as a stage: what a device would prove is NOT VERIFIED and push is NOT IMPLEMENTED. Merge posture inherited from the stack."
   }
 }

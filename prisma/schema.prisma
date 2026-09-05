@@ -2181,6 +2181,12 @@ model ApiKey {
   keyHash            String    @unique
   scopes             String    @default("[\"read\"]") // JSON string array: read | write | admin | scan:read | match:score | apply:write
   environment        String    @default("live") // live | test
+  // Stage 14: integration (minted by the owner on the web, for servers) or
+  // device (minted by a sign-in from the mobile app, revoked on password
+  // change with the sessions). Same table, same checks; the kind decides
+  // who lists and revokes it.
+  kind               String    @default("integration") // integration | device
+  platform           String    @default("") // device keys: ios | android | web | other
   rateLimitPerMinute Int       @default(60)
   lastUsedAt         DateTime?
   lastUsedIp         String?

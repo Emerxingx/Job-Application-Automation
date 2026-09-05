@@ -37,7 +37,7 @@
 
 import { NextResponse } from 'next/server';
 import { ZodError } from 'zod';
-import { clientAddress, rateLimit, type RateLimitResult } from '../rate-limit';
+import { LIMITS, clientAddress, rateLimit, type RateLimitResult, type RateLimitRule } from '../rate-limit';
 import {
   authenticateApiKey,
   extractApiKey,
@@ -55,7 +55,9 @@ export type ApiErrorCode =
   | 'invalid_request'
   | 'not_found'
   | 'rate_limited'
-  | 'internal_error';
+  | 'internal_error'
+  // Stage 14: a dependency this deployment does not have (an identity provider), 503.
+  | 'unavailable';
 
 /** Broad class, for clients that want to handle whole families at once. */
 const ERROR_TYPES: Record<ApiErrorCode, string> = {
@@ -65,6 +67,7 @@ const ERROR_TYPES: Record<ApiErrorCode, string> = {
   not_found: 'not_found_error',
   rate_limited: 'rate_limit_error',
   internal_error: 'api_error',
+  unavailable: 'api_error',
 };
 
 export interface ApiErrorOptions {
@@ -207,9 +210,7 @@ export function v1Route(
 ): (request: Request, args?: V1RouteArgs) => Promise<Response> {
   return async (request: Request, args?: V1RouteArgs) => {
     try {
-      const rawParams = args ? await args.params : {};
-      const params: Record<string, string> = {};
-      for (const [k, v] of Object.entries(rawParams)) if (typeof v === 'string') params[k] = decodeURIComponent(v);
+      const params = await v1Params(args);
       const authentication = await authenticateApiKey(prismaApiKeyStore(), extractApiKey(request), {
         requiredScope,
       });
@@ -267,20 +268,67 @@ export function v1Route(
       const context: V1Context = { key, request, url: new URL(request.url), headers, params };
       return await handler(context);
     } catch (error) {
-      if (error instanceof ApiRequestError) {
-        return apiError(error.code, error.message, error.status, { param: error.param });
-      }
-      if (error instanceof ZodError) {
-        const issue = error.issues[0];
-        return apiError('invalid_request', issue?.message ?? 'Invalid request.', 400, {
-          param: issue?.path.join('.') || undefined,
+      return v1ErrorResponse(error);
+    }
+  };
+}
+
+/** Every failure a v1 handler can throw, as the one envelope. */
+export function v1ErrorResponse(error: unknown): NextResponse {
+  if (error instanceof ApiRequestError) {
+    return apiError(error.code, error.message, error.status, { param: error.param });
+  }
+  if (error instanceof ZodError) {
+    const issue = error.issues[0];
+    return apiError('invalid_request', issue?.message ?? 'Invalid request.', 400, {
+      param: issue?.path.join('.') || undefined,
+    });
+  }
+  console.error('[api/v1] unhandled error:', error);
+  // The message is fixed rather than echoed. An exception string can carry
+  // a query fragment or a file path, and a public API is exactly the wrong
+  // place to hand those out.
+  return apiError('internal_error', 'Something went wrong on our end.', 500);
+}
+
+/** Read the dynamic segments Next hands a route, decoded. */
+export async function v1Params(args?: V1RouteArgs): Promise<Record<string, string>> {
+  const rawParams = args ? await args.params : {};
+  const params: Record<string, string> = {};
+  for (const [k, v] of Object.entries(rawParams)) if (typeof v === 'string') params[k] = decodeURIComponent(v);
+  return params;
+}
+
+export interface V1PublicContext {
+  request: Request;
+  url: URL;
+  headers: Record<string, string>;
+  params: Record<string, string>;
+}
+
+/**
+ * Stage 14: a v1 endpoint that has NO key yet - the mobile sign-in that mints
+ * one. Same envelope, same error handling; the budget is the address's, on the
+ * sign-in rule (`LIMITS.auth`), because the caller has no credential to charge
+ * and the thing to blunt is credential stuffing. Nothing else in /api/v1 may
+ * use this: every other operation has a key, and a key is what scopes a read.
+ */
+export function v1PublicRoute(
+  handler: (context: V1PublicContext) => Promise<Response>,
+  options: { bucket?: string; rule?: RateLimitRule } = {},
+): (request: Request, args?: V1RouteArgs) => Promise<Response> {
+  return async (request: Request, args?: V1RouteArgs) => {
+    try {
+      const params = await v1Params(args);
+      const limit = rateLimit(options.bucket ?? 'auth', clientAddress(request), options.rule ?? LIMITS.auth);
+      if (!limit.ok) {
+        return apiError('rate_limited', 'Too many attempts. Try again shortly.', 429, {
+          headers: { 'Retry-After': String(limit.retryAfterSeconds) },
         });
       }
-      console.error('[api/v1] unhandled error:', error);
-      // The message is fixed rather than echoed. An exception string can carry
-      // a query fragment or a file path, and a public API is exactly the wrong
-      // place to hand those out.
-      return apiError('internal_error', 'Something went wrong on our end.', 500);
+      return await handler({ request, url: new URL(request.url), headers: {}, params });
+    } catch (error) {
+      return v1ErrorResponse(error);
     }
   };
 }
