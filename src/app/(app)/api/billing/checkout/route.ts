@@ -31,8 +31,10 @@ export const POST = route(async (request: Request) => {
   if (!plan) return fail('That plan is not available.', 404);
 
   const interval = body.interval as BillingInterval;
-  const price = resolvePrice(plan, interval, profile.currency, plan.prices);
   const payments = getPaymentProvider();
+  // A real gateway charges by its own price id; a cell without one is not
+  // chargeable in its currency and the CAD default applies (stated below).
+  const price = resolvePrice(plan, interval, profile.currency, plan.prices, { requireExternalPriceId: payments.name !== 'mock' && payments.name !== 'manual' });
 
   const checkout = await payments.createCheckout({
     userId: user.id,

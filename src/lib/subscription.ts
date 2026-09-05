@@ -75,8 +75,18 @@ export function resolvePrice(
   interval: BillingInterval,
   currency: string,
   prices: readonly PlanPriceRow[] = [],
+  options: {
+    /**
+     * A real gateway charges by ITS price id, so a PlanPrice cell without one
+     * cannot be charged in its currency - it is skipped and the CAD default
+     * applies (stated in the response), rather than a CAD amount being sent
+     * to the gateway labelled as the customer's currency. The mock and manual
+     * providers charge the amount and need no id.
+     */
+    requireExternalPriceId?: boolean;
+  } = {},
 ): ResolvedPrice {
-  const cell = prices.find((p) => p.active && p.currency === currency && p.interval === interval);
+  const cell = prices.find((p) => p.active && p.currency === currency && p.interval === interval && (!options.requireExternalPriceId || Boolean(p.externalPriceId)));
   if (cell) return { amountCents: cell.amountCents, currency, externalPriceId: cell.externalPriceId, source: 'plan_price' };
   return { amountCents: priceFor(plan, interval), currency: 'CAD', externalPriceId: null, source: 'plan_columns' };
 }
@@ -106,7 +116,7 @@ export async function getQuota(userId: string): Promise<QuotaStatus | null> {
     where: { userId },
     include: { plan: true },
   });
-  if (!subscription) return null;
+  if (!subscription) return baselineQuota(userId);
 
   let { applicationsUsed, periodStart, periodEnd } = subscription;
 
@@ -144,6 +154,32 @@ export async function getQuota(userId: string): Promise<QuotaStatus | null> {
   };
 }
 
+/** Calendar-month window for an account with no subscription row (UTC). */
+function calendarMonth(now: Date): { periodStart: Date; periodEnd: Date } {
+  const periodStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  const periodEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
+  return { periodStart, periodEnd };
+}
+
+/**
+ * Stage 15 review fix: an account with NO subscription row - a comp or a
+ * pilot granted before any checkout, or an account whose row was never
+ * created - still has an answer. The limit is its `applications_per_month`
+ * entitlement (the free baseline when it holds no row); the usage is the
+ * count of its Application rows in the current calendar month, read rather
+ * than kept, so there is nothing to consume or refund. Never null: a null
+ * quota used to read as "unlimited" on some pages.
+ */
+async function baselineQuota(userId: string, now: Date = new Date()): Promise<QuotaStatus> {
+  const { periodStart, periodEnd } = calendarMonth(now);
+  const [limit, used] = await Promise.all([
+    quantityFor(db, userId, 'applications_per_month'),
+    db.application.count({ where: { userId, createdAt: { gte: periodStart, lt: periodEnd } } }),
+  ]);
+  const remaining = Math.max(0, limit - used);
+  return { used, limit, remaining, periodEnd, planName: 'No plan', planCode: 'none', interval: 'none', status: 'none', canApply: remaining > 0 };
+}
+
 /**
  * Reserve quota for `count` applications.
  *
@@ -156,6 +192,10 @@ export async function consumeQuota(userId: string, count: number): Promise<numbe
 
   const granted = Math.min(count, quota.remaining);
   if (granted <= 0) return 0;
+
+  // No subscription row: the usage is counted from Application rows (see
+  // baselineQuota), so there is no counter to move.
+  if (quota.planCode === 'none') return granted;
 
   await db.subscription.update({
     where: { userId },
@@ -209,8 +249,10 @@ export async function activatePlan(
   const periodEnd = new Date(now);
   periodEnd.setMonth(periodEnd.getMonth() + 1);
 
-  const existing = await db.subscription.findUnique({ where: { userId }, select: { planId: true, status: true, interval: true } });
-  const samePlanAlreadyActive = existing !== null && existing.planId === plan.id && existing.status === 'active' && existing.interval === interval;
+  const existing = await db.subscription.findUnique({ where: { userId }, select: { planId: true, status: true, interval: true, cancelAtPeriodEnd: true } });
+  // A plan cancelled at period end and bought again is a NEW term, not a replay:
+  // the flag must clear and the entitlements' expiry must lift.
+  const samePlanAlreadyActive = existing !== null && existing.planId === plan.id && existing.status === 'active' && existing.interval === interval && !existing.cancelAtPeriodEnd;
 
   const subscription = await db.subscription.upsert({
     where: { userId },
@@ -265,6 +307,10 @@ export async function startTrial(userId: string, planCode: string, days: number,
   if (!plan) throw new Error(`Unknown plan: ${planCode}`);
   const existing = await db.subscription.findUnique({ where: { userId }, select: { status: true, externalSubId: true } });
   if (existing && existing.status === 'active' && existing.externalSubId) throw new Error('This account already has a paid plan; a trial is not needed.');
+  // One trial of a plan per account, ever: a trial row for this plan - active,
+  // expired or revoked - means it has been had. The rows are the trail (ADR-0030).
+  const trialled = await db.entitlement.findFirst({ where: { userId, source: 'trial', sourceRef: { endsWith: `:${plan.code}` } }, select: { id: true } });
+  if (trialled) throw new Error('This account has already had a trial of that plan.');
   const now = new Date();
   const trialEndsAt = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
   const periodEnd = new Date(now);

@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { db } from '@/lib/db';
 import { recordSecurityEvent } from '@/lib/security-audit';
 import type Stripe from 'stripe';
 import { activatePlan, setSubscriptionStatus } from '@/lib/subscription';
@@ -176,13 +177,27 @@ export async function POST(request: Request) {
         // separate, audited staff act on /console/entitlements. Deliberately
         // no call into the entitlement service here.
         const charge = event.data.object as Stripe.Charge;
+        // The ledger side: the Payment row that carries this charge's payment
+        // intent learns the refunded amount and its status. Absolute values, so
+        // a replay converges; a charge with no local Payment (a payment made
+        // before this code, or through another path) is recorded as unmatched
+        // rather than invented.
+        const paymentIntent = typeof charge.payment_intent === 'string' ? charge.payment_intent : null;
+        const amountRefunded = typeof charge.amount_refunded === 'number' ? charge.amount_refunded : 0;
+        const fullyRefunded = charge.refunded === true || (typeof charge.amount === 'number' && amountRefunded >= charge.amount);
+        const matched = paymentIntent
+          ? await db.payment.updateMany({
+              where: { provider: 'stripe', externalId: paymentIntent },
+              data: { amountRefundedCents: amountRefunded, status: fullyRefunded ? 'refunded' : amountRefunded > 0 ? 'partially_refunded' : undefined },
+            })
+          : { count: 0 };
         await recordSecurityEvent({
           event: 'billing.refund.recorded',
           actor: { type: 'system' },
           entityType: 'Charge',
           entityId: charge.id,
-          summary: 'Refund recorded from the gateway; entitlements unchanged',
-          detail: { provider: 'stripe', refunded: charge.refunded === true, customer: typeof charge.customer === 'string' ? charge.customer : null },
+          summary: matched.count > 0 ? 'Refund recorded on the payment ledger; entitlements unchanged' : 'Refund recorded from the gateway with no matching payment row; entitlements unchanged',
+          detail: { provider: 'stripe', refunded: fullyRefunded, paymentsUpdated: matched.count, customer: typeof charge.customer === 'string' ? charge.customer : null },
         });
         break;
       }

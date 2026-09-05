@@ -19,6 +19,7 @@
  */
 import type { Prisma } from '@prisma/client';
 import { db } from '@/lib/db';
+import { isUniqueViolation } from '@/lib/billing/webhook-events';
 import { recordSecurityEvent, type RequestMeta } from '@/lib/security-audit';
 import {
   CAPABILITIES,
@@ -79,34 +80,54 @@ function actorFor(grantedBy: string | undefined) {
  * Grant, idempotently. The same (subject, capability, source, sourceRef)
  * upserts: a replayed webhook, a second click, a re-sync after a plan change
  * back to the earlier plan all land on the one row, reactivating it if it had
- * been revoked. A quantity or expiry that changed is updated in place and
- * audited as a grant; nothing else is written when nothing changed.
+ * been revoked - EXCEPT a row a member of staff revoked (`revokedReason:
+ * staff`), which stays revoked until staff grant it again: a plan sync must
+ * never quietly undo a revocation for cause (Stage 15 review). A quantity or
+ * expiry that changed is updated in place and audited as a grant; nothing
+ * else is written when nothing changed. Two identical grants racing land on
+ * one row: the loser of the unique index re-reads and updates.
  */
-export async function grantEntitlement(client: Client, input: GrantInput): Promise<{ id: string; changed: boolean }> {
+export async function grantEntitlement(client: Client, input: GrantInput): Promise<{ id: string; changed: boolean; blocked?: 'staff_revoked' }> {
   const def = CAPABILITIES[input.capability];
   if (!def) throw new EntitlementError(`Unknown capability ${input.capability}.`);
   if (def.kind === 'quantity' && (input.quantity === undefined || !Number.isInteger(input.quantity) || input.quantity < 0)) {
     throw new EntitlementError(`${input.capability} needs a non-negative integer quantity.`);
   }
   if (def.kind === 'boolean' && input.quantity !== undefined) throw new EntitlementError(`${input.capability} is a boolean capability.`);
+  if (input.source !== 'plan' && input.source !== 'trial' && !input.sourceRef) throw new EntitlementError(`A ${input.source} grant needs a sourceRef (what it was granted for), or two grants would collapse into one row.`);
   const dedupeKey = dedupeKeyFor(input.subject, input.capability, input.source, input.sourceRef);
-  const existing = await client.entitlement.findUnique({ where: { dedupeKey } });
+  const grantedBy = input.grantedBy ?? 'system';
+  const byStaff = grantedBy.startsWith('staff:');
   const expiresAt = input.expiresAt ?? null;
   const quantity = def.kind === 'quantity' ? (input.quantity as number) : null;
-  const grantedBy = input.grantedBy ?? 'system';
 
+  const existing = await client.entitlement.findUnique({ where: { dedupeKey } });
   if (existing && existing.revokedAt === null && existing.quantity === quantity && (existing.expiresAt?.getTime() ?? null) === (expiresAt?.getTime() ?? null)) {
     return { id: existing.id, changed: false };
   }
+  if (existing && existing.revokedAt !== null && existing.revokedReason === 'staff' && !byStaff) {
+    return { id: existing.id, changed: false, blocked: 'staff_revoked' };
+  }
 
-  const row = existing
-    ? await client.entitlement.update({
-        where: { id: existing.id },
-        data: { quantity, expiresAt, revokedAt: null, revokedBy: null, revokedReason: null, grantedAt: new Date(), grantedBy, note: input.note ?? existing.note },
-      })
-    : await client.entitlement.create({
+  let row;
+  if (existing) {
+    row = await client.entitlement.update({
+      where: { id: existing.id },
+      data: { quantity, expiresAt, revokedAt: null, revokedBy: null, revokedReason: null, grantedAt: new Date(), grantedBy, note: input.note ?? existing.note },
+    });
+  } else {
+    try {
+      row = await client.entitlement.create({
         data: { ...subjectWhere(input.subject), capability: input.capability, kind: def.kind, quantity, source: input.source, sourceRef: input.sourceRef ?? null, dedupeKey, expiresAt, grantedBy, note: input.note ?? '' },
       });
+    } catch (error) {
+      if (!isUniqueViolation(error)) throw error;
+      // The identical grant landed a moment ago (two webhook deliveries in flight): converge on its row.
+      const winner = await client.entitlement.findUniqueOrThrow({ where: { dedupeKey } });
+      if (winner.revokedAt === null && winner.quantity === quantity && (winner.expiresAt?.getTime() ?? null) === (expiresAt?.getTime() ?? null)) return { id: winner.id, changed: false };
+      row = await client.entitlement.update({ where: { id: winner.id }, data: { quantity, expiresAt, revokedAt: null, revokedBy: null, revokedReason: null, grantedAt: new Date(), grantedBy } });
+    }
+  }
 
   await recordSecurityEvent(
     {
@@ -229,6 +250,7 @@ export async function syncPlanEntitlements(client: Client, input: PlanSyncInput)
     const r = await grantEntitlement(client, { subject, capability: g.capability, quantity: g.quantity, source, sourceRef, expiresAt: input.expiresAt ?? null, grantedBy: input.grantedBy, meta: input.meta });
     keep.add(r.id);
     if (r.changed) granted += 1;
+    // `blocked`: staff revoked this plan capability for cause; it stays revoked until staff say otherwise.
   }
   const revoked = await revokeBySource(client, subject, source, { reason: 'plan_changed', revokedBy: input.grantedBy, meta: input.meta, except: keep });
   // A trial that becomes a paid plan, or vice versa, retires the other source's rows for this subscription.
@@ -269,6 +291,22 @@ export async function sweepExpired(client: Client, now: Date = new Date()): Prom
   let n = 0;
   for (const r of rows) if (await revokeEntitlement(client, r.id, { reason: 'expired', revokedBy: 'system' })) n += 1;
   return n;
+}
+
+/**
+ * One capability for many people at once (the CRM list): the person's own
+ * rows only - an organization's pooled rows are not folded in here, which
+ * the caller states - resolved with the same rule. Baseline when none.
+ */
+export async function quantitiesForMany(client: Client, userIds: string[], capability: Capability, now: Date = new Date()): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  if (userIds.length === 0) return out;
+  const rows = await client.entitlement.findMany({
+    where: { userId: { in: userIds }, capability, revokedAt: null, OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] },
+    select: { id: true, userId: true, capability: true, kind: true, quantity: true, source: true, expiresAt: true, revokedAt: true },
+  });
+  for (const id of userIds) out.set(id, quantityOf(resolveEntitlements(rows.filter((r) => r.userId === id), now), capability));
+  return out;
 }
 
 /** Staff view: every row for a person, newest first, with the resolved answer. */

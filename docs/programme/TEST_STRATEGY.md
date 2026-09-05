@@ -372,7 +372,10 @@ never occurred.
   family); the merge rule (max quantity, any boolean, free baseline, revoked
   and expired rows ignored, a zero grant never lowers the baseline);
   `resolvePrice` in the customer currency from `PlanPrice` with the CAD
-  fallback stated.
+  fallback stated; a `cap` row is the only thing that lowers (lowest cap
+  after every grant, a boolean cap blocks, an expired cap does not, a cap
+  above the answer changes nothing); `resolvePrice` under
+  `requireExternalPriceId` skips a cell with no gateway price id.
 - **Database (`tests/entitlements.test.ts`):** a grant without a payment is
   what the quota reads and a revoke without a refund removes it, both
   audited without an amount, the same grant twice one row; activating a plan
@@ -385,8 +388,16 @@ never occurred.
   immediate cancel revokes as `canceled`; a trial grants with the trial's
   expiry, the sweep records expiry, converting to a paid plan retires the
   trial rows; an organization's licence reaches accepted members and not
-  removed ones or strangers; the rows are visible on the tenant path to the
-  owner only.
+  removed ones or strangers; a staff revocation of a plan row holds across
+  a plan re-sync and a recovered payment (`blocked: staff_revoked`) until
+  staff grant it back; a non-plan grant without a `sourceRef` is refused; a
+  cap lowers the quota and lifting it restores the grants; buying the same
+  plan again after cancel-at-period-end clears the flag and lifts the
+  rows' expiry; a second trial of a plan is refused on the trail; an
+  account with no subscription row has a quota from its entitlement against
+  the month's application rows, with nothing to consume; `quantitiesForMany`
+  answers for many at once without organization rows; the rows are visible
+  on the tenant path to the owner only.
 - **Static (`tests/entitlements-static.test.ts`):** no feature module
   branches on `Subscription.status` or reads `plan.maxAgents` /
   `plan.applicationsPerMonth` / plan feature flags (payment-state readers

@@ -1,7 +1,7 @@
 {
   "$comment": "Machine-readable controller for the autonomous build programme. Authoritative over any chat transcript: if this file and a conversation disagree, this file wins. Updated at every stage checkpoint.",
   "schema_version": 1,
-  "updated_at": "2026-09-05T13:30:00Z",
+  "updated_at": "2026-09-05T12:40:00Z",
   "current_stage": "15",
   "last_completed_stage": "14",
   "current_branch": "claude/stage-15-payments-entitlements",
@@ -597,7 +597,7 @@
     "console": "DONE — /console/entitlements (billing_ops see, admin change) and /api/console/entitlements (grant without payment; revoke without refund; step-up; reasons; audit)",
     "pricing": "DONE — resolvePrice from PlanPrice in the customer currency with the CAD fallback stated; ensureBillingProfile before checkout; provider contract carries currency + gateway price id; Stripe provider prefers the PlanPrice id",
     "stripe_validation": "BLOCKED (CREDENTIAL) — no test-mode key in this environment; never called live or test; Stripe Tax NOT IMPLEMENTED",
-    "independent_review": "PENDING"
+    "independent_review": "DONE — adversarial review of the Stage 15 diff: 4 HIGH / 4 MEDIUM / 4 LOW; every HIGH and MEDIUM fixed on the branch (cap source that lowers; staff revocations persist through plan re-syncs and recovered payments; re-purchase after cancel-at-period-end is a new term; quota never null without a subscription row; one trial per plan; gateway price-id rule in resolvePrice + Stripe provider refusal; CRM list reads entitlements via quantitiesForMany; charge.refunded updates the Payment ledger), LOWs fixed (unique-violation convergence, sourceRef required) or recorded (121 = public schema; matrix vs plan quantities is a product decision); 6 new tests; table in STAGE15_EVIDENCE.md §11"
   },
   "stage_15_exit_gate": {
     "met": [
@@ -607,7 +607,8 @@
       "Webhook idempotency and ordering (Stage 01, tests stand)",
       "Refunds never silently revoke (static + database tests)",
       "PlanPrice and BillingProfile wired",
-      "Full gate set green: lint 0/7, typecheck 0, tests 1103/1103 (0 skipped), build 0; rehearsal 38 migrations, drift clean, 121 forced tables"
+      "Full gate set green: lint 0/7, typecheck 0, tests 1109 / 1109 (0 skipped), build 0; rehearsal 38 migrations, drift clean, 121 forced tables",
+      "Independent adversarial review: every HIGH and MEDIUM finding fixed and re-verified (evidence §11)"
     ],
     "not_met": [
       "Stripe SANDBOX-VALIDATED — BLOCKED (CREDENTIAL): STRIPE-TEST-KEY",

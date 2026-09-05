@@ -26,7 +26,7 @@ remediation has begun.**
 npm ci                # install from the lockfile
 npm run dev           # http://localhost:3000
 npx tsc --noEmit      # typecheck  — PASSES
-npm test              # 1103 tests  — PASSES with the two database URLs below set; the
+npm test              # 1109 tests  — PASSES with the two database URLs below set; the
                       #   database suites skip WITH A REASON without them and THROW
                       #   when CI=true, so CI cannot pass by skipping them
 npm run build         # production — PASSES
@@ -341,9 +341,14 @@ npm run cms:types          # regenerate payload-types.ts
     test refuses a feature module that branches on `Subscription.status` or
     reads a plan column - add a capability to the registry, never a status
     check to a page. Grants are idempotent by `dedupeKey` (a replayed
-    webhook writes nothing). Stripe has still never been called from this
+    webhook writes nothing), EXCEPT that a row staff revoked for cause stays
+    revoked through every system re-sync; `cap` is the one source that
+    LOWERS an answer (a staff ceiling, applied after the max-merge); an
+    account with no `Subscription` row still has a quota (`baselineQuota`,
+    never null). Stripe has still never been called from this
     codebase (no key here); `PlanPrice` and `BillingProfile` are wired into
-    checkout (`resolvePrice`, `ensureBillingProfile`).
+    checkout (`resolvePrice`, `ensureBillingProfile`; a real gateway is only
+    offered a price cell that carries its price id).
 
 ## Conventions worth preserving
 

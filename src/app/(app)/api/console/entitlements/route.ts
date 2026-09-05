@@ -31,7 +31,8 @@ const grantSchema = z.object({
   userId: z.string().min(1),
   capability: z.enum(CAPABILITY_KEYS as [string, ...string[]]),
   quantity: z.number().int().min(0).max(1_000_000).optional(),
-  source: z.enum(['comp', 'pilot', 'licence', 'bonus', 'staff']),
+  // `cap` LOWERS (a ceiling on a quantity, a block on a boolean); the rest grant. Plan and trial rows are the subscription module's alone.
+  source: z.enum(['comp', 'pilot', 'licence', 'bonus', 'staff', 'cap']),
   sourceRef: z.string().trim().max(120).optional(),
   expiresAt: z.coerce.date().optional(),
   reason: z.string().trim().min(3, 'Say why.').max(500),

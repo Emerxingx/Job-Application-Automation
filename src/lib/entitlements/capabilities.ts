@@ -52,7 +52,8 @@ export function isCapability(value: unknown): value is Capability {
   return typeof value === 'string' && value in CAPABILITIES;
 }
 
-export const ENTITLEMENT_SOURCES = ['plan', 'trial', 'comp', 'pilot', 'licence', 'bonus', 'staff'] as const;
+/** `cap` is the one source that LOWERS: a ceiling staff set on a capability (a quantity, or `false` for a boolean), applied after every grant (Stage 15 review). */
+export const ENTITLEMENT_SOURCES = ['plan', 'trial', 'comp', 'pilot', 'licence', 'bonus', 'staff', 'cap'] as const;
 export type EntitlementSource = (typeof ENTITLEMENT_SOURCES)[number];
 
 export const REVOKE_REASONS = ['plan_changed', 'canceled', 'payment_lapsed', 'trial_ended', 'staff', 'expired'] as const;
@@ -151,28 +152,41 @@ export interface ActiveRow {
 }
 
 /**
- * Merge the active rows into one answer per capability: a quantity is the
- * MAX across rows (a comp on top of a plan never lowers what the plan gave),
- * a boolean is true if any row says so; nothing → the free baseline.
- * Pure, so the merge rule is testable without a database.
+ * Merge the active rows into one answer per capability: grants combine by
+ * MAX (a comp on top of a plan never lowers what the plan gave; a boolean is
+ * true if any grant says so), nothing → the free baseline, and then a CAP
+ * row, if any, lowers the answer to its ceiling (the lowest cap wins; a
+ * boolean cap is a block). A cap is the only way below a plan's grant or
+ * the baseline, and only staff write one. Pure, so the rule is testable
+ * without a database.
  */
 export function resolveEntitlements(rows: readonly ActiveRow[], now: Date = new Date()): EntitlementSet {
   const set = {} as EntitlementSet;
   for (const key of CAPABILITY_KEYS) {
     const def = CAPABILITIES[key];
-    const active = rows.filter((r) => r.capability === key && r.revokedAt === null && (r.expiresAt === null || r.expiresAt > now));
+    const live = rows.filter((r) => r.capability === key && r.revokedAt === null && (r.expiresAt === null || r.expiresAt > now));
+    const caps = live.filter((r) => r.source === 'cap');
+    const active = live.filter((r) => r.source !== 'cap');
+    let resolved: ResolvedCapability;
     if (active.length === 0) {
-      set[key] = { value: def.free, source: 'free', rowIds: [] };
-      continue;
-    }
-    if (def.kind === 'quantity') {
+      resolved = { value: def.free, source: 'free', rowIds: [] };
+    } else if (def.kind === 'quantity') {
       let best = active[0]!;
       for (const r of active) if ((r.quantity ?? 0) > (best.quantity ?? 0)) best = r;
       const value = Math.max(typeof def.free === 'number' ? def.free : 0, best.quantity ?? 0);
-      set[key] = { value, source: value === (best.quantity ?? 0) ? (best.source as EntitlementSource) : 'free', rowIds: active.map((r) => r.id) };
+      resolved = { value, source: value === (best.quantity ?? 0) ? (best.source as EntitlementSource) : 'free', rowIds: active.map((r) => r.id) };
     } else {
-      set[key] = { value: true, source: active[0]!.source as EntitlementSource, rowIds: active.map((r) => r.id) };
+      resolved = { value: true, source: active[0]!.source as EntitlementSource, rowIds: active.map((r) => r.id) };
     }
+    if (caps.length > 0) {
+      if (def.kind === 'quantity') {
+        const ceiling = Math.min(...caps.map((c) => c.quantity ?? 0));
+        if (typeof resolved.value === 'number' && ceiling < resolved.value) resolved = { value: ceiling, source: 'cap', rowIds: [...resolved.rowIds, ...caps.map((c) => c.id)] };
+      } else {
+        resolved = { value: false, source: 'cap', rowIds: [...resolved.rowIds, ...caps.map((c) => c.id)] };
+      }
+    }
+    set[key] = resolved;
   }
   return set;
 }

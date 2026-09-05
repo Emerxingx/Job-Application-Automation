@@ -18,7 +18,7 @@
  */
 
 import { db } from '../db';
-import { quantityFor } from '@/lib/entitlements/service';
+import { quantitiesForMany, quantityFor } from '@/lib/entitlements/service';
 import { monthlyEquivalent } from '../subscription';
 import { parseJson } from '../types';
 import {
@@ -245,6 +245,13 @@ interface Aggregates {
   overdueInvoices: Map<string, number>;
   openTickets: Map<string, number>;
   lifetimeValue: Map<string, number>;
+  /**
+   * Stage 15: the resolved `applications_per_month` entitlement per user (a
+   * comp, a pilot, the plan - whichever is highest; the free baseline when
+   * no row applies). The person's own rows only: an organization's pooled
+   * licence is not folded into the list, and the detail page says so.
+   */
+  entitledApplications: Map<string, number>;
 }
 
 /**
@@ -260,12 +267,13 @@ async function loadAggregates(userIds: string[], now: Date): Promise<Aggregates>
     overdueInvoices: new Map(),
     openTickets: new Map(),
     lifetimeValue: new Map(),
+    entitledApplications: new Map(),
   };
   if (userIds.length === 0) return empty;
 
   const since = new Date(now.getTime() - 30 * DAY_MS);
 
-  const [activity, applications, failures, overdue, tickets, invoices] = await Promise.all([
+  const [activity, applications, failures, overdue, tickets, invoices, entitled] = await Promise.all([
     db.activityEvent.groupBy({
       by: ['userId'],
       where: { userId: { in: userIds } },
@@ -298,6 +306,7 @@ async function loadAggregates(userIds: string[], now: Date): Promise<Aggregates>
       where: { userId: { in: userIds }, status: { not: 'void' } },
       _sum: { amountPaidCents: true, amountRefundedCents: true },
     }),
+    quantitiesForMany(db, userIds, 'applications_per_month', now),
   ]);
 
   for (const row of activity) {
@@ -314,8 +323,16 @@ async function loadAggregates(userIds: string[], now: Date): Promise<Aggregates>
     const refunded = row._sum.amountRefundedCents ?? 0;
     empty.lifetimeValue.set(row.userId, paid - refunded);
   }
+  empty.entitledApplications = entitled;
 
   return empty;
+}
+
+/** The list's monthly allowance: the entitlement (plus the subscription's bonus), the plan's column only when no entitlement was read. */
+function listAllowance(user: ListUser, aggregates: Aggregates): number {
+  const entitled = aggregates.entitledApplications.get(user.id);
+  if (entitled === undefined) return allowanceFor(user.subscription);
+  return entitled + (user.subscription?.bonusApplications ?? 0);
 }
 
 function assess(user: ListUser, aggregates: Aggregates, now: Date): LifecycleAssessment {
@@ -330,7 +347,7 @@ function assess(user: ListUser, aggregates: Aggregates, now: Date): LifecycleAss
     periodStart: subscription?.periodStart ?? null,
     periodEnd: subscription?.periodEnd ?? null,
     applicationsUsed: subscription?.applicationsUsed ?? 0,
-    applicationsLimit: allowanceFor(subscription),
+    applicationsLimit: listAllowance(user, aggregates),
     lastActivityAt: aggregates.lastActivityAt.get(user.id) ?? null,
     failedPaymentsLast30Days: aggregates.failedPayments30d.get(user.id) ?? 0,
     overdueInvoices: aggregates.overdueInvoices.get(user.id) ?? 0,
@@ -361,7 +378,7 @@ function toRow(user: ListUser, aggregates: Aggregates, now: Date): CustomerListR
       aggregates.lifetimeValue.get(user.id) ?? user.customer?.lifetimeValueCents ?? 0,
 
     applicationsUsed: subscription?.applicationsUsed ?? 0,
-    applicationsLimit: allowanceFor(subscription),
+    applicationsLimit: listAllowance(user, aggregates),
     applicationsLast30Days: aggregates.applications30d.get(user.id) ?? 0,
     lastActivityAt: aggregates.lastActivityAt.get(user.id) ?? null,
 

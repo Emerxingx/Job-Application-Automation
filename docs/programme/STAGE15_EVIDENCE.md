@@ -1,7 +1,7 @@
 # Stage 15 - Payments, subscriptions and entitlements - evidence
 
 Recorded 2026-09-05 on branch `claude/stage-15-payments-entitlements`
-(PR __PR__), stacked on Stage 14 (PR #26) - 13 (#25) - 12 (#24) - 11 (#23) -
+(PR #27), stacked on Stage 14 (PR #26) - 13 (#25) - 12 (#24) - 11 (#23) -
 10 (#22) - 09 (#21) - 08 (#20) - 07 (#19) - 06 (#18) - 05 (#17) - 04 (#16) -
 03 (#15) - 02 (#14) - 01 (#13, PARTIAL). Every line was run or read; nothing
 is PASS on the strength of a mock, a skipped test or a document. This stage's
@@ -87,7 +87,7 @@ its environment map.
 
 ## 6. Tests - `PASS`
 
-`tests/entitlements.test.ts` (4 pure, 6 database) and
+`tests/entitlements.test.ts` (6 pure, 10 database) and
 `tests/entitlements-static.test.ts` (3): every case in `TEST_STRATEGY.md`
 §Stage 15 - a grant without payment is what the quota reads; a revoke
 without refund removes it; the same grant twice is one row and a replayed
@@ -101,7 +101,12 @@ accepted members only; RLS shows the owner only; no feature module branches
 on `Subscription.status` or reads a plan column; the refund handler and
 `src/lib/billing` cannot revoke. Stage 01's replay and ordering tests
 (`tests/webhook-events.test.ts`) and the payments and subscription suites
-stand unchanged.
+stand unchanged. The review round (§11) added: the cap rule (pure and
+against the database), a staff revocation surviving a plan re-sync and a
+recovered payment, a non-plan grant without a `sourceRef` refused, a
+re-purchase after cancel-at-period-end starting a new term, a second trial
+of a plan refused on the trail, an account with no subscription row having
+a quota, and `resolvePrice` under `requireExternalPriceId`.
 
 ## 7. Stripe - `BLOCKED (CREDENTIAL)`
 
@@ -120,9 +125,9 @@ STRIPE-TEST-KEY.
 | --- | --- |
 | Lint | 0 errors, 7 warnings (baseline ceiling 8; one pre-existing warning resolved) |
 | Typecheck | 0 |
-| Tests | **1103 / 1103**, 0 skipped (Stage 14: 1087) - new: `entitlements` 10, `entitlements-static` 3 |
+| Tests | **1109 / 1109**, 0 skipped (Stage 14: 1087) - new: `entitlements` 16, `entitlements-static` 3 |
 | Build | passes; `/console/entitlements` and `/api/console/entitlements` present |
-| Migrations | **thirty-eight** (two new, additive; RLS generated); fresh-database rehearsal: 38 applied, `migrate diff` clean, **121** forced-RLS public tables |
+| Migrations | **thirty-eight** (two new, additive; RLS generated); fresh-database rehearsal: 38 applied, `migrate diff` clean, **121** forced-RLS tables in `public` (122 counting the `sensitive` schema's one table, which the RLS manifest also covers) |
 
 ## 9. Exit gate - verdict
 
@@ -156,4 +161,27 @@ Stripe test-mode credential.** Everything provable without Stripe is proven.
 
 ## 11. Independent review
 
-__REVIEW__
+An independent adversarial review of the Stage 15 diff (a separate agent
+with the whole tree, asked to break the entitlement layer, the payment
+transitions and the honesty of the evidence) returned 4 HIGH, 4 MEDIUM and
+4 LOW findings. Every HIGH and MEDIUM is fixed on the branch; the LOWs are
+fixed or recorded here. Nothing was suppressed.
+
+| # | Severity | Finding | Outcome |
+| --- | --- | --- | --- |
+| H1 | HIGH | The max-merge rule could never take an account BELOW its plan or the free baseline: a zero grant was ignored, so staff had no way to cap an abusive account short of revoking every row. | Fixed: `cap` is a new source that LOWERS (`resolveEntitlements` applies the lowest cap after every grant; a boolean cap blocks), grantable on `/console/entitlements`; pure and database tests. |
+| H2 | HIGH | A staff revocation of a plan row was undone by the next plan sync: a replayed `checkout.session.completed` or a recovered payment reactivated the row `grantEntitlement` had been told to revoke for cause. | Fixed: a row with `revokedReason: staff` is not reactivated by a non-staff grant (`blocked: 'staff_revoked'`); a sync leaves it; staff can grant it back. Tested across `activatePlan` and `setSubscriptionStatus('active')`. |
+| H3 | HIGH | `activatePlan` treated a re-purchase after cancel-at-period-end as a replay (same plan, same interval, status active), so the flag never cleared and the entitlements kept their expiry. | Fixed: a replay requires `!cancelAtPeriodEnd`; tested. |
+| H4 | HIGH | `getQuota` returned `null` for an account with no `Subscription` row and several pages read `null` as unlimited, so a comp granted before any checkout had no ceiling. | Fixed: `baselineQuota` - the `applications_per_month` entitlement against the calendar month's `Application` rows, never null; `consumeQuota`/`refundQuota` move no counter for it; tested. |
+| M1 | MEDIUM | `startTrial` allowed a second trial of the same plan after the first expired: the trail existed but was not consulted. | Fixed: any `trial` row for the plan, active or not, refuses; tested. |
+| M2 | MEDIUM | `resolvePrice` handed a real gateway a `PlanPrice` cell with no gateway price id, and the Stripe provider then charged the CAD environment price under the customer's currency label. | Fixed: `requireExternalPriceId` (set by checkout when the provider is not mock/manual) skips such a cell and the CAD default applies, stated in the response; the Stripe provider refuses a non-CAD checkout without a price id; tested. |
+| M3 | MEDIUM | The CRM customer list still showed the plan column as the allowance (`allowanceFor`) while the detail page showed the entitlement, so a comp or a cap was invisible in the list. | Fixed: `quantitiesForMany` resolves the list's allowance in one query; an organization's pooled rows are not folded into the list, and the code says so. |
+| M4 | MEDIUM | `charge.refunded` wrote an audit row and nothing else: the `Payment` ledger never learned the refund, so lifetime value and the invoice trail overstated revenue. | Fixed: the handler sets `amountRefundedCents` and `refunded`/`partially_refunded` on the `Payment` whose `externalId` is the charge's payment intent (absolute values, so a replay converges) and records whether a row matched. Entitlements are still untouched (static test unchanged). |
+| L1 | LOW | Two identical grants racing (two webhook deliveries) could hit the `dedupeKey` unique index and fail one delivery. | Fixed: the loser re-reads the winner's row and converges. |
+| L2 | LOW | A non-plan grant without a `sourceRef` collapsed two unrelated comps into one row. | Fixed: refused with a message; tested. |
+| L3 | LOW | The evidence's "121 forced-RLS tables" omitted the `sensitive` schema's table (122 in total). | Recorded: the count is the `public` schema's, stated as such in §8. |
+| L4 | LOW | The matrix/plan quantity mismatch (30/100/300 vs 25/120/400) remains a product decision. | Recorded (§10); unchanged by design. |
+
+Verification after the fixes: typecheck 0, lint 0 errors / 7 warnings,
+`1109 / 1109` tests (0 skipped), build passes. The review's gate counts
+are in §8.

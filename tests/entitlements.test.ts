@@ -68,6 +68,41 @@ describe('entitlements - the registry and the merge rule (pure)', () => {
     assert.equal(quantityOf(set, 'interview_prep_per_month'), 0);
   });
 
+  it('a cap row is the only thing that lowers: the lowest ceiling wins over any grant and over the baseline, a boolean cap blocks (review fix)', () => {
+    const now = new Date('2026-09-05T12:00:00Z');
+    const rows = [
+      { id: 'p', capability: 'applications_per_month', kind: 'quantity', quantity: 120, source: 'plan', expiresAt: null, revokedAt: null },
+      { id: 'c', capability: 'applications_per_month', kind: 'quantity', quantity: 10, source: 'cap', expiresAt: null, revokedAt: null },
+      { id: 'c2', capability: 'applications_per_month', kind: 'quantity', quantity: 40, source: 'cap', expiresAt: null, revokedAt: null },
+      { id: 'a', capability: 'agents', kind: 'quantity', quantity: 0, source: 'cap', expiresAt: null, revokedAt: null },
+      { id: 'x', capability: 'docx_export', kind: 'boolean', quantity: null, source: 'plan', expiresAt: null, revokedAt: null },
+      { id: 'xc', capability: 'docx_export', kind: 'boolean', quantity: null, source: 'cap', expiresAt: null, revokedAt: null },
+      { id: 'old', capability: 'interview_prep_per_month', kind: 'quantity', quantity: 0, source: 'cap', expiresAt: new Date('2026-09-01T00:00:00Z'), revokedAt: null },
+      { id: 'ip', capability: 'interview_prep_per_month', kind: 'quantity', quantity: 8, source: 'comp', expiresAt: null, revokedAt: null },
+      { id: 'hi', capability: 'documents_per_month', kind: 'quantity', quantity: 999, source: 'cap', expiresAt: null, revokedAt: null },
+    ];
+    const set = resolveEntitlements(rows, now);
+    assert.equal(quantityOf(set, 'applications_per_month'), 10, 'the lowest cap is the ceiling');
+    assert.equal(set.applications_per_month.source, 'cap');
+    assert.deepEqual(set.applications_per_month.rowIds, ['p', 'c', 'c2'], 'the grant and both caps are cited');
+    assert.equal(quantityOf(set, 'agents'), 0, 'a cap goes below the free baseline, which a zero grant never does');
+    assert.equal(allows(set, 'docx_export'), false, 'a boolean cap blocks a plan grant');
+    assert.equal(quantityOf(set, 'interview_prep_per_month'), 8, 'an expired cap no longer lowers');
+    assert.equal(quantityOf(set, 'documents_per_month'), CAPABILITIES.documents_per_month.free, 'a cap above the answer changes nothing');
+    assert.equal(set.documents_per_month.source, 'free');
+  });
+
+  it('resolvePrice with requireExternalPriceId skips a cell that has no gateway price id and says the CAD default applies (review fix)', () => {
+    const plan = { monthlyPriceCents: 2900, quarterlyPriceCents: 7800, annualPriceCents: 27900 };
+    const prices = [
+      { currency: 'USD', interval: 'monthly', amountCents: 2200, externalPriceId: null, active: true },
+      { currency: 'USD', interval: 'annual', amountCents: 21000, externalPriceId: 'price_usd_y', active: true },
+    ];
+    assert.deepEqual(resolvePrice(plan, 'monthly', 'USD', prices), { amountCents: 2200, currency: 'USD', externalPriceId: null, source: 'plan_price' }, 'the mock and manual gateways charge the amount');
+    assert.deepEqual(resolvePrice(plan, 'monthly', 'USD', prices, { requireExternalPriceId: true }), { amountCents: 2900, currency: 'CAD', externalPriceId: null, source: 'plan_columns' }, 'a real gateway cannot charge a cell with no price id, so it is not offered as USD');
+    assert.deepEqual(resolvePrice(plan, 'annual', 'USD', prices, { requireExternalPriceId: true }), { amountCents: 21000, currency: 'USD', externalPriceId: 'price_usd_y', source: 'plan_price' });
+  });
+
   it('resolvePrice answers in the customer currency from PlanPrice and falls back to the CAD columns, saying so', () => {
     const plan = { monthlyPriceCents: 2900, quarterlyPriceCents: 7800, annualPriceCents: 27900 };
     const prices = [
@@ -226,6 +261,87 @@ describe('entitlements - against the database', { skip: SKIP }, () => {
     await svc.revokeBySource(db, { organizationId: org.id }, 'licence', { reason: 'staff', revokedBy: 'staff:s1' });
     assert.equal(await svc.can(db, W.id, 'api_access'), false);
     await db.organization.delete({ where: { id: org.id } });
+  });
+
+  it('a staff revocation of a plan row holds across a plan re-sync and a recovered payment; a non-plan grant needs a sourceRef; a cap lowers the quota (review fixes)', async () => {
+    await sub.activatePlan(W.id, `professional-${S}`, 'monthly', { external: { subscriptionId: `sub_w_${S}` }, by: 'webhook:stripe' });
+    const docx = await db.entitlement.findFirstOrThrow({ where: { userId: W.id, capability: 'docx_export', source: 'plan', revokedAt: null } });
+    assert.equal(await svc.revokeEntitlement(db, docx.id, { reason: 'staff', revokedBy: 'staff:s1', note: 'abuse' }), true);
+    assert.equal(await svc.can(db, W.id, 'docx_export'), false);
+    // the gateway replays the activation and later reports a recovered payment: both re-sync the plan
+    await sub.activatePlan(W.id, `professional-${S}`, 'monthly', { external: { subscriptionId: `sub_w_${S}` }, by: 'webhook:stripe' });
+    await sub.setSubscriptionStatus(`sub_w_${S}`, 'active', { by: 'webhook:stripe' });
+    assert.equal(await svc.can(db, W.id, 'docx_export'), false, 'a system re-sync does not undo a revocation for cause');
+    const still = await db.entitlement.findUniqueOrThrow({ where: { id: docx.id } });
+    assert.equal(still.revokedReason, 'staff');
+    const blocked = await svc.grantEntitlement(db, { subject: { userId: W.id }, capability: 'docx_export', source: 'plan', sourceRef: docx.sourceRef, grantedBy: 'webhook:stripe' });
+    assert.deepEqual(blocked, { id: docx.id, changed: false, blocked: 'staff_revoked' });
+    // staff can grant it back
+    const restored = await svc.grantEntitlement(db, { subject: { userId: W.id }, capability: 'docx_export', source: 'plan', sourceRef: docx.sourceRef, grantedBy: 'staff:s2' });
+    assert.equal(restored.changed, true);
+    assert.equal(await svc.can(db, W.id, 'docx_export'), true);
+    // a comp without a sourceRef would collapse two comps into one row
+    await assert.rejects(() => svc.grantEntitlement(db, { subject: { userId: W.id }, capability: 'agents', quantity: 9, source: 'comp', grantedBy: 'staff:s1' }), /sourceRef/);
+    // a cap from staff lowers the quota below the plan's 120 (and below the 200 comp W holds)
+    const cap = await svc.grantEntitlement(db, { subject: { userId: W.id }, capability: 'applications_per_month', quantity: 3, source: 'cap', sourceRef: 'ticket-99', grantedBy: 'staff:s1', note: 'abuse' });
+    assert.equal(cap.changed, true);
+    assert.equal((await quota(W.id)).limit, 3, 'the cap is the ceiling');
+    assert.equal((await sub.getQuota(W.id))!.canApply, true);
+    await svc.revokeEntitlement(db, cap.id, { reason: 'staff', revokedBy: 'staff:s1' });
+    assert.ok((await quota(W.id)).limit >= 120, 'lifting the cap restores the grants');
+  });
+
+  it('buying the same plan again after cancel-at-period-end starts a new term: the flag clears and the expiry lifts (review fix)', async () => {
+    const cancelled = await sub.cancelSubscription(W.id, { by: 'user' });
+    assert.ok(cancelled.accessUntil);
+    assert.equal((await db.subscription.findUniqueOrThrow({ where: { userId: W.id } })).cancelAtPeriodEnd, true);
+    assert.ok((await active(W.id)).filter((r) => r.source === 'plan').every((r) => r.expiresAt !== null), 'the plan rows expire at the period end');
+    await sub.activatePlan(W.id, `professional-${S}`, 'monthly', { external: { subscriptionId: `sub_w_${S}` }, by: 'webhook:stripe' });
+    const row = await db.subscription.findUniqueOrThrow({ where: { userId: W.id } });
+    assert.equal(row.cancelAtPeriodEnd, false, 'not a replay: a new term');
+    assert.equal(row.status, 'active');
+    assert.ok((await active(W.id)).filter((r) => r.source === 'plan').every((r) => r.expiresAt === null), 'the plan rows no longer expire');
+  });
+
+  it('a second trial of a plan is refused, on the trail of trial rows even after they were revoked (review fix)', async () => {
+    // V trialled professional (expired, swept) and starter (converted) above
+    await assert.rejects(() => sub.startTrial(V.id, `professional-${S}`, 7, { by: 'staff:s1' }), /already had a trial/);
+    await assert.rejects(() => sub.startTrial(V.id, `starter-${S}`, 7, { by: 'staff:s1' }), /already had a trial/);
+  });
+
+  it('an account with no subscription row still has a quota: the entitlement limit against this month\'s application rows, nothing to consume (review fix)', async () => {
+    const X = { id: `ent_x_${S}`, email: `ent-x-${S}@ent.test` };
+    await db.user.create({ data: { id: X.id, email: X.email, passwordHash: 'x', fullName: 'Ent Tester', country: 'CA' } });
+    try {
+      const base = (await sub.getQuota(X.id))!;
+      assert.ok(base, 'never null');
+      assert.equal(base.limit, CAPABILITIES.applications_per_month.free);
+      assert.equal(base.used, 0);
+      assert.equal(base.planCode, 'none');
+      assert.equal(base.canApply, true);
+      await svc.grantEntitlement(db, { subject: { userId: X.id }, capability: 'applications_per_month', quantity: 2, source: 'pilot', sourceRef: 'pilot-1', grantedBy: 'staff:s1' });
+      // usage is read from the applications this month, never from a counter
+      const job = await db.job.findFirst({ select: { id: true } });
+      const jobId = job?.id ?? (await db.job.create({ data: { id: `job_x_${S}`, title: 'Analyst', company: 'Co', location: 'Toronto, ON', description: '', externalId: `x_${S}`, source: 'mock', postedAt: new Date() } })).id;
+      await db.application.create({ data: { userId: X.id, jobId, status: 'queued' } });
+      const withOne = (await sub.getQuota(X.id))!;
+      assert.equal(withOne.limit, CAPABILITIES.applications_per_month.free > 2 ? CAPABILITIES.applications_per_month.free : 2);
+      assert.equal(withOne.used, 1);
+      assert.equal(await sub.consumeQuota(X.id, 1), 1, 'granted, with no counter to move');
+      assert.equal((await sub.getQuota(X.id))!.used, 1, 'a consume moves nothing; the rows are the usage');
+      await sub.refundQuota(X.id, 1);
+      // the list reader resolves the same answer for many at once, without the org rows
+      const many = await svc.quantitiesForMany(db, [X.id, W.id, `nobody_${S}`], 'applications_per_month');
+      assert.equal(many.get(X.id), Math.max(2, CAPABILITIES.applications_per_month.free));
+      assert.equal(many.get(`nobody_${S}`), CAPABILITIES.applications_per_month.free);
+      assert.ok((many.get(W.id) ?? 0) >= 120);
+    } finally {
+      await db.application.deleteMany({ where: { userId: X.id } });
+      await db.job.deleteMany({ where: { id: `job_x_${S}` } });
+      await db.auditLog.deleteMany({ where: { entityType: 'Entitlement', actorType: 'system' } });
+      await db.entitlement.deleteMany({ where: { userId: X.id } });
+      await db.user.delete({ where: { id: X.id } });
+    }
   });
 
   it('the entitlement rows are readable on the tenant path for the owner only (RLS)', async () => {

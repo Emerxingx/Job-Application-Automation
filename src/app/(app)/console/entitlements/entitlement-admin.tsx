@@ -29,7 +29,7 @@ export interface EntitlementAuditView {
   entityId: string;
 }
 
-const SOURCES = ['comp', 'pilot', 'licence', 'bonus', 'staff'] as const;
+const SOURCES = ['comp', 'pilot', 'licence', 'bonus', 'staff', 'cap'] as const;
 
 /** Stage 15 - look an account up, see the answer and every row behind it, grant or revoke with a reason under step-up. */
 export function EntitlementAdmin({ canChange, lookupEmail, user, rows, resolved, capabilities, audit }: { canChange: boolean; lookupEmail: string; user: { id: string; email: string; fullName: string; plan: string | null; paymentStatus: string | null } | null; rows: EntitlementRowView[]; resolved: { capability: string; value: number | boolean; source: string }[]; capabilities: { key: string; kind: string; description: string }[]; audit: EntitlementAuditView[] }) {
@@ -168,6 +168,9 @@ export function EntitlementAdmin({ canChange, lookupEmail, user, rows, resolved,
             <Card>
               <h3 className="font-medium">Grant without a payment</h3>
               <p className="text-sm text-muted">A comp, a pilot, a licence paid by invoice, a goodwill bonus. The row is audited with your reason; it is revoked here, never by a refund.</p>
+              <p className="mt-1 text-sm text-muted">
+                Grants only ever raise the answer. To take an account BELOW what its plan or the free baseline gives, add a <code>cap</code> row: a ceiling on a quantity, or a block on a boolean. Revoking a plan row here holds until staff grant it again - a plan re-sync, a recovered payment or a replayed webhook does not undo a staff revocation.
+              </p>
               <div className="mt-3 grid gap-3 md:grid-cols-2">
                 <label className="flex flex-col text-sm">
                   <span className="text-muted">Capability</span>
