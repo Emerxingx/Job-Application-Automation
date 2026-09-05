@@ -141,6 +141,8 @@ export const RLS_TABLES: Record<string, RlsKind> = {
 
   // --- Public API and outbound webhooks --------------------------------------
   ApiKey: { kind: 'userOrOrg', userColumn: 'userId', orgColumn: 'organizationId' },
+  // Stage 15: a person's or an organization's entitlements; written by the service on the system client, readable on the tenant path.
+  Entitlement: { kind: 'userOrOrg', userColumn: 'userId', orgColumn: 'organizationId' },
   ApiIdempotencyRecord: { kind: 'user', column: 'userId' },
   WebhookEndpoint: { kind: 'user', column: 'userId' },
   OutboundEvent: { kind: 'user', column: 'userId' },
@@ -321,6 +323,7 @@ export const STAGE_10_TABLES = ['ApplicationStatusHistory', 'ApplicationContact'
 export const STAGE_11_TABLES = ['MailboxConnection', 'MailboxSecret', 'EmailThread', 'EmailMessageRef', 'CalendarEventRef', 'IntegrationEvent'];
 export const STAGE_12_TABLES = ['FieldMappingVersion'];
 export const STAGE_13_TABLES = ['CandidateOutcomeMart', 'CandidateMatchMart', 'CandidateBenchmarkMart'];
+export const STAGE_15_TABLES = ['Entitlement'];
 
 export const RLS_MANIFESTS: RlsManifest[] = [
   { migration: '20260903073000_row_level_security', preamble: true, tables: STAGE_01_TABLES },
@@ -336,4 +339,5 @@ export const RLS_MANIFESTS: RlsManifest[] = [
   { migration: '20260903190100_rls_mailbox_tables', preamble: false, tables: STAGE_11_TABLES },
   { migration: '20260903200100_rls_field_mapping_table', preamble: false, tables: STAGE_12_TABLES },
   { migration: '20260903210100_rls_candidate_marts', preamble: false, tables: STAGE_13_TABLES },
+  { migration: '20260905120100_rls_entitlements', preamble: false, tables: STAGE_15_TABLES },
 ];

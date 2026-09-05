@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { requireTenant } from '@/lib/tenancy/request';
+import { quantityFor } from '@/lib/entitlements/service';
 import { fail, ok, route } from '@/lib/api';
 
 const agentSchema = z.object({
@@ -36,9 +37,8 @@ export const POST = route(async (request: Request) => {
   const { user, run } = await requireTenant();
   const body = agentSchema.parse(await request.json());
 
-  // Enforce the plan's agent ceiling.
-  const maxAgents = user.subscription?.plan.maxAgents ?? 1;
-  const count = await run((tx) => tx.agent.count({ where: { userId: user.id } }));
+  // Stage 15: the ceiling is the `agents` entitlement (the plan's grant, or a comp on top), read on the tenant path.
+  const [maxAgents, count] = await run(async (tx) => [await quantityFor(tx, user.id, 'agents'), await tx.agent.count({ where: { userId: user.id } })] as const);
   if (count >= maxAgents) {
     return fail(
       `Your ${user.subscription?.plan.name ?? 'current'} plan includes ${maxAgents} agent${maxAgents === 1 ? '' : 's'}. Upgrade to run more searches in parallel.`,

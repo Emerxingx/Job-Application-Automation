@@ -57,7 +57,7 @@ npm run cms:types          # regenerate payload-types.ts
 ## Things that will surprise you
 
 1. **The database is PostgreSQL with a versioned migration history** since
-   Stage 01 (`ADR-0002`). Thirty-six migrations under `prisma/migrations/`; CI applies
+   Stage 01 (`ADR-0002`). Thirty-eight migrations under `prisma/migrations/`; CI applies
    them to an empty database and fails on drift. `DATABASE_URL` is the
    transaction pooler, `DIRECT_URL` the session endpoint for migrations. The RLS
    migration is **generated** from `src/lib/tenancy/rls-tables.ts` — regenerate
@@ -324,6 +324,26 @@ npm run cms:types          # regenerate payload-types.ts
     `mobile/`** - its own package, lockfile and CI job; excluded from the root
     tsconfig and eslint; `mobile/README.md` is the recipe. It has NEVER run
     on a device: do not claim device-level behaviour.
+
+26. **What an account may do is an entitlement, never a subscription
+    status** (Stage 15, ADR-0010, ADR-0030). `src/lib/entitlements/service.ts`
+    is the only writer and the only reader feature code uses:
+    `entitlementsFor` / `quantityFor` / `can` resolve `Entitlement` rows (the
+    person's and their accepted organizations') by max with the free
+    baseline from `capabilities.ts`. Plan transitions in
+    `src/lib/subscription.ts` are the only automatic writer (`activatePlan`,
+    `startTrial`, `cancelSubscription`, `setSubscriptionStatus`,
+    `suspendSubscription` each sync the rows with a reason); staff grant and
+    revoke on `/console/entitlements` under step-up; a refund is recorded
+    (`billing.refund.recorded`) and NEVER revokes. `getQuota`'s limit is the
+    `applications_per_month` entitlement plus the bonus and `canApply` does
+    not read status; the agent ceiling is the `agents` quantity. A static
+    test refuses a feature module that branches on `Subscription.status` or
+    reads a plan column - add a capability to the registry, never a status
+    check to a page. Grants are idempotent by `dedupeKey` (a replayed
+    webhook writes nothing). Stripe has still never been called from this
+    codebase (no key here); `PlanPrice` and `BillingProfile` are wired into
+    checkout (`resolvePrice`, `ensureBillingProfile`).
 
 ## Conventions worth preserving
 

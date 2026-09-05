@@ -18,6 +18,7 @@
  */
 
 import { db } from '../db';
+import { quantityFor } from '@/lib/entitlements/service';
 import { monthlyEquivalent } from '../subscription';
 import { parseJson } from '../types';
 import {
@@ -882,9 +883,11 @@ export interface CustomerDetail {
 export function quotaSnapshot(
   subscription: SubscriptionShape | null,
   now: Date = new Date(),
+  /** Stage 15: the resolved `applications_per_month` entitlement, when the caller read it; else the plan's allowance. */
+  entitledApplications?: number,
 ): QuotaSnapshot | null {
   if (!subscription) return null;
-  const limit = allowanceFor(subscription);
+  const limit = entitledApplications !== undefined ? entitledApplications + subscription.bonusApplications : allowanceFor(subscription);
   const windowExpired = now > subscription.periodEnd;
   const used = windowExpired ? 0 : subscription.applicationsUsed;
   return {
@@ -1048,6 +1051,8 @@ export async function getCustomerDetail(
   ]);
 
   const subscription = user.subscription;
+  // Stage 15: what the account may actually do, resolved from entitlements (read-only).
+  const entitledApplications = await quantityFor(db, userId, 'applications_per_month');
   const subscriptionShape: SubscriptionShape | null = subscription
     ? {
         status: subscription.status,
@@ -1073,7 +1078,7 @@ export async function getCustomerDetail(
     periodStart: subscription?.periodStart ?? null,
     periodEnd: subscription?.periodEnd ?? null,
     applicationsUsed: subscription?.applicationsUsed ?? 0,
-    applicationsLimit: allowanceFor(subscriptionShape),
+    applicationsLimit: entitledApplications + (subscription?.bonusApplications ?? 0),
     lastActivityAt: lastActivity?.createdAt ?? null,
     failedPaymentsLast30Days: failedPayments,
     overdueInvoices,
@@ -1146,7 +1151,7 @@ export async function getCustomerDetail(
           bonusApplications: subscription.bonusApplications,
         }
       : null,
-    quota: quotaSnapshot(subscriptionShape, now),
+    quota: quotaSnapshot(subscriptionShape, now, entitledApplications),
     usage: {
       agents,
       resumes,

@@ -54,9 +54,12 @@ export class StripePaymentProvider implements PaymentProvider {
     planCode: string;
     interval: BillingInterval;
     amountCents: number;
+    currency?: string;
+    externalPriceId?: string | null;
   }): Promise<CheckoutSession> {
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-    const price = priceIdFor(input.planCode, input.interval);
+    // Stage 15: a PlanPrice row's own price id wins over the environment map.
+    const price = input.externalPriceId ?? priceIdFor(input.planCode, input.interval);
 
     if (!price) {
       throw new Error(

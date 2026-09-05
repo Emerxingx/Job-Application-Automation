@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { recordSecurityEvent } from '@/lib/security-audit';
 import type Stripe from 'stripe';
 import { activatePlan, setSubscriptionStatus } from '@/lib/subscription';
 import {
@@ -36,6 +37,9 @@ import type { BillingInterval } from '@/lib/types';
  * errors — answering non-2xx would make Stripe retry an event we have
  * deliberately declined to apply.
  */
+/** Who drives every transition from here, for the entitlement trail. */
+const BY = 'webhook:stripe';
+
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
@@ -113,9 +117,12 @@ export async function POST(request: Request) {
         }
 
         await activatePlan(userId, planCode, interval, {
-          customerId: typeof session.customer === 'string' ? session.customer : undefined,
-          subscriptionId:
-            typeof session.subscription === 'string' ? session.subscription : undefined,
+          external: {
+            customerId: typeof session.customer === 'string' ? session.customer : undefined,
+            subscriptionId:
+              typeof session.subscription === 'string' ? session.subscription : undefined,
+          },
+          by: BY,
         });
         break;
       }
@@ -130,13 +137,13 @@ export async function POST(request: Request) {
               : subscription.status === 'canceled'
                 ? 'canceled'
                 : null;
-        if (status) await setSubscriptionStatus(subscription.id, status);
+        if (status) await setSubscriptionStatus(subscription.id, status, { by: BY });
         break;
       }
 
       case 'customer.subscription.deleted': {
         const subscription = event.data.object as Stripe.Subscription;
-        await setSubscriptionStatus(subscription.id, 'canceled');
+        await setSubscriptionStatus(subscription.id, 'canceled', { by: BY });
         break;
       }
 
@@ -146,7 +153,37 @@ export async function POST(request: Request) {
           typeof (invoice as { subscription?: unknown }).subscription === 'string'
             ? ((invoice as { subscription: string }).subscription)
             : undefined;
-        if (subId) await setSubscriptionStatus(subId, 'past_due');
+        if (subId) await setSubscriptionStatus(subId, 'past_due', { by: BY });
+        break;
+      }
+
+      case 'invoice.paid':
+      case 'invoice.payment_succeeded': {
+        // Stage 15: a paid invoice on a subscription that was past due is the
+        // recovery - the plan's entitlements are re-synced through the status.
+        const invoice = event.data.object as Stripe.Invoice;
+        const subId =
+          typeof (invoice as { subscription?: unknown }).subscription === 'string'
+            ? ((invoice as { subscription: string }).subscription)
+            : undefined;
+        if (subId) await setSubscriptionStatus(subId, 'active', { by: BY });
+        break;
+      }
+
+      case 'charge.refunded': {
+        // Stage 15 (ADR-0010): a refund is money moving back. It is RECORDED
+        // and it NEVER revokes an entitlement on its own - revocation is a
+        // separate, audited staff act on /console/entitlements. Deliberately
+        // no call into the entitlement service here.
+        const charge = event.data.object as Stripe.Charge;
+        await recordSecurityEvent({
+          event: 'billing.refund.recorded',
+          actor: { type: 'system' },
+          entityType: 'Charge',
+          entityId: charge.id,
+          summary: 'Refund recorded from the gateway; entitlements unchanged',
+          detail: { provider: 'stripe', refunded: charge.refunded === true, customer: typeof charge.customer === 'string' ? charge.customer : null },
+        });
         break;
       }
 

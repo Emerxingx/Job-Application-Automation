@@ -31,6 +31,7 @@
  */
 
 import { db } from '../db';
+import { quantityFor } from '../entitlements/service';
 import { notIneligibleFor } from '../eligibility/service';
 import { parseJson } from '../types';
 import type { Pagination } from './http';
@@ -512,7 +513,7 @@ export async function buildAnalyticsSummary(
     options.since ?? new Date(until.getTime() - DEFAULT_SUMMARY_WINDOW_DAYS * 86_400_000);
   const windowRange = { gte: since, lte: until };
 
-  const [statusGroups, windowGroups, scoreAggregate, respondedCount, agentTotal, agentActive, matchTotal, matchNew, subscription] =
+  const [statusGroups, windowGroups, scoreAggregate, respondedCount, agentTotal, agentActive, matchTotal, matchNew, subscription, entitledApplications] =
     await Promise.all([
       db.application.groupBy({ by: ['status'], where: { userId }, _count: { _all: true } }),
       db.application.groupBy({
@@ -530,6 +531,8 @@ export async function buildAnalyticsSummary(
       db.jobMatch.count({ where: { agent: { userId } } }),
       db.jobMatch.count({ where: { agent: { userId }, status: 'new' } }),
       db.subscription.findUnique({ where: { userId }, include: { plan: true } }),
+      // Stage 15: the limit is the entitlement, not the plan column (read-only; no window roll).
+      quantityFor(db, userId, 'applications_per_month'),
     ]);
 
   const byStatus: Record<string, number> = {};
@@ -602,12 +605,9 @@ export async function buildAnalyticsSummary(
           planName: subscription.plan.name,
           interval: subscription.interval,
           status: subscription.status,
-          limit: subscription.plan.applicationsPerMonth,
+          limit: entitledApplications + subscription.bonusApplications,
           used: subscription.applicationsUsed,
-          remaining: Math.max(
-            0,
-            subscription.plan.applicationsPerMonth - subscription.applicationsUsed,
-          ),
+          remaining: Math.max(0, entitledApplications + subscription.bonusApplications - subscription.applicationsUsed),
           periodEnd: subscription.periodEnd.toISOString(),
         }
       : null,

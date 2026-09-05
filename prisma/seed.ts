@@ -1,4 +1,5 @@
 import { PrismaClient } from '@prisma/client';
+import { syncPlanEntitlements } from '../src/lib/entitlements/service';
 import bcrypt from 'bcryptjs';
 import { normalizeDatabaseUrl } from '../src/lib/db-url';
 import { ensurePersonalWorkspace } from '../src/lib/tenancy/organizations';
@@ -207,7 +208,7 @@ async function main() {
   const renewsAt = new Date(now);
   renewsAt.setMonth(renewsAt.getMonth() + 1);
 
-  await db.subscription.upsert({
+  const demoSubscription = await db.subscription.upsert({
     where: { userId: user.id },
     create: {
       userId: user.id,
@@ -221,6 +222,8 @@ async function main() {
     },
     update: { planId: professional.id, status: 'active' },
   });
+  // Stage 15: a plan on its own grants nothing; its entitlement rows do.
+  await syncPlanEntitlements(db, { userId: user.id, subscriptionId: demoSubscription.id, plan: professional, source: 'plan', grantedBy: 'seed' });
 
   const existingResume = await db.resume.findFirst({
     where: { userId: user.id, isMaster: true },

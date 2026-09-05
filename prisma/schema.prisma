@@ -116,6 +116,7 @@ model User {
   notificationPrefs  NotificationPreference[]
   integrations       Integration[]
   apiKeys            ApiKey[]
+  entitlements       Entitlement[]
   apiIdempotency     ApiIdempotencyRecord[]
   webhookEndpoints   WebhookEndpoint[]
   outboundEvents     OutboundEvent[]
@@ -2464,6 +2465,7 @@ model Organization {
   plan        Plan?        @relation(fields: [planId], references: [id], onDelete: SetNull)
   memberships Membership[]
   invoices    Invoice[]
+  entitlements Entitlement[]
   apiKeys     ApiKey[]
 
   @@index([status])
@@ -2488,6 +2490,48 @@ model Membership {
 
   @@unique([organizationId, userId])
   @@index([userId])
+}
+
+// ---------------------------------------------------------------------------
+// Stage 15 (ADR-0010, ADR-0030): entitlement state, apart from payment state.
+// "May this account do X right now" is answered ONLY from these rows (plus the
+// free-tier baseline in src/lib/entitlements/capabilities.ts). A row is
+// granted by a plan transition, a trial, staff (comp / pilot / licence) or a
+// bonus; revoked rows stay for the audit trail; a replayed grant is a no-op
+// by dedupeKey. Never read Subscription.status to decide a feature.
+// ---------------------------------------------------------------------------
+
+model Entitlement {
+  id             String    @id @default(cuid())
+  userId         String?
+  organizationId String?
+  // A key of src/lib/entitlements/capabilities.ts, e.g. applications_per_month
+  capability     String
+  kind           String // boolean | quantity
+  quantity       Int? // quantity kind only
+  // plan | trial | comp | pilot | licence | bonus | staff
+  source         String
+  // What granted it: a subscription id + plan code, an invoice id, a licence ref
+  sourceRef      String?
+  // subject:capability:source:sourceRef - a replayed grant upserts, never doubles
+  dedupeKey      String    @unique
+  grantedAt      DateTime  @default(now())
+  grantedBy      String    @default("system") // system | staff:<id> | webhook:<provider>
+  expiresAt      DateTime?
+  revokedAt      DateTime?
+  revokedBy      String?
+  // plan_changed | canceled | payment_lapsed | trial_ended | staff | expired
+  revokedReason  String?
+  note           String    @default("")
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  user         User?         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([userId, capability, revokedAt])
+  @@index([organizationId, capability, revokedAt])
+  @@index([source, sourceRef])
 }
 
 // ---------------------------------------------------------------------------

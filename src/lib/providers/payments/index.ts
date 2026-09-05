@@ -23,6 +23,10 @@ export interface PaymentProvider {
     planCode: string;
     interval: BillingInterval;
     amountCents: number;
+    /** Stage 15: the customer's presentment currency from their billing profile (CAD | USD). */
+    currency?: string;
+    /** Stage 15: the gateway's own price id for this (plan, interval, currency) cell, from PlanPrice, when one is recorded. */
+    externalPriceId?: string | null;
   }): Promise<CheckoutSession>;
 
   cancel(subscriptionId: string): Promise<{ ok: boolean }>;

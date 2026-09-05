@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { Plus, Radar } from 'lucide-react';
 import { requireTenant } from '@/lib/tenancy/request';
+import { quantityFor } from '@/lib/entitlements/service';
 import { parseJson } from '@/lib/types';
 import { Card, EmptyState, PageHeader, StatusBadge, formatRelative } from '@/components/ui';
 import { ScanButton } from '@/components/scan-button';
@@ -20,7 +21,7 @@ export default async function AgentsPage() {
     }),
   );
 
-  const maxAgents = user.subscription?.plan.maxAgents ?? 1;
+  const maxAgents = await run((tx) => quantityFor(tx, user.id, 'agents'));
   const atLimit = agents.length >= maxAgents;
 
   return (
