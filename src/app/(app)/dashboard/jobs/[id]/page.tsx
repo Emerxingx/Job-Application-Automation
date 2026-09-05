@@ -5,6 +5,9 @@ import { requireTenant } from '@/lib/tenancy/request';
 import { sourceNamesFor } from '@/lib/connectors/registry';
 import { eligibilityForPage } from '@/lib/eligibility/page';
 import { EligibilityPanel } from '@/components/eligibility-panel';
+import { CredentialWhatIf } from '@/components/credential-whatif';
+import { datasetFacts, isServable } from '@/lib/career/service';
+import { quantityFor } from '@/lib/entitlements/service';
 import { attributionFor } from '@/lib/taxonomy/datasets';
 import { getQuota } from '@/lib/subscription';
 import { parseJson } from '@/lib/types';
@@ -60,6 +63,24 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
   const eligibility = await eligibilityForPage(user.id, job, run);
   // The dataset register is system-only; this reads the one column a page needs.
   const attribution = await attributionFor(job.occupationId);
+  // Stage 16 (ADR-0031): the credentials the posting's occupation lists under a
+  // recorded licence, for the "what if I held it?" comparison in the sidebar.
+  // (`TaxonomyDataset` is system-only, so the licence state is read through
+  // `datasetFacts()` on the system client, never as a relation on the tenant path.)
+  // Only for a person whose plan includes the analysis at all (the route refuses the rest).
+  const occupationCredentials = job.occupationId && (await run((tx) => quantityFor(tx, user.id, 'career_transition_per_month'))) > 0
+    ? await (async () => {
+        const facts = await datasetFacts();
+        const rows = await run((tx) =>
+          tx.occupationCredential.findMany({
+            where: { occupationId: job.occupationId! },
+            include: { credential: { select: { id: true, name: true, recognition: true, datasetId: true } } },
+            orderBy: [{ requirement: 'asc' }, { credential: { name: 'asc' } }],
+          }),
+        );
+        return rows.filter((r) => isServable(r.credential.datasetId, facts));
+      })()
+    : [];
   // Likewise the source register: display names only, keyed by id.
   const sourceNames = await sourceNamesFor(job.provenance.map((p) => p.sourceId));
 
@@ -200,6 +221,9 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
         {/* Sidebar */}
         <div className="space-y-6">
           <EligibilityPanel verdict={eligibility.verdict} evaluatedAt={eligibility.result.evaluatedAt} />
+          {occupationCredentials.length > 0 ? (
+            <CredentialWhatIf jobId={job.id} credentials={occupationCredentials.map((c) => ({ id: c.credential.id, name: c.credential.name, requirement: c.requirement, recognition: c.credential.recognition }))} />
+          ) : null}
           {match && (
             <Card className="p-5">
               <div className="flex items-center gap-4">

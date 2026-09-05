@@ -21,6 +21,7 @@ import {
   Settings,
   ShieldCheck,
   X,
+  Compass,
 } from 'lucide-react';
 import { Logo } from '@/components/site-header';
 import { Meter, cn } from '@/components/ui';
@@ -32,6 +33,7 @@ const NAV: { href: string; label: string; icon: LucideIcon }[] = [
   { href: '/dashboard/jobs', label: 'Job feed', icon: Search },
   { href: '/dashboard/applications', label: 'Applications', icon: FolderTree },
   { href: '/dashboard/analytics', label: 'Analytics', icon: BarChart3 },
+  { href: '/dashboard/career', label: 'Career transition', icon: Compass },
   // What the search produced.
   { href: '/dashboard/interview-prep', label: 'Interview prep', icon: MessagesSquare },
   { href: '/dashboard/resume', label: 'My resume', icon: FileText },

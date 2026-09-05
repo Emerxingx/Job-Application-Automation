@@ -156,6 +156,10 @@ describe('eligibility — licensure and language are advisory unless the title d
     assert.equal(advisory.hard, false);
     assert.match(advisory.reason, /may prefer rather than require/);
     assert.equal(rule(candidate({ certifications: [''] }), nurse, 'licensure').status, 'fail', 'an empty certification name holds nothing');
+    // Stage 16 review (M5): a certification recorded as not yet held does not satisfy the licence
+    for (const notYet of ['CPA (in progress)', 'CPA candidate', 'Working towards CPA', 'CPA exam booked']) {
+      assert.equal(rule(candidate({ certifications: [notYet] }), job({ title: 'CPA, Financial Reporting', normalizedTitle: 'cpa financial reporting', certificationRequirements: ['cpa'] }), 'licensure').status, 'fail', notYet);
+    }
   });
   it('language: bilingual in Canada means English and French; a listed language at a working level passes under regional codes too; otherwise unknown, never a fail', () => {
     const bilingual = job({ languageRequirements: ['bilingual'] });

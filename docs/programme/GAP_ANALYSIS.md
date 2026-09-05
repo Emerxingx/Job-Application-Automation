@@ -217,13 +217,21 @@ intervention, case note, training referral, outcome or retention model.
 **Positive finding:** no fabricated WorkBC integration exists. The integration
 boundary can be built honestly from a clean start. See `ADR-0020`.
 
-### G-20 — Career Change / Learning OS · PARTIAL (content only)
+### G-20 — Career Change / Learning OS · RESOLVED in engineering (Stage 16, ADR-0031); the graph is EMPTY until a licence is recorded
 `LearningPaths`, `Certifications`, `CareerGuides` exist as **Payload CMS
 collections** — editorial content, correctly placed. Absent: the transition
 engine, the skills/occupation graph, gap computation, and any ability to answer
 "will this certification materially improve eligibility?" — which requires the
 graph to be transactional and joinable, not CMS content.
 **Remediation:** Stage 16, with a clear CMS/transactional boundary per `ADR-0003`.
+**Stage 16 outcome:** the transactional graph (`Credential`, `OccupationCredential`,
+`LearningProvider`, `LearningOffering`, skills taught and required), a pure
+deterministic transition engine with provenance on every step, versioned
+`CareerPlan` rows with evidence-backed milestones, and the counterfactual
+(`credentialCounterfactual`: the eligibility engine before and after) are
+built and tested. What remains is not code: every learning dataset is
+`unrecorded` (L-2), so the graph holds nothing outside a test database and
+the product says so. The CMS narrative collections are untouched.
 
 ### G-21 — No Canadian labour-market taxonomy · NOT IMPLEMENTED
 No NOC, TEER, OaSIS, economic region, or skills-taxonomy tables. The 20-entry NOC

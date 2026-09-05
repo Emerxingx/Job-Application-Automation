@@ -126,6 +126,8 @@ model User {
   exportJobs         ExportJob[]
   memberships        Membership[]
   impersonations     ImpersonationSession[]
+  careerPlans          CareerPlan[]
+  careerPlanMilestones CareerPlanMilestone[]
 }
 
 // ---------------------------------------------------------------------------
@@ -2730,6 +2732,8 @@ model Skill {
   mappings    SkillMapping[]
   occupations OccupationSkill[]
 
+  credentialSkills CredentialSkill[]
+  offeringSkills   OfferingSkill[]
   @@index([taxonomyCode])
 }
 
@@ -3088,6 +3092,9 @@ model TaxonomyDataset {
 
   occupations      Occupation[]
   occupationSkills OccupationSkill[]
+  credentials       Credential[]
+  learningProviders LearningProvider[]
+  learningOfferings LearningOffering[]
 }
 
 model Occupation {
@@ -3112,6 +3119,7 @@ model Occupation {
   pathsTo   CareerPath[]      @relation("CareerPathTo")
   jobs      Job[]
 
+  credentials OccupationCredential[]
   @@index([parentId])
   @@index([level])
 }
@@ -3228,6 +3236,198 @@ model CareerPath {
 
   @@unique([fromOccupationId, toOccupationId, kind])
   @@index([toOccupationId])
+}
+
+// ---------------------------------------------------------------------------
+// Stage 16 (ADR-0031): the career transition, learning and certification
+// graph - TRANSACTIONAL and joinable (ADR-0003 keeps the narrative in the
+// CMS). Credentials, providers and offerings are licensed content: every row
+// belongs to a TaxonomyDataset and enters only through requireIngestible().
+// Reference tables are readable by every tenant and written by no tenant.
+// ---------------------------------------------------------------------------
+
+model Credential {
+  id             String   @id @default(cuid())
+  slug           String   @unique
+  name           String
+  // certification | licence | degree | diploma | microcredential | badge
+  kind           String
+  issuer         String
+  issuerUrl      String   @default("")
+  // CA | US | a province/state code | * (any)
+  jurisdiction   String   @default("CA")
+  // regulated | industry | vendor | unverified - what the DATASET states; never inferred
+  recognition    String   @default("unverified")
+  regulated      Boolean  @default(false)
+  validityMonths Int?
+  renewal        String   @default("")
+  // The spellings the eligibility engine matches on a posting (lower-case), JSON array
+  spellings      String   @default("[]")
+  datasetId      String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  dataset     TaxonomyDataset?       @relation(fields: [datasetId], references: [id], onDelete: SetNull)
+  skills      CredentialSkill[]
+  occupations OccupationCredential[]
+  offerings   LearningOffering[]
+  milestones  CareerPlanMilestone[]
+
+  @@index([kind])
+  @@index([datasetId])
+}
+
+model CredentialSkill {
+  id           String   @id @default(cuid())
+  credentialId String
+  skillId      String
+  level        String?
+  datasetId    String?
+  createdAt    DateTime @default(now())
+
+  credential Credential @relation(fields: [credentialId], references: [id], onDelete: Cascade)
+  skill      Skill      @relation(fields: [skillId], references: [id], onDelete: Cascade)
+
+  @@unique([credentialId, skillId])
+  @@index([skillId])
+}
+
+model OccupationCredential {
+  id           String   @id @default(cuid())
+  occupationId String
+  credentialId String
+  // required | preferred | regulated (a licence the law requires to practise)
+  requirement  String
+  jurisdiction String   @default("CA")
+  note         String   @default("")
+  datasetId    String?
+  createdAt    DateTime @default(now())
+
+  occupation Occupation @relation(fields: [occupationId], references: [id], onDelete: Cascade)
+  credential Credential @relation(fields: [credentialId], references: [id], onDelete: Cascade)
+
+  @@unique([occupationId, credentialId, jurisdiction])
+  @@index([credentialId])
+}
+
+model LearningProvider {
+  id        String   @id @default(cuid())
+  slug      String   @unique
+  name      String
+  // university | college | training_org | vendor | association | platform
+  kind      String
+  country   String   @default("CA")
+  region    String   @default("")
+  url       String   @default("")
+  datasetId String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  dataset   TaxonomyDataset?   @relation(fields: [datasetId], references: [id], onDelete: SetNull)
+  offerings LearningOffering[]
+
+  @@index([datasetId])
+}
+
+model LearningOffering {
+  id            String   @id @default(cuid())
+  slug          String   @unique
+  providerId    String
+  credentialId  String?
+  title         String
+  // online | in_person | hybrid
+  deliveryMode  String   @default("online")
+  durationHours Int?
+  durationWeeks Int?
+  costCents     Int?
+  currency      String   @default("CAD")
+  prerequisites String   @default("")
+  jurisdiction  String   @default("CA")
+  url           String   @default("")
+  active        Boolean  @default(true)
+  datasetId     String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  provider   LearningProvider      @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  credential Credential?           @relation(fields: [credentialId], references: [id], onDelete: SetNull)
+  dataset    TaxonomyDataset?      @relation(fields: [datasetId], references: [id], onDelete: SetNull)
+  skills     OfferingSkill[]
+  milestones CareerPlanMilestone[]
+
+  @@index([providerId])
+  @@index([credentialId])
+  @@index([datasetId, active])
+}
+
+model OfferingSkill {
+  id         String   @id @default(cuid())
+  offeringId String
+  skillId    String
+  level      String?
+  createdAt  DateTime @default(now())
+
+  offering LearningOffering @relation(fields: [offeringId], references: [id], onDelete: Cascade)
+  skill    Skill            @relation(fields: [skillId], references: [id], onDelete: Cascade)
+
+  @@unique([offeringId, skillId])
+  @@index([skillId])
+}
+
+// A person's transition plan: the engine's analysis as a versioned snapshot
+// (a re-analysis is a NEW version; the previous one stays), with milestones.
+model CareerPlan {
+  id                  String   @id @default(cuid())
+  userId              String
+  version             Int      @default(1)
+  // draft | active | archived
+  status              String   @default("active")
+  title               String
+  currentOccupationId String?
+  targetOccupationId  String
+  // The TransitionAnalysis the engine produced, JSON, with its provenance
+  analysis            String   @default("{}")
+  engineVersion       String
+  supersedesId        String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  user       User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  milestones CareerPlanMilestone[]
+
+  @@unique([supersedesId])
+  @@index([userId, status, createdAt])
+  @@index([targetOccupationId])
+}
+
+model CareerPlanMilestone {
+  id           String    @id @default(cuid())
+  userId       String
+  planId       String
+  // learning | credential | experience | other
+  kind         String
+  title        String
+  offeringId   String?
+  credentialId String?
+  occupationId String?
+  // planned | in_progress | done | dropped
+  status       String    @default("planned")
+  dueAt        DateTime?
+  completedAt  DateTime?
+  // The approved CareerEvidence a completed milestone is backed by (Stage 03)
+  evidenceId   String?
+  sortOrder    Int       @default(0)
+  note         String    @default("")
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  user       User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan       CareerPlan        @relation(fields: [planId], references: [id], onDelete: Cascade)
+  offering   LearningOffering? @relation(fields: [offeringId], references: [id], onDelete: SetNull)
+  credential Credential?       @relation(fields: [credentialId], references: [id], onDelete: SetNull)
+
+  @@index([userId, planId, sortOrder])
+  @@index([planId])
 }
 
 model Region {
