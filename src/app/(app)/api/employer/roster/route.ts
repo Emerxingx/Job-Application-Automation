@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { ok, route } from '@/lib/api';
-import { employerFail, employerRequest } from '@/lib/employer/request';
+import { employerDone, employerFail, employerRequest } from '@/lib/employer/request';
 import { setEmployerRole } from '@/lib/employer/service';
 import { EMPLOYER_ROLES } from '@/lib/employer/roles';
 
@@ -11,7 +11,7 @@ export const PATCH = route(async (request: Request) => {
   const body = schema.parse(await request.json());
   try {
     const { actor } = await employerRequest(request, body.organizationId);
-    await setEmployerRole(actor, body.userId, body.serviceRole);
+    await employerDone(actor, () => setEmployerRole(actor, body.userId, body.serviceRole));
     return ok({ ok: true });
   } catch (error) {
     return employerFail(error) ?? Promise.reject(error);

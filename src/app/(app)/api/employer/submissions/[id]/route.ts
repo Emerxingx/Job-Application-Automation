@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { ok, route } from '@/lib/api';
-import { employerFail, employerRequest, organizationIdOf } from '@/lib/employer/request';
+import { employerDone, employerFail, employerRequest, organizationIdOf } from '@/lib/employer/request';
 import { loadSubmission, moveSubmission } from '@/lib/employer/service';
 import { SUBMISSION_STAGES } from '@/lib/employer/stage-machine';
 
@@ -11,7 +11,7 @@ export const GET = route(async (request: Request, { params }: Params) => {
   const { id } = await params;
   try {
     const { tenant, actor } = await employerRequest(request, organizationIdOf(request));
-    return ok(await tenant.run((tx) => loadSubmission(tx, actor, id)));
+    return ok(await employerDone(actor, () => tenant.run((tx) => loadSubmission(tx, actor, id))));
   } catch (error) {
     return employerFail(error) ?? Promise.reject(error);
   }
@@ -25,7 +25,7 @@ export const PATCH = route(async (request: Request, { params }: Params) => {
   const body = schema.parse(await request.json());
   try {
     const { tenant, actor } = await employerRequest(request, body.organizationId);
-    const s = await tenant.run((tx) => moveSubmission(tx, actor, id, body.to, body.note));
+    const s = await employerDone(actor, () => tenant.run((tx) => moveSubmission(tx, actor, id, body.to, body.note)));
     return ok({ submission: { id: s.id, stage: s.stage } });
   } catch (error) {
     return employerFail(error) ?? Promise.reject(error);

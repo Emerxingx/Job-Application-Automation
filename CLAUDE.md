@@ -57,7 +57,7 @@ npm run cms:types          # regenerate payload-types.ts
 ## Things that will surprise you
 
 1. **The database is PostgreSQL with a versioned migration history** since
-   Stage 01 (`ADR-0002`). Forty-six migrations under `prisma/migrations/`; CI applies
+   Stage 01 (`ADR-0002`). Forty-seven migrations under `prisma/migrations/`; CI applies
    them to an empty database and fails on drift. `DATABASE_URL` is the
    transaction pooler, `DIRECT_URL` the session endpoint for migrations. The RLS
    migration is **generated** from `src/lib/tenancy/rls-tables.ts` — regenerate
@@ -385,7 +385,7 @@ npm run cms:types          # regenerate payload-types.ts
     and a declined person is not re-invited; nothing about the client is
     read before consent or after withdrawal, and the delegated read checks
     THE CASE'S OWN consent record, never the purpose. A service-provider
-    organisation is created only with `{ verifiedProvider: true }` (staff).
+    organisation is created only with `{ verifiedOrganization: true }` (staff).
     `Case` is SELECT-only for the client under RLS (`custom` + `readUsing`). `CaseNote` / `CaseAssessment` are `org`-scoped under RLS
     and every read and write is audited FIRST on the system client with ids
     and kinds only. What a case manager sees of the client is the delegated,
@@ -401,15 +401,18 @@ npm run cms:types          # regenerate payload-types.ts
 
 29. **No employer sees a candidate who has not granted disclosure to THAT
     employer** (Stage 18, ADR-0033). `src/lib/employer/`: the hiring roles
-    are a named set over the ladder (`roles.ts`, the matrix row); a
-    requisition is a draft until opened, and opening publishes it through
+    are a named set over the ladder (`roles.ts`, the matrix row); an
+    employer organisation, like a service provider, is created only with
+    `{ verifiedOrganization: true }` (staff); a requisition is a draft until opened, and opening publishes it through
     `requireEnabledSource('employer')` and the Stage 06 pipeline as a
     canonical `Job` (`source: employer`; closure is what the requisition's
     status says) - the publishing writes run on the SYSTEM client because
     the pipeline must see the committed row (never inside `run()`).
     Sourcing (`candidate-view.ts`) returns anonymised cards scored by
-    `scoreCompatibility` honouring `recruiterVisibility` (hidden is never
-    sourced nor askable). `Disclosure` is the candidate's per-employer
+    `scoreCompatibility({ mode: 'deterministic' })` - the engine alone, no
+    `AiRun` under the candidate, no model - honouring `recruiterVisibility`
+    (hidden is never sourced nor askable). Employer audit rows are BUFFERED
+    on the actor and flushed by `employerDone` after the transaction. `Disclosure` is the candidate's per-employer
     consent: granted in one transaction with its `ConsentRecord`
     (`employer_disclosure`), declined is final, revoked withdraws every
     disclosed submission and pool membership; every employer-visible read

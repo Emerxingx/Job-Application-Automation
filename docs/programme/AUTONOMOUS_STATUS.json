@@ -1,7 +1,7 @@
 {
   "$comment": "Machine-readable controller for the autonomous build programme. Authoritative over any chat transcript: if this file and a conversation disagree, this file wins. Updated at every stage checkpoint.",
   "schema_version": 1,
-  "updated_at": "2026-09-05T13:40:00Z",
+  "updated_at": "2026-09-05T14:20:00Z",
   "current_stage": "18",
   "last_completed_stage": "17",
   "current_branch": "claude/stage-18-talent-acquisition",
@@ -677,13 +677,13 @@
     "verdict": "Stage 17 engineering is complete at Level 0; public-sector deployment is blocked on L-1. Merge posture inherited from the stack."
   },
   "stage_18_progress": {
-    "organisations_roles": "DONE — employer organisations; Membership.serviceRole as a named set (recruiter | hiring_manager | interviewer | viewer; owner/admin → admin; unknown → viewer) enforced per the matrix row",
+    "organisations_roles": "DONE — employer organisations created only by staff once verified ({ verifiedOrganization: true }, the console two-lock gate; review H1); Membership.serviceRole as a named set (recruiter | hiring_manager | interviewer | viewer; owner/admin → admin; unknown → viewer) enforced per the matrix row, including the profile (interviewer only when named; never a viewer) and offers (hidden from interviewer and viewer)",
     "requisitions_publishing": "DONE — migration 20260905180000_talent_acquisition (9 tables) + RLS 20260905180100_rls_talent_acquisition; a requisition is a draft until opened; opening publishes through requireEnabledSource('employer') + the Stage 06 pipeline as a canonical Job (source employer); the first-party `employer` connector with an injectable catalogue (contract suite database-free); closure stated by the requisition status",
     "disclosure_consent": "DONE — Disclosure per (organisation, candidate); only anonymous/visible candidates can be asked; the candidate grants (ConsentRecord employer_disclosure in one transaction), declines (final), revokes (record revoked, submissions withdrawn, pool memberships removed); applying through the platform grants by the candidate's act; grantedDisclosure() checks the row's own consent record; Disclosure SELECT-only for the candidate under RLS (custom + readUsing)",
-    "sourcing_pipeline": "DONE — anonymised scored cards via scoreCompatibility honouring recruiter visibility (hidden never; anonymous no identity; visible name+headline), audited; stage machine with no stage past consent without a granted disclosure; interviews, notes, offers, hires; pools of consented candidates; reporting (funnel, medians, sources, activity) from the organisation's own events",
+    "sourcing_pipeline": "DONE — anonymised scored cards via scoreCompatibility({ mode: 'deterministic' }) (no AiRun under the candidate, no model), rate-limited per requisition, honouring recruiter visibility (hidden never; anonymous no identity; visible name+headline), audited; stage machine with no stage past consent without a granted disclosure (a re-request never moves a terminal row; a grant moves sourced and consent_requested rows); interviews, notes, offers, hires (an offer on a withdrawn submission closes as withdrawn); pools of consented candidates; reporting (funnel, medians, sources, member-only activity) from the organisation's own events; employer audit rows buffered and flushed after the transaction; requisition status writes carry a precondition and close only a job this source owns",
     "surfaces": "DONE — /dashboard/employer, /dashboard/employer/[reqId], /dashboard/employer/submissions/[id]; nav entry for employer members; Settings disclosure section; job page 'Apply through JobPilot' for first-party postings; /api/employer/* and /api/disclosures/*",
     "l5_consent_wording": "BLOCKED (LEGAL, L-5) — version 2026-09-05-draft; grantConsent refuses a -draft purpose in production (ConsentWordingPendingError 503, tested)",
-    "independent_review": "PENDING"
+    "independent_review": "DONE — 2 HIGH (self-serve employer organisations could impersonate any company and harvest identities; requestDisclosure resurrected terminal submissions) / 10 MEDIUM / 11 LOW; every HIGH and MEDIUM fixed with tests, every LOW fixed or recorded (L18's 'unknown' kept per the connector contract; L19/L20 recorded in ADR-0033); migration 20260905180200_recruiter_visibility_reconfirm resets every pre-Stage-18 visibility choice to hidden; STAGE18_EVIDENCE.md §11"
   },
   "stage_18_exit_gate": {
     "met": [

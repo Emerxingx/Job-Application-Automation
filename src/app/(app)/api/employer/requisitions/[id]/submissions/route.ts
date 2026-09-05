@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { ok, route } from '@/lib/api';
-import { employerFail, employerRequest } from '@/lib/employer/request';
+import { employerDone, employerFail, employerRequest } from '@/lib/employer/request';
 import { addSubmission } from '@/lib/employer/service';
 
 const schema = z.object({ organizationId: z.string().min(1), candidateUserId: z.string().min(1), source: z.enum(['sourced', 'pool', 'referred']).optional() });
@@ -11,7 +11,7 @@ export const POST = route(async (request: Request, { params }: { params: Promise
   const body = schema.parse(await request.json());
   try {
     const { tenant, actor } = await employerRequest(request, body.organizationId);
-    const s = await tenant.run((tx) => addSubmission(tx, actor, id, body.candidateUserId, body.source));
+    const s = await employerDone(actor, () => tenant.run((tx) => addSubmission(tx, actor, id, body.candidateUserId, body.source)));
     return ok({ submission: { id: s.id, stage: s.stage } }, { status: 201 });
   } catch (error) {
     return employerFail(error) ?? Promise.reject(error);

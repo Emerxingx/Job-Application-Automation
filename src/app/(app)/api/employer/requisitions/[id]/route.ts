@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { ok, route } from '@/lib/api';
-import { employerFail, employerRequest, organizationIdOf } from '@/lib/employer/request';
+import { employerDone, employerFail, employerRequest, organizationIdOf } from '@/lib/employer/request';
 import { REQUISITION_STATUSES, loadRequisition, setRequisitionStatus, updateRequisition } from '@/lib/employer/service';
 import { requisitionSchema } from '@/lib/employer/schemas';
 
@@ -11,7 +11,7 @@ export const GET = route(async (request: Request, { params }: Params) => {
   const { id } = await params;
   try {
     const { tenant, actor } = await employerRequest(request, organizationIdOf(request));
-    return ok(await tenant.run((tx) => loadRequisition(tx, actor, id)));
+    return ok(await employerDone(actor, () => tenant.run((tx) => loadRequisition(tx, actor, id))));
   } catch (error) {
     return employerFail(error) ?? Promise.reject(error);
   }
@@ -28,7 +28,7 @@ export const PATCH = route(async (request: Request, { params }: Params) => {
   const body = patchSchema.parse(await request.json());
   try {
     const { tenant, actor } = await employerRequest(request, body.organizationId);
-    const r = await tenant.run((tx) => (body.action === 'update' ? updateRequisition(tx, actor, id, body.input) : setRequisitionStatus(tx, actor, id, body.status)));
+    const r = await employerDone(actor, () => tenant.run((tx) => (body.action === 'update' ? updateRequisition(tx, actor, id, body.input) : setRequisitionStatus(tx, actor, id, body.status))));
     return ok({ requisition: { id: r.id, status: r.status, jobId: r.jobId } });
   } catch (error) {
     return employerFail(error) ?? Promise.reject(error);

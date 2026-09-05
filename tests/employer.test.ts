@@ -74,8 +74,10 @@ describe('employer - roles, requisitions, sourcing, disclosure, pipeline, pools,
       await db.careerPreferences.create({ data: { profileId: profile.id, userId: c.id, recruiterVisibility: visibility } });
       await db.resume.create({ data: { userId: c.id, content: JSON.stringify({ fullName: c.fullName, headline: 'Data analyst', email: c.email, summary: 'Analyst with SQL and Python.', skills: ['SQL', 'Python', 'Excel'], experience: [{ company: 'Co', title: 'Data Analyst', startDate: '2021-01', endDate: 'Present', bullets: ['Built SQL reports'] }], education: [{ institution: 'U of T', credential: 'BSc', year: '2020' }], certifications: [], projects: [] }) } });
     }
-    orgE = (await orgs.createOrganization(OE.id, { name: `Employer E ${S}`, type: 'employer', billingEmail: OE.email })).id;
-    orgF = (await orgs.createOrganization(OF.id, { name: `Employer F ${S}`, type: 'employer', billingEmail: OF.email })).id;
+    // an employer organisation is not self-serve (Stage 18 review, H1): the service refuses without the staff verification flag
+    await assert.rejects(() => orgs.createOrganization(OE.id, { name: `Employer E ${S}`, type: 'employer', billingEmail: OE.email }), (e: unknown) => e instanceof orgs.OrganizationAccessError && e.status === 403);
+    orgE = (await orgs.createOrganization(OE.id, { name: `Employer E ${S}`, type: 'employer', billingEmail: OE.email }, { verifiedOrganization: true })).id;
+    orgF = (await orgs.createOrganization(OF.id, { name: `Employer F ${S}`, type: 'employer', billingEmail: OF.email }, { verifiedOrganization: true })).id;
     for (const [u, serviceRole] of [
       [REC, 'recruiter'],
       [HM, 'hiring_manager'],
@@ -112,6 +114,8 @@ describe('employer - roles, requisitions, sourcing, disclosure, pipeline, pools,
     assert.equal((await actorOf(VW)).role, 'viewer');
     assert.deepEqual((await svc.employerMemberships(REC.id)).map((m) => m.organizationId), [orgE]);
     await status(svc.setEmployerRole({ user: VW, organizationId: orgE, role: 'viewer' }, REC.id, 'viewer'), 403);
+    await status(tenant(VW.id, orgE, (tx) => svc.listPools(tx, { user: VW, organizationId: orgE, role: 'viewer' })), 403);
+    await status(tenant(INT.id, orgE, (tx) => svc.listPools(tx, { user: INT, organizationId: orgE, role: 'interviewer' })), 403);
   });
 
   it('a requisition is a draft until opened; opening publishes it as a first-party posting through the connector gate', async () => {
@@ -141,6 +145,22 @@ describe('employer - roles, requisitions, sourcing, disclosure, pipeline, pools,
     assert.equal((await db.requisition.findUniqueOrThrow({ where: { id: r.id } })).jobId, jobId);
     assert.equal((await tenant(REC.id, orgE, (tx) => svc.listRequisitions(tx, rec()))).length, 1);
     assert.equal(await tenant(OF.id, orgF, (tx) => tx.requisition.count({ where: { id: r.id } })), 0, 'another employer sees nothing under RLS');
+    // the status write carries the status it was read at (a concurrent move loses); a job whose PRIMARY source is another one is never closed by a requisition
+    const other = await tenant(REC.id, orgE, (tx) => svc.createRequisition(tx, rec(), { title: `Other Req ${S}`, location: 'Toronto, ON' }));
+    const foreign = await db.job.create({ data: { title: `Foreign ${S}`, company: 'Co', location: 'Toronto, ON', description: '', externalId: `em_${S}_foreign`, source: 'mock', postedAt: new Date() } });
+    await db.requisition.update({ where: { id: other.id }, data: { jobId: foreign.id, status: 'open' } });
+    await tenant(REC.id, orgE, (tx) => svc.setRequisitionStatus(tx, rec(), other.id, 'closed'));
+    assert.equal((await db.job.findUniqueOrThrow({ where: { id: foreign.id } })).activeState, 'active', 'another source may still list it; freshness decides');
+    await db.requisition.update({ where: { id: other.id }, data: { status: 'draft' } });
+    await assert.rejects(
+      () =>
+        tenant(REC.id, orgE, async (tx) => {
+          const pending = svc.setRequisitionStatus(tx, rec(), other.id, 'closed');
+          await db.requisition.update({ where: { id: other.id }, data: { status: 'closed' } });
+          return pending;
+        }),
+      (e: unknown) => e instanceof svc.EmployerError && e.status === 409 && /changed underneath/.test(e.message),
+    );
   });
 
   it('sourcing: a hidden candidate never appears; an anonymous one has no name; a visible one has name and headline; audited; a viewer cannot search', async () => {
@@ -187,8 +207,13 @@ describe('employer - roles, requisitions, sourcing, disclosure, pipeline, pools,
     await status(tenant(REC.id, orgE, (tx) => svc.moveSubmission(tx, rec(), sub.id, 'screening')), 409, /cannot move/);
     await status(tenant(REC.id, orgE, (tx) => svc.moveSubmission(tx, rec(), sub.id, 'consented')), 409, /candidate's to give/);
     await status(svc.respondToDisclosure(VIS, d.id, true), 404, undefined);
+    // a candidate merely ADDED to another requisition (stage sourced) moves with the grant too: the grant is to the employer
+    const other = await tenant(REC.id, orgE, (tx) => svc.createRequisition(tx, rec(), { title: `Second Req ${S}`, location: 'Toronto, ON' }));
+    const added = await tenant(REC.id, orgE, (tx) => svc.addSubmission(tx, rec(), other.id, ANON.id));
+    assert.equal(added.stage, 'sourced');
     const before = await db.consentRecord.count({ where: { userId: ANON.id, purpose: 'employer_disclosure' } });
     const granted = await svc.respondToDisclosure(ANON, d.id, true);
+    assert.equal((await db.submission.findUniqueOrThrow({ where: { id: added.id } })).stage, 'consented', 'the sourced row moved with the grant');
     assert.equal(granted.status, 'granted');
     assert.equal(await db.consentRecord.count({ where: { userId: ANON.id, purpose: 'employer_disclosure' } }), before + 1);
     const dRow = await db.disclosure.findUniqueOrThrow({ where: { id: d.id } });
@@ -205,6 +230,14 @@ describe('employer - roles, requisitions, sourcing, disclosure, pipeline, pools,
     assert.equal(profile.education[0]?.school, 'U of T');
     assert.equal(await auditCount('employer.candidate.read', d.id), 1);
     await status(view.readDisclosedCandidate(adminF(), ANON.id), 403);
+    await status(view.readDisclosedCandidate({ user: VW, organizationId: orgE, role: 'viewer' }, ANON.id), 403, /may not read/);
+    await status(view.readDisclosedCandidate({ user: INT, organizationId: orgE, role: 'interviewer' }, ANON.id), 403, /may not read/);
+    await status(tenant(INT.id, orgE, (tx) => svc.loadSubmission(tx, { user: INT, organizationId: orgE, role: 'interviewer' }, sub.id)), 404);
+    // a disclosure pointing at any OTHER consent record (another person's, another purpose) grants nothing
+    const tos = await db.consentRecord.create({ data: { userId: REC.id, purpose: 'terms_of_service', version: 'test' } });
+    await db.disclosure.update({ where: { id: d.id }, data: { consentRecordId: tos.id } });
+    await status(view.readDisclosedCandidate(rec(), ANON.id), 403, /not granted/);
+    await db.disclosure.update({ where: { id: d.id }, data: { consentRecordId: dRow.consentRecordId } });
     await status(svc.requestDisclosure(rec(), { candidateUserId: ANON.id }), 409, /already granted/);
     const loaded = await tenant(REC.id, orgE, (tx) => svc.loadRequisition(tx, rec(), reqId));
     assert.equal(loaded.submissions.find((s) => s.id === sub.id)?.candidate.name, ANON.fullName, 'the pipeline shows the name once disclosed');
@@ -213,6 +246,8 @@ describe('employer - roles, requisitions, sourcing, disclosure, pipeline, pools,
   it('a candidate applying through the platform grants disclosure by their own act; a pool holds consented candidates only; revocation withdraws everything', async () => {
     const mock = await db.job.create({ data: { title: `Other ${S}`, company: 'Co', location: 'Toronto, ON', description: '', externalId: `em_${S}_mock`, source: 'mock', postedAt: new Date() } });
     await status(svc.applyThroughPlatform(VIS, mock.id), 404, /not an employer requisition/);
+    // a row the RECRUITER made about the candidate does not stop them applying
+    await tenant(REC.id, orgE, (tx) => svc.addSubmission(tx, rec(), reqId, VIS.id));
     const s = await svc.applyThroughPlatform(VIS, jobId);
     assert.equal(s.stage, 'consented');
     assert.equal(s.source, 'applied');
@@ -240,8 +275,9 @@ describe('employer - roles, requisitions, sourcing, disclosure, pipeline, pools,
     assert.equal(await auditCount('disclosure.revoked', d.id), 1);
     const loaded = await tenant(REC.id, orgE, (tx) => svc.loadRequisition(tx, rec(), reqId));
     assert.equal(loaded.submissions.find((x) => x.id === s.id)?.candidate.name, null, 'the name is gone with the consent');
-    // the employer may ask again after a revocation - and the candidate declines this time, which is final
-    const again = await svc.requestDisclosure(rec(), { candidateUserId: VIS.id });
+    // the employer may ask again after a revocation, naming the requisition: the withdrawn row keeps its stage (nothing is resurrected) - and the candidate declines this time, which is final
+    const again = await svc.requestDisclosure(rec(), { candidateUserId: VIS.id, requisitionId: reqId });
+    assert.equal((await db.submission.findUniqueOrThrow({ where: { id: s.id } })).stage, 'withdrawn', 'a terminal row is not moved by a new request');
     assert.equal(again.id, d.id);
     assert.equal((await svc.respondToDisclosure(VIS, again.id, false)).status, 'declined');
     await status(svc.requestDisclosure(rec(), { candidateUserId: VIS.id }), 409, /declined/);
@@ -258,6 +294,10 @@ describe('employer - roles, requisitions, sourcing, disclosure, pipeline, pools,
     await status(tenant(VW.id, orgE, (tx) => svc.recordInterview(tx, { user: VW, organizationId: orgE, role: 'viewer' }, interview.id, { outcome: 'completed' })), 403);
     const done = await tenant(INT.id, orgE, (tx) => svc.recordInterview(tx, { user: INT, organizationId: orgE, role: 'interviewer' }, interview.id, { outcome: 'completed', feedback: 'Strong SQL.' }));
     assert.equal(done.outcome, 'completed');
+    // named on the interview, the interviewer now opens this submission (without offers) and reads the candidate's profile
+    const asInterviewer = await tenant(INT.id, orgE, (tx) => svc.loadSubmission(tx, { user: INT, organizationId: orgE, role: 'interviewer' }, sub));
+    assert.equal(asInterviewer.interviews.length, 1);
+    assert.equal((await view.readDisclosedCandidate({ user: INT, organizationId: orgE, role: 'interviewer' }, ANON.id)).fullName, ANON.fullName);
     await status(tenant(INT.id, orgE, (tx) => svc.addEmployerNote(tx, { user: INT, organizationId: orgE, role: 'interviewer' }, sub, 'x')), 403);
     await tenant(REC.id, orgE, (tx) => svc.addEmployerNote(tx, rec(), sub, 'Good communicator.'));
     await status(tenant(INT.id, orgE, (tx) => svc.extendOffer(tx, { user: INT, organizationId: orgE, role: 'interviewer' }, sub, { salaryCents: 9_000_000 })), 403);
@@ -277,6 +317,7 @@ describe('employer - roles, requisitions, sourcing, disclosure, pipeline, pools,
     assert.equal((await db.job.findUniqueOrThrow({ where: { id: jobId } })).activeState, 'closed', 'the posting closes with the requisition, stated by its source');
     await status(tenant(HM.id, orgE, (tx) => svc.decideOffer(tx, hm, offer.id, { status: 'declined' })), 409);
     assert.equal(await auditCount('employer.offer.decided', offer.id), 1);
+    assert.equal((await tenant(VW.id, orgE, (tx) => svc.loadSubmission(tx, { user: VW, organizationId: orgE, role: 'viewer' }, sub))).offers.length, 0, 'a viewer reads without offers');
     assert.equal(await auditCount('employer.submission.moved', sub), 4, 'screening, interviewing, offered, hired');
     const detail = await tenant(REC.id, orgE, (tx) => svc.loadSubmission(tx, rec(), sub));
     assert.equal(detail.events.map((e) => e.toStage).join(' '), 'consent_requested consented screening interviewing offered hired');
@@ -287,14 +328,15 @@ describe('employer - roles, requisitions, sourcing, disclosure, pipeline, pools,
 
   it('reporting counts the organisation\'s own funnel, sources and activity, with no identity', async () => {
     const r = await tenant(REC.id, orgE, (tx) => svc.reporting(tx, rec(), { from: new Date(Date.now() - 86_400_000), to: new Date(Date.now() + 86_400_000) }));
-    assert.equal(r.funnel.submissions, 2);
-    assert.equal(r.funnel.consented, 2);
+    assert.equal(r.funnel.submissions, 3, 'ANON on two requisitions, VIS on one');
+    assert.equal(r.funnel.consented, 3);
     assert.equal(r.funnel.hired, 1);
     assert.equal(r.funnel.withdrawn, 1);
-    assert.deepEqual(r.sources.sourced, { submissions: 1, hires: 1 });
+    assert.deepEqual(r.sources.sourced, { submissions: 2, hires: 1 });
     assert.deepEqual(r.sources.applied, { submissions: 1, hires: 0 });
     assert.equal(r.daysTo.hire, 0);
     assert.ok(!JSON.stringify(r).includes(ANON.fullName) && !JSON.stringify(r).includes(ANON.email));
+    assert.ok(r.recruiterActivity.every((a) => ![ANON.id, VIS.id, HID.id].includes(a.actorId)), 'candidate-driven events name no candidate as an actor');
     const empty = await tenant(OF.id, orgF, (tx) => svc.reporting(tx, adminF(), { from: new Date(0), to: new Date() }));
     assert.equal(empty.funnel.submissions, 0, 'another employer sees its own nothing');
     await status(tenant(INT.id, orgE, (tx) => svc.reporting(tx, { user: INT, organizationId: orgE, role: 'interviewer' }, { from: new Date(0), to: new Date() })), 403);
@@ -308,7 +350,7 @@ describe('employer - roles, requisitions, sourcing, disclosure, pipeline, pools,
       assert.equal(await tenant(OF.id, orgF, (tx) => (tx[model] as unknown as { count: (a: { where: { organizationId: string } }) => Promise<number> }).count({ where: { organizationId: orgE } })), 0, `${model}: F sees nothing of E under RLS`);
       assert.equal(await tenant(ANON.id, undefined, (tx) => (tx[model] as unknown as { count: (a: { where: { organizationId: string } }) => Promise<number> }).count({ where: { organizationId: orgE } })), 0, `${model}: the candidate sees none of it`);
     }
-    assert.equal(await tenant(VW.id, orgE, (tx) => tx.submission.count({ where: { organizationId: orgE } })), 2, 'RLS is organisational; the service, not the policy, keeps a viewer read-only');
+    assert.equal(await tenant(VW.id, orgE, (tx) => tx.submission.count({ where: { organizationId: orgE } })), 3, 'RLS is organisational; the service, not the policy, keeps a viewer read-only');
     const audits = await db.auditLog.findMany({ where: { action: { startsWith: 'employer.' } } });
     assert.ok(audits.every((a) => !JSON.stringify(a).includes(ANON.email) && !JSON.stringify(a).includes('Strong SQL')), 'ids and kinds in the audit trail, never a name, an email or feedback');
     assert.equal(CANDIDATES.length, 3);

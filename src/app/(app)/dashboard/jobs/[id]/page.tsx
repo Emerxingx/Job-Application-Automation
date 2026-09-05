@@ -88,12 +88,16 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
   const sourceNames = await sourceNamesFor(job.provenance.map((p) => p.sourceId));
   // Stage 18: a first-party posting is applied to HERE. The requisition is the
   // employer's row (org-scoped; the candidate cannot read it on their tenant
-  // path), so its status and the candidate's own submission are read on the
-  // system client - filtered by this job and this user, nothing more.
+  // path), so its status and the candidate's OWN application - the row their
+  // click made, never one a recruiter made about them - are read on the
+  // system client, filtered by this job and this user, and reduced to
+  // "received" or "withdrawn": the employer's pipeline decisions are the
+  // employer's to communicate (Stage 18 review).
   const firstParty =
     job.source === EMPLOYER_SOURCE_KEY
-      ? await db.requisition.findUnique({ where: { jobId: job.id }, select: { id: true, status: true, submissions: { where: { candidateUserId: user.id }, select: { stage: true } } } })
+      ? await db.requisition.findUnique({ where: { jobId: job.id }, select: { id: true, status: true, submissions: { where: { candidateUserId: user.id, source: 'applied' }, select: { stage: true } } } })
       : null;
+  const applied = firstParty?.submissions[0] ? (firstParty.submissions[0].stage === 'withdrawn' ? 'withdrawn' : 'received') : null;
 
   const breakdown = parseJson<ScoreBreakdown>(match?.scoreBreakdown, {
     skills: 0,
@@ -368,7 +372,7 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
               </>
             )}
 
-            {firstParty ? <ApplyThroughPlatform jobId={job.id} company={job.company} requisitionOpen={firstParty.status === 'open'} applied={firstParty.submissions[0]?.stage ?? null} /> : null}
+            {firstParty ? <ApplyThroughPlatform jobId={job.id} company={job.company} requisitionOpen={firstParty.status === 'open'} applied={applied} /> : null}
 
             {job.applyUrl && !firstParty && (
               <a

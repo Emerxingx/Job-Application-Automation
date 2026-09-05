@@ -10,13 +10,22 @@ import { requestMeta } from '@/lib/security-audit';
 import { fail } from '@/lib/api';
 import { SourceAccessError } from '@/lib/connectors/registry';
 import { ConsentWordingPendingError } from '@/lib/consent';
-import { EmployerError, requireEmployerActor, type EmployerActor } from './service';
+import { EmployerError, bufferedActor, flushEmployerAudit, requireEmployerActor, type EmployerActor } from './service';
 
 export async function employerRequest(request: Request, organizationId: string | null | undefined): Promise<{ tenant: TenantRequest; actor: EmployerActor }> {
   if (!organizationId) throw new EmployerError('organizationId is required.', 422);
   const tenant = await requireTenant(organizationId);
-  const actor = await requireEmployerActor({ id: tenant.user.id, email: tenant.user.email }, organizationId, requestMeta(request));
+  // The actor buffers its audit rows; `employerDone` writes them once the work
+  // (and its transaction) has finished, so a rolled-back move leaves no row.
+  const actor = bufferedActor(await requireEmployerActor({ id: tenant.user.id, email: tenant.user.email }, organizationId, requestMeta(request)));
   return { tenant, actor };
+}
+
+/** Run an employer operation and flush its buffered audit rows after it completes. */
+export async function employerDone<T>(actor: EmployerActor, work: () => Promise<T>): Promise<T> {
+  const result = await work();
+  await flushEmployerAudit(actor);
+  return result;
 }
 
 /** The organisation id from the query string or the body, whichever the method carries. */

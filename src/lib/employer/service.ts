@@ -22,7 +22,7 @@ import { upsertPosting } from '@/lib/connectors/pipeline';
 import { EMPLOYER_SOURCE_KEY, requisitionToPosting } from '@/lib/connectors/employer';
 import { recordSecurityEvent, type RequestMeta, type SecurityEvent } from '@/lib/security-audit';
 import { findActiveMembership } from '@/lib/tenancy/organizations';
-import { canCreateRequisition, canDecideOffer, canMovePipeline, canReadReporting, canSource, canWriteInterview, canWriteRequisition, employerRoleOf, isEmployerRole, type EmployerRole, type EmployerServiceRole } from './roles';
+import { canCreateRequisition, canDecideOffer, canMovePipeline, canReadReporting, canReadSourcing, canSource, canWriteInterview, canWriteRequisition, employerRoleOf, isEmployerRole, type EmployerRole, type EmployerServiceRole } from './roles';
 import { canTransition, isSubmissionStage, requiresDisclosure, type SubmissionStage } from './stage-machine';
 
 type Client = Prisma.TransactionClient | typeof db;
@@ -41,6 +41,40 @@ export interface EmployerActor {
   organizationId: string;
   role: EmployerRole;
   meta?: RequestMeta;
+  /**
+   * When present, audit rows are BUFFERED here and written by
+   * `flushEmployerAudit` after the tenant transaction commits (the Stage 10
+   * pattern): a row for a move the transaction then rolled back would be a
+   * lie, and a strict write that fails must not undo a committed move. A
+   * caller without a buffer (a test, a script) gets the strict immediate
+   * write.
+   */
+  pending?: PendingAudit[];
+}
+
+export interface PendingAudit {
+  event: SecurityEvent;
+  entityType: string;
+  entityId: string;
+  summary: string;
+  detail: Record<string, string | number | boolean | null>;
+}
+
+/** An actor whose audit rows wait for the commit. Routes build one; `flushEmployerAudit` empties it. */
+export function bufferedActor(actor: EmployerActor): EmployerActor {
+  return { ...actor, pending: [] };
+}
+
+export async function flushEmployerAudit(actor: EmployerActor): Promise<void> {
+  if (!actor.pending) return;
+  const entries = actor.pending.splice(0, actor.pending.length);
+  for (const e of entries) {
+    await recordSecurityEvent(
+      { event: e.event, actor: { type: 'user', id: actor.user.id, email: actor.user.email, role: `employer:${actor.role}` }, entityType: e.entityType, entityId: e.entityId, summary: e.summary, detail: { organizationId: actor.organizationId, ...e.detail }, meta: actor.meta },
+      db,
+      { strict: true },
+    );
+  }
 }
 
 export const REQUISITION_STATUSES = ['draft', 'open', 'on_hold', 'filled', 'closed'] as const;
@@ -61,6 +95,10 @@ export async function employerMemberships(userId: string) {
 }
 
 async function audit(event: SecurityEvent, actor: EmployerActor, entityType: string, entityId: string, summary: string, detail: Record<string, string | number | boolean | null> = {}): Promise<void> {
+  if (actor.pending) {
+    actor.pending.push({ event, entityType, entityId, summary, detail });
+    return;
+  }
   await recordSecurityEvent(
     { event, actor: { type: 'user', id: actor.user.id, email: actor.user.email, role: `employer:${actor.role}` }, entityType, entityId, summary, detail: { organizationId: actor.organizationId, ...detail }, meta: actor.meta },
     db,
@@ -190,8 +228,19 @@ export async function setRequisitionStatus(tx: Client, actor: EmployerActor, id:
   // re-published idempotently (same source, same external id) on the next
   // attempt, never duplicated.
   if (status === 'open') await publishRequisition(r.id);
-  const updated = await db.requisition.update({ where: { id: r.id, organizationId: actor.organizationId }, data: { status, openedAt: status === 'open' ? (r.openedAt ?? new Date()) : r.openedAt, closedAt: status === 'filled' || status === 'closed' ? new Date() : null } });
-  if (status !== 'open' && r.jobId) await db.job.update({ where: { id: r.jobId }, data: { activeState: status === 'on_hold' ? 'unknown' : 'closed', closedAt: status === 'on_hold' ? null : new Date() } });
+  // The status write is on the tenant path with the status it was read at as
+  // a precondition: two concurrent moves cannot both win (Stage 18 review).
+  const moved = await tx.requisition.updateMany({ where: { id: r.id, organizationId: actor.organizationId, status: r.status }, data: { status, openedAt: status === 'open' ? (r.openedAt ?? new Date()) : r.openedAt, closedAt: status === 'filled' || status === 'closed' ? new Date() : null } });
+  if (moved.count === 0) throw new EmployerError('The requisition changed underneath you; reload and try again.', 409);
+  const updated = await tx.requisition.findFirstOrThrow({ where: { id: r.id } });
+  if (status !== 'open' && updated.jobId) {
+    // Closure is stated by THIS source. A job whose primary source is another
+    // one (the pipeline merged the requisition into an existing capture by
+    // hash) is not closed here: that source may still list it, and Stage 06
+    // closes a job only when no source does (freshness decides).
+    const job = await db.job.findUnique({ where: { id: updated.jobId }, select: { source: true, externalId: true } });
+    if (job && job.source === EMPLOYER_SOURCE_KEY && job.externalId === r.id) await db.job.update({ where: { id: updated.jobId }, data: { activeState: status === 'on_hold' ? 'unknown' : 'closed', closedAt: status === 'on_hold' ? null : new Date() } });
+  }
   return updated;
 }
 
@@ -227,11 +276,17 @@ export async function requestDisclosure(actor: EmployerActor, input: { candidate
     ? await db.disclosure.update({ where: { id: existing.id }, data: { status: 'requested', requisitionId: input.requisitionId ?? null, message, requestedById: actor.user.id, requestedAt: new Date(), respondedAt: null, consentRecordId: null } })
     : await db.disclosure.create({ data: { organizationId: actor.organizationId, candidateUserId: input.candidateUserId, requisitionId: input.requisitionId ?? null, message, requestedById: actor.user.id } });
   if (input.requisitionId) {
-    await db.submission.upsert({
-      where: { requisitionId_candidateUserId: { requisitionId: input.requisitionId, candidateUserId: input.candidateUserId } },
-      create: { organizationId: actor.organizationId, requisitionId: input.requisitionId, candidateUserId: input.candidateUserId, disclosureId: disclosure.id, stage: 'consent_requested', source: 'sourced', createdById: actor.user.id, events: { create: { organizationId: actor.organizationId, fromStage: 'sourced', toStage: 'consent_requested', actorId: actor.user.id } } },
-      update: { disclosureId: disclosure.id, stage: 'consent_requested', events: { create: { organizationId: actor.organizationId, fromStage: 'sourced', toStage: 'consent_requested', actorId: actor.user.id } } },
-    });
+    // A submission that exists is moved ONLY from `sourced` (the stage
+    // machine's own edge); a terminal or later row keeps its stage and just
+    // learns which disclosure it now waits on (Stage 18 review, H2).
+    const existingSubmission = await db.submission.findUnique({ where: { requisitionId_candidateUserId: { requisitionId: input.requisitionId, candidateUserId: input.candidateUserId } } });
+    if (!existingSubmission) {
+      await db.submission.create({ data: { organizationId: actor.organizationId, requisitionId: input.requisitionId, candidateUserId: input.candidateUserId, disclosureId: disclosure.id, stage: 'consent_requested', source: 'sourced', createdById: actor.user.id, events: { create: { organizationId: actor.organizationId, fromStage: 'sourced', toStage: 'consent_requested', actorId: actor.user.id } } } });
+    } else if (existingSubmission.stage === 'sourced') {
+      await db.submission.update({ where: { id: existingSubmission.id }, data: { disclosureId: disclosure.id, stage: 'consent_requested', events: { create: { organizationId: actor.organizationId, fromStage: 'sourced', toStage: 'consent_requested', actorId: actor.user.id } } } });
+    } else {
+      await db.submission.update({ where: { id: existingSubmission.id }, data: { disclosureId: disclosure.id } });
+    }
   }
   await audit('disclosure.requested', actor, 'Disclosure', disclosure.id, 'Disclosure requested from a candidate', { candidateUserId: input.candidateUserId, requisitionId: input.requisitionId ?? null, visibility: s.visibility });
   return disclosure;
@@ -263,12 +318,18 @@ export async function respondToDisclosure(candidate: { id: string; email: string
     await recordSecurityEvent({ event: 'disclosure.declined', user: candidate, entityType: 'Disclosure', entityId: d.id, summary: 'Candidate declined disclosure', detail: { organizationId: d.organizationId }, meta }, db, { strict: true });
     return { status: 'declined' as const };
   }
-  // One transaction: a grant is never recorded without its consent record, nor the reverse.
+  // One transaction: a grant is never recorded without its consent record, nor
+  // the reverse; the status it was read at is the precondition, so two
+  // concurrent grants cannot write two consent records. Every waiting row of
+  // this employer - asked (`consent_requested`) or merely added (`sourced`) -
+  // becomes `consented`: the candidate's grant is to the employer, not to one
+  // requisition.
   const consent = await db.$transaction(async (tx) => {
     const c = await grantConsent(tx, candidate, 'employer_disclosure', { source: 'settings', meta });
-    await tx.disclosure.update({ where: { id: d.id }, data: { status: 'granted', respondedAt: new Date(), consentRecordId: c.id } });
+    const won = await tx.disclosure.updateMany({ where: { id: d.id, status: 'requested' }, data: { status: 'granted', respondedAt: new Date(), consentRecordId: c.id } });
+    if (won.count === 0) throw new EmployerError('This request has already been answered.', 409);
     await tx.submission.updateMany({ where: { organizationId: d.organizationId, candidateUserId: candidate.id, disclosureId: null }, data: { disclosureId: d.id } });
-    await moveAllForCandidate(tx, d.organizationId, candidate.id, ['consent_requested'], 'consented', candidate.id, 'granted disclosure');
+    await moveAllForCandidate(tx, d.organizationId, candidate.id, ['consent_requested', 'sourced'], 'consented', candidate.id, 'granted disclosure');
     return c;
   });
   await recordSecurityEvent({ event: 'disclosure.granted', user: candidate, entityType: 'Disclosure', entityId: d.id, summary: 'Candidate granted disclosure to an employer', detail: { organizationId: d.organizationId, consentRecordId: consent.id }, meta }, db, { strict: true });
@@ -300,7 +361,11 @@ async function moveAllForCandidate(tx: Prisma.TransactionClient, organizationId:
 export async function grantedDisclosure(client: Client, organizationId: string, candidateUserId: string) {
   const d = await client.disclosure.findUnique({ where: { organizationId_candidateUserId: { organizationId, candidateUserId } } });
   if (!d || d.status !== 'granted' || !d.consentRecordId) return null;
-  const consent = await db.consentRecord.findFirst({ where: { id: d.consentRecordId, revokedAt: null }, select: { id: true } });
+  // System client by necessity: `ConsentRecord` is the candidate's row, which
+  // the employer's tenant context cannot see. The record must be THIS
+  // candidate's, for THIS purpose, and unrevoked - a row pointing at any other
+  // consent id (a member's own terms consent, say) grants nothing.
+  const consent = await db.consentRecord.findFirst({ where: { id: d.consentRecordId, userId: candidateUserId, purpose: 'employer_disclosure', revokedAt: null }, select: { id: true } });
   return consent ? d : null;
 }
 
@@ -315,7 +380,12 @@ export async function applyThroughPlatform(candidate: { id: string; email: strin
   if (job.requisition.status !== 'open') throw new EmployerError('This requisition is not open.', 409);
   const { organizationId, id: requisitionId } = job.requisition;
   const existing = await db.submission.findUnique({ where: { requisitionId_candidateUserId: { requisitionId, candidateUserId: candidate.id } } });
-  if (existing && existing.stage !== 'sourced' && existing.stage !== 'consent_requested') throw new EmployerError('You have already applied to this requisition.', 409);
+  // A row the RECRUITER made (sourced, asked, or rejected/withdrawn before the
+  // candidate ever applied) does not stop the candidate applying; a row the
+  // candidate's own application made does, unless they withdrew it.
+  const candidateApplied = existing?.source === 'applied' && existing.stage !== 'withdrawn';
+  if (candidateApplied) throw new EmployerError('You have already applied to this requisition.', 409);
+  if (existing && ['screening', 'interviewing', 'offered', 'hired'].includes(existing.stage)) throw new EmployerError('You are already in this employer\'s process for this requisition.', 409);
   const { submission, granted } = await db.$transaction(async (tx) => {
     let disclosure = await grantedDisclosure(tx, organizationId, candidate.id);
     let newConsentId: string | null = null;
@@ -352,11 +422,15 @@ export async function addSubmission(tx: Client, actor: EmployerActor, requisitio
   if (!(await sourceable(candidateUserId))) throw new EmployerError('This candidate is not open to recruiters.', 404);
   const disclosure = await grantedDisclosure(tx, actor.organizationId, candidateUserId);
   const stage: SubmissionStage = disclosure ? 'consented' : 'sourced';
-  return tx.submission.upsert({
-    where: { requisitionId_candidateUserId: { requisitionId, candidateUserId } },
-    create: { organizationId: actor.organizationId, requisitionId, candidateUserId, disclosureId: disclosure?.id ?? null, stage, source, createdById: actor.user.id, ownerId: actor.user.id, events: { create: { organizationId: actor.organizationId, fromStage: 'sourced', toStage: stage, actorId: actor.user.id, note: source } } },
-    update: {},
-  });
+  const existing = await tx.submission.findUnique({ where: { requisitionId_candidateUserId: { requisitionId, candidateUserId } } });
+  if (!existing) {
+    return tx.submission.create({ data: { organizationId: actor.organizationId, requisitionId, candidateUserId, disclosureId: disclosure?.id ?? null, stage, source, createdById: actor.user.id, ownerId: actor.user.id, events: { create: { organizationId: actor.organizationId, fromStage: 'sourced', toStage: stage, actorId: actor.user.id, note: source } } } });
+  }
+  // Already in the pipeline: a `sourced` row whose candidate has since granted disclosure moves on; anything else is left as it is.
+  if (existing.stage === 'sourced' && disclosure) {
+    return tx.submission.update({ where: { id: existing.id }, data: { disclosureId: disclosure.id, stage: 'consented', events: { create: { organizationId: actor.organizationId, fromStage: 'sourced', toStage: 'consented', actorId: actor.user.id, note: 'disclosure already granted' } } } });
+  }
+  return existing;
 }
 
 export async function moveSubmission(tx: Client, actor: EmployerActor, submissionId: string, to: string, note = '') {
@@ -384,20 +458,31 @@ export async function loadRequisition(tx: Client, actor: EmployerActor, id: stri
     canWrite: canWriteRequisition(actor.role, r, actor.user.id),
     submissions: submissions.map((s, i) => {
       const u = disclosed[i] ? users.find((x) => x.id === s.candidateUserId) : undefined;
-      return { id: s.id, stage: s.stage, source: s.source, matchScore: s.matchScore, disclosed: disclosed[i], candidate: u ? { name: u.fullName, headline: u.headline, city: u.city } : { name: null, headline: null, city: null }, counts: s._count, updatedAt: s.updatedAt };
+      return { id: s.id, stage: s.stage, source: s.source, disclosed: disclosed[i], candidate: u ? { name: u.fullName, headline: u.headline, city: u.city } : { name: null, headline: null, city: null }, counts: s._count, updatedAt: s.updatedAt };
     }),
   };
 }
 
+/** An interviewer opens only a submission they are named on; a viewer reads without offers (the matrix: Offers "—" for both). */
 export async function loadSubmission(tx: Client, actor: EmployerActor, id: string) {
   const s = await ownedSubmission(tx, actor, id);
-  const [events, interviews, notes, offers] = await Promise.all([
+  const interviews = await tx.employerInterview.findMany({ where: { submissionId: s.id }, orderBy: { scheduledAt: 'asc' } });
+  if (actor.role === 'interviewer' && !interviews.some((i) => (JSON.parse(i.interviewerIds) as string[]).includes(actor.user.id))) throw new EmployerError('Submission not found.', 404);
+  const seesOffers = actor.role !== 'interviewer' && actor.role !== 'viewer';
+  const [events, notes, offers] = await Promise.all([
     tx.submissionEvent.findMany({ where: { submissionId: s.id }, orderBy: { at: 'asc' } }),
-    tx.employerInterview.findMany({ where: { submissionId: s.id }, orderBy: { scheduledAt: 'asc' } }),
     tx.employerNote.findMany({ where: { submissionId: s.id }, orderBy: { createdAt: 'desc' } }),
-    tx.offer.findMany({ where: { submissionId: s.id }, orderBy: { createdAt: 'desc' } }),
+    seesOffers ? tx.offer.findMany({ where: { submissionId: s.id }, orderBy: { createdAt: 'desc' } }) : Promise.resolve([]),
   ]);
   return { submission: s, events, interviews, notes, offers, disclosed: (await grantedDisclosure(tx, actor.organizationId, s.candidateUserId)) !== null, canWrite: canMovePipeline(actor.role, s.requisition, actor.user.id) };
+}
+
+/** Whether this actor may see a disclosed candidate's identity and profile: admin, recruiter and hiring manager; an interviewer only for a candidate whose interview names them; never a viewer. */
+export async function canSeeCandidate(client: Client, actor: EmployerActor, candidateUserId: string): Promise<boolean> {
+  if (actor.role === 'admin' || actor.role === 'recruiter' || actor.role === 'hiring_manager') return true;
+  if (actor.role !== 'interviewer') return false;
+  const interviews = await client.employerInterview.findMany({ where: { organizationId: actor.organizationId, submission: { candidateUserId } }, select: { interviewerIds: true } });
+  return interviews.some((i) => (JSON.parse(i.interviewerIds) as string[]).includes(actor.user.id));
 }
 
 // --- Talent pools ------------------------------------------------------------------
@@ -418,6 +503,7 @@ export async function addToPool(tx: Client, actor: EmployerActor, poolId: string
 }
 
 export async function listPools(tx: Client, actor: EmployerActor) {
+  if (!canReadSourcing(actor.role)) throw new EmployerError('You may not read talent pools.', 403);
   return tx.talentPool.findMany({ where: { organizationId: actor.organizationId }, include: { _count: { select: { members: true } } }, orderBy: { name: 'asc' } });
 }
 
@@ -461,13 +547,21 @@ export async function extendOffer(tx: Client, actor: EmployerActor, submissionId
   return offer;
 }
 
-/** The employer records the candidate's answer (or withdraws). Accepted is a hire; declined returns the submission to `rejected` only if the employer says so. */
+/** The employer records the candidate's answer (or withdraws). Accepted is a hire (and fills the requisition when asked); declined or withdrawn closes the submission as `rejected`. */
 export async function decideOffer(tx: Client, actor: EmployerActor, offerId: string, input: { status: 'accepted' | 'declined' | 'withdrawn'; fillRequisition?: boolean }) {
   const o = await tx.offer.findFirst({ where: { id: offerId, organizationId: actor.organizationId } });
   if (!o) throw new EmployerError('Offer not found.', 404);
   const s = await ownedSubmission(tx, actor, o.submissionId);
   if (!canDecideOffer(actor.role, s.requisition, actor.user.id)) throw new EmployerError('You may not decide this offer.', 403);
   if (o.status !== 'extended') throw new EmployerError('This offer has already been decided.', 409);
+  // The candidate revoked disclosure after the offer went out: the submission
+  // is already `withdrawn` (terminal); the offer is closed as withdrawn and no
+  // move is attempted.
+  if (s.stage === 'withdrawn') {
+    const closed = await tx.offer.update({ where: { id: o.id }, data: { status: 'withdrawn', respondedAt: new Date() } });
+    await audit('employer.offer.decided', actor, 'Offer', o.id, 'Offer withdrawn (the candidate withdrew)', { submissionId: s.id, requisitionId: s.requisitionId, status: 'withdrawn' });
+    return closed;
+  }
   const offer = await tx.offer.update({ where: { id: o.id }, data: { status: input.status, respondedAt: new Date() } });
   if (input.status === 'accepted') {
     await moveSubmission(tx, actor, s.id, 'hired', 'offer accepted');
@@ -502,6 +596,11 @@ export async function reporting(tx: Client, actor: EmployerActor, range: { from:
     if (!m.has(e.toStage)) m.set(e.toStage, e.at);
     byActor.set(e.actorId, (byActor.get(e.actorId) ?? 0) + 1);
   }
+  // Recruiter activity names organisation MEMBERS only: candidate-driven
+  // events (an application, a grant, a revocation) carry the candidate's id
+  // as actor and must not surface here.
+  const members = new Set((await tx.membership.findMany({ where: { organizationId: actor.organizationId, acceptedAt: { not: null }, removedAt: null }, select: { userId: true } })).map((m) => m.userId));
+  for (const id of [...byActor.keys()]) if (!members.has(id)) byActor.delete(id);
   const reached = (stage: string) => subs.filter((s) => firstInto.get(s.id)?.has(stage)).length;
   const median = (stage: string): number | null => {
     const days: number[] = [];

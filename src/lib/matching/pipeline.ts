@@ -67,7 +67,8 @@ export interface CompatibilityResult {
   pipelineVersion: string;
   /** Posting terms satisfied only through the equivalence map (also carried on the skills dimension's `matched`). */
   semanticMatches: SemanticMatch[];
-  run: GatewayResult<MatchAnalysis>['run'];
+  /** The gateway run that served the deterministic stage; null in `deterministic` mode (nothing was recorded). */
+  run: GatewayResult<MatchAnalysis>['run'] | null;
 }
 
 /**
@@ -181,6 +182,8 @@ export async function scoreCompatibility(input: {
   job: Job;
   inputRefs?: string[];
   weights?: ActiveWeights;
+  /** `gateway` (default): the candidate's own policy, an AiRun, possibly a model. `deterministic`: the engine alone, nothing recorded - for scoring on a third party's behalf (Stage 18 sourcing). */
+  mode?: 'gateway' | 'deterministic';
 }): Promise<CompatibilityResult> {
   const active = input.weights ?? (await getActiveWeights());
   const context = toJobContext(input.job);
@@ -193,7 +196,11 @@ export async function scoreCompatibility(input: {
   const jobSkillTerms = [...new Set([...context.skills, ...requirements.required, ...requirements.certifications, ...requirements.preferred].map((s) => normalize(s)).filter(Boolean))];
   const contextForEngine: JobContext = { ...context, skills: jobSkillTerms };
 
-  const result = await ai.analyzeMatch({ userId: input.userId, evidence: input.evidence, inputRefs: input.inputRefs }, input.resume, contextForEngine, { weights: active.weights, canonical: canonicalSkill, requirements });
+  const engineOptions = { weights: active.weights, canonical: canonicalSkill, requirements };
+  const result =
+    input.mode === 'deterministic'
+      ? { value: await ai.analyzeMatchDeterministic(input.resume, contextForEngine, engineOptions), run: null }
+      : await ai.analyzeMatch({ userId: input.userId, evidence: input.evidence, inputRefs: input.inputRefs }, input.resume, contextForEngine, engineOptions);
   // The recorded score is the governed weights applied to the grounded
   // breakdown on EVERY route. On the deterministic route this equals the
   // engine's own number; on an external route it replaces the model's, so

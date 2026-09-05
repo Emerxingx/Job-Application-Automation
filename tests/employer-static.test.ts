@@ -95,9 +95,9 @@ describe('employer code - static boundaries', () => {
       assert.ok(!/\b(caseNote|caseAssessment|CaseNote|CaseAssessment|\.case\.)\b/.test(text), `${rel} names a case record`);
     }
   });
-  it('the sourcing cards are built from the compatibility pipeline and the résumé, never from the sensitive schema or a case', () => {
+  it('the sourcing cards are built from the compatibility pipeline in DETERMINISTIC mode (no AiRun under a candidate, no model), never from the sensitive schema or a case', () => {
     const text = readFileSync(path.join(root, 'src/lib/employer/candidate-view.ts'), 'utf8');
-    assert.match(text, /scoreCompatibility/);
+    assert.match(text, /scoreCompatibility\(\{[^}]*mode: 'deterministic'/);
     assert.ok(!/lib\/sensitive|selfIdentification/.test(text));
   });
   it('nothing under matching, eligibility, analytics or the AI gateway names an employer table', () => {

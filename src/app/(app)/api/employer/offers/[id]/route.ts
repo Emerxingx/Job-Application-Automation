@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { ok, route } from '@/lib/api';
-import { employerFail, employerRequest } from '@/lib/employer/request';
+import { employerDone, employerFail, employerRequest } from '@/lib/employer/request';
 import { decideOffer } from '@/lib/employer/service';
 
 const schema = z.object({ organizationId: z.string().min(1), status: z.enum(['accepted', 'declined', 'withdrawn']), fillRequisition: z.boolean().optional() });
@@ -11,7 +11,7 @@ export const PATCH = route(async (request: Request, { params }: { params: Promis
   const body = schema.parse(await request.json());
   try {
     const { tenant, actor } = await employerRequest(request, body.organizationId);
-    const o = await tenant.run((tx) => decideOffer(tx, actor, id, body));
+    const o = await employerDone(actor, () => tenant.run((tx) => decideOffer(tx, actor, id, body)));
     return ok({ offer: { id: o.id, status: o.status } });
   } catch (error) {
     return employerFail(error) ?? Promise.reject(error);

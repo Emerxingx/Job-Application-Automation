@@ -25,8 +25,9 @@ import { loadEvidenceForGeneration } from '@/lib/evidence/vault';
 import { scoreCompatibility } from '@/lib/matching/pipeline';
 import { getActiveWeights } from '@/lib/matching/weights';
 import { recordSecurityEvent } from '@/lib/security-audit';
+import { LIMITS, rateLimit } from '@/lib/rate-limit';
 import { canReadSourcing } from './roles';
-import { EmployerError, grantedDisclosure, type EmployerActor } from './service';
+import { EmployerError, canSeeCandidate, grantedDisclosure, type EmployerActor } from './service';
 
 export interface SourcedCard {
   candidateUserId: string;
@@ -49,6 +50,7 @@ export async function sourceCandidates(actor: EmployerActor, requisitionId: stri
   const r = await db.requisition.findFirst({ where: { id: requisitionId, organizationId: actor.organizationId }, include: { job: true } });
   if (!r) throw new EmployerError('Requisition not found.', 404);
   if (!r.job || r.status !== 'open') throw new EmployerError('Open the requisition first; sourcing scores candidates against its published posting.', 409);
+  if (!rateLimit('employer:sourcing', r.id, LIMITS.employerSourcing).ok) throw new EmployerError('Sourcing for this requisition was run recently; try again in a few minutes.', 429);
   const limit = Math.min(Math.max(options.limit ?? 25, 1), SOURCING_CAP);
   // The sourcing set: candidates who said recruiters may see them, in some form.
   // (`CareerPreferences` has no relation to filter through, so the erased and
@@ -66,7 +68,11 @@ export async function sourceCandidates(actor: EmployerActor, requisitionId: stri
   for (const p of prefs) {
     const [resume, evidence] = await Promise.all([loadResumeContent(db, p.userId), loadEvidenceForGeneration(db, p.userId)]);
     if (!resume) continue;
-    const result = await scoreCompatibility({ userId: p.userId, resume, evidence, job: r.job, weights });
+    // Deterministic mode: the engine alone, nothing recorded - this scoring is
+    // on the EMPLOYER's behalf, so no AiRun is written under the candidate's
+    // identity and their résumé never reaches a model for a purpose they did
+    // not consent to (Stage 18 review).
+    const result = await scoreCompatibility({ userId: p.userId, resume, evidence, job: r.job, weights, mode: 'deterministic' });
     const u = users.find((x) => x.id === p.userId);
     const visibility = p.recruiterVisibility === 'visible' ? 'visible' : 'anonymous';
     cards.push({
@@ -110,6 +116,8 @@ export interface DisclosedProfile {
 
 /** The profile behind a granted disclosure. Refused without one; audited per read. */
 export async function readDisclosedCandidate(actor: EmployerActor, candidateUserId: string): Promise<DisclosedProfile> {
+  // Role first (an interviewer only for a candidate whose interview names them; never a viewer), then the candidate's consent.
+  if (!(await canSeeCandidate(db, actor, candidateUserId))) throw new EmployerError('You may not read candidate profiles.', 403);
   const d = await grantedDisclosure(db, actor.organizationId, candidateUserId);
   if (!d) throw new EmployerError('The candidate has not granted disclosure to your organisation.', 403);
   await recordSecurityEvent(

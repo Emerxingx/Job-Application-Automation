@@ -98,7 +98,8 @@ const databaseCatalogue: RequisitionCatalogue = {
   async open(query) {
     const terms = [...query.titles, ...(query.keywords ?? [])].map((t) => t.trim()).filter(Boolean);
     return db.requisition.findMany({
-      where: { status: 'open', ...(query.country ? { country: query.country } : {}), ...(terms.length ? { OR: terms.map((t) => ({ title: { contains: t, mode: 'insensitive' as const } })) } : {}) },
+      // A suspended or closed organisation's postings are not discoverable.
+      where: { status: 'open', organization: { status: 'active' }, ...(query.country ? { country: query.country } : {}), ...(terms.length ? { OR: terms.map((t) => ({ title: { contains: t, mode: 'insensitive' as const } })) } : {}) },
       select: SELECT,
       orderBy: { openedAt: 'desc' },
       take: Math.min(Math.max(query.limit ?? 50, 1), 200),
@@ -106,7 +107,7 @@ const databaseCatalogue: RequisitionCatalogue = {
   },
   byId: (id) => db.requisition.findUnique({ where: { id }, select: SELECT }),
   statuses: (ids) => db.requisition.findMany({ where: { id: { in: ids } }, select: { id: true, status: true } }),
-  countOpen: () => db.requisition.count({ where: { status: 'open' } }),
+  countOpen: () => db.requisition.count({ where: { status: 'open', organization: { status: 'active' } } }),
 };
 
 /** An in-memory catalogue (tests): the same filtering the database applies, over given rows. */
@@ -155,7 +156,14 @@ export class EmployerConnector implements JobSourceConnector {
   validate(posting: NormalizedPosting) {
     return validatePosting(posting);
   }
-  /** Closure is what the requisition's status says: filled or closed is closed; on hold is unknown; an id this source does not hold is unknown. */
+  /**
+   * Closure is what the requisition's status says: filled or closed is
+   * closed; on hold is unknown. An id this source does not hold answers
+   * `unknown`, as the connector contract requires of every source (silence
+   * never infers closure; Stage 06): a requisition that was DELETED with
+   * its organisation leaves a posting freshness marks unconfirmed, and a
+   * requisition that was closed says so itself before it goes.
+   */
   async refresh(externalIds: string[]): Promise<Record<string, RefreshState>> {
     const rows = await this.catalogue.statuses(externalIds);
     const out: Record<string, RefreshState> = {};

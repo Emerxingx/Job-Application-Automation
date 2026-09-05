@@ -22,8 +22,14 @@ request is not re-sent by the platform.
 
 ## Decision
 
-1. **An employer organisation is an `Organization` of type `employer`; the
-   hiring roles are a named set over the ladder** (`Membership.serviceRole`:
+1. **An employer organisation is an `Organization` of type `employer`,
+   created by staff once verified; the hiring roles are a named set over
+   the ladder** (the Stage 18 review's first finding: a self-created
+   "employer" could publish postings under any company name into every
+   candidate's feed and harvest identities through "Apply through
+   JobPilot"; `createOrganization` refuses `employer` and `service_provider`
+   without the staff verification flag the console's two-lock gate
+   supplies) (`Membership.serviceRole`:
    `recruiter` · `hiring_manager` · `interviewer` · `viewer`; owner/admin →
    `admin`; null or unknown → `viewer`). Recruiters and admins source and
    ask for disclosure; a hiring manager owns their requisitions and their
@@ -61,10 +67,14 @@ request is not re-sent by the platform.
    (`employer.candidate.read`). Under RLS the candidate may SELECT their
    own `Disclosure` row and nothing more (`custom` + `readUsing`); the
    pipeline tables are `org`-scoped and the candidate sees none of them.
-4. **Sourcing is anonymised and scored by the compatibility pipeline.**
-   `sourceCandidates` takes the candidates who chose to be seen, scores
-   each against the requisition's published job with `scoreCompatibility`
-   (Stage 08, the active weights), and returns cards: fit, matched and
+4. **Sourcing is anonymised and scored by the compatibility pipeline in
+   deterministic mode.** `sourceCandidates` takes the candidates who chose
+   to be seen, scores each against the requisition's published job with
+   `scoreCompatibility({ mode: 'deterministic' })` - the Stage 08 engine and
+   the active weights, with NO `AiRun` written under the candidate's
+   identity and no model, because this scoring is on the employer's behalf
+   and the candidate consented to being seen, not to a purpose of the
+   employer's - rate-limited per requisition, and returns cards: fit, matched and
    missing keywords, region (country only for `anonymous`), and a name and
    headline ONLY for `visible`. A hidden candidate is never in the set; an
    erased or not-yet-onboarded account is not; the run is audited
@@ -77,7 +87,9 @@ request is not re-sent by the platform.
    `consent_requested` are the candidate's stages (an employer cannot move
    into them); every stage at or past `consented` refuses without a
    granted disclosure. Interviews and offers require it too. Every move
-   writes a `SubmissionEvent` and an audit row with ids and kinds only.
+   writes a `SubmissionEvent`; the employer's moves also write an audit row
+   with ids and kinds only (a candidate's application, grant or revocation
+   is a consent event, audited as such).
 6. **Reporting is the organisation's own pipeline events.** Funnel counts
    (first event INTO a stage), medians in days to shortlist / interview /
    hire from the submission's creation, submissions and hires by source,
@@ -101,7 +113,22 @@ request is not re-sent by the platform.
   is recorded** (decision 7). That is the exit gate's BLOCKED item, and it
   is the founder's and counsel's, not engineering's.
 - A candidate who declined an employer's request cannot be asked by that
-  employer again; they can still apply to its postings themselves.
+  employer again; they can still apply to its postings themselves. After a
+  REVOCATION the employer may ask again (the candidate may have changed
+  their mind), and a terminal submission (hired, rejected, withdrawn) is
+  never moved by a new request.
+- What the employer wrote about a candidate - hiring-team notes, interview
+  feedback, an offer's terms - stays the employer's record after a
+  revocation; only the candidate's identity and profile become
+  unreadable. The Settings text says so. No retention purge exists for
+  these rows yet (DATA_RETENTION_MATRIX.md names three years; Stage 20).
+- The recruiter-visibility help text now states what each value exposes;
+  every preference recorded under the earlier text ("no recruiter features
+  exist yet") was reset to `hidden` by migration, and the person chooses
+  again.
+- The candidate's job page shows only that their OWN application was
+  received or withdrawn - never the employer's pipeline stage. The
+  employer communicates decisions; the platform does not.
 - No email, notification or message is sent to anyone: a request appears
   under the candidate's Settings. Notifications are a later stage.
 - No sub-team ("TA team"), employer contact directory or collaboration

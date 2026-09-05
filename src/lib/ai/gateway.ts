@@ -317,6 +317,17 @@ const MATCH_SCHEMA = {
   additionalProperties: false,
 };
 
+/**
+ * The deterministic engine alone: no policy resolution, no provider, no
+ * `AiRun`. For a caller scoring OTHER people's résumés on a third party's
+ * behalf (Stage 18 sourcing), where writing runs under each candidate's
+ * identity, or routing their résumé to a model under a purpose they never
+ * consented to, would be wrong. A pure function of its inputs.
+ */
+export async function analyzeMatchDeterministic(resume: ResumeContent, job: JobContext, options?: MatchOptions): Promise<MatchAnalysis> {
+  return engine().analyzeMatch(resume, job, options);
+}
+
 export async function analyzeMatch(ctx: GenerationContext, resume: ResumeContent, job: JobContext, options?: MatchOptions): Promise<GatewayResult<MatchAnalysis>> {
   const claims = ctx.evidence?.claims ?? [];
   return execute<MatchAnalysis, MatchAnalysis>(ctx, {

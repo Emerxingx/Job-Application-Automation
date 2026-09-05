@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { ok, route } from '@/lib/api';
-import { employerFail, employerRequest, organizationIdOf } from '@/lib/employer/request';
+import { employerDone, employerFail, employerRequest, organizationIdOf } from '@/lib/employer/request';
 import { createRequisition, listRequisitions } from '@/lib/employer/service';
 import { requisitionSchema } from '@/lib/employer/schemas';
 
@@ -8,7 +8,7 @@ import { requisitionSchema } from '@/lib/employer/schemas';
 export const GET = route(async (request: Request) => {
   try {
     const { tenant, actor } = await employerRequest(request, organizationIdOf(request));
-    const rows = await tenant.run((tx) => listRequisitions(tx, actor));
+    const rows = await employerDone(actor, () => tenant.run((tx) => listRequisitions(tx, actor)));
     return ok({ role: actor.role, requisitions: rows.map((r) => ({ id: r.id, title: r.title, status: r.status, location: r.location, jobId: r.jobId, submissions: r._count.submissions, openedAt: r.openedAt, updatedAt: r.updatedAt })) });
   } catch (error) {
     return employerFail(error) ?? Promise.reject(error);
@@ -23,7 +23,7 @@ export const POST = route(async (request: Request) => {
     const { tenant, actor } = await employerRequest(request, body.organizationId);
     const { organizationId: _o, ...input } = body;
     void _o;
-    const r = await tenant.run((tx) => createRequisition(tx, actor, input));
+    const r = await employerDone(actor, () => tenant.run((tx) => createRequisition(tx, actor, input)));
     return ok({ requisition: { id: r.id, status: r.status } }, { status: 201 });
   } catch (error) {
     return employerFail(error) ?? Promise.reject(error);

@@ -64,6 +64,8 @@ export const LIMITS = {
   /** Stage 17 review: case invitations per supervisor and per organisation - an invitation is a row a person sees under Settings; volume is bounded so a roster cannot be sprayed. */
   caseInvite: { limit: 30, windowSeconds: 60 * 60 },
   caseInviteOrganization: { limit: 200, windowSeconds: 60 * 60 * 24 },
+  /** Stage 18 review: candidate sourcing scores up to a hundred résumés per call; bounded per requisition. */
+  employerSourcing: { limit: 6, windowSeconds: 60 * 10 },
 } as const satisfies Record<string, RateLimitRule>;
 
 /**

@@ -71,9 +71,9 @@ describe('cases - roles, consent, isolation, restricted rows, plan, outcomes, co
     }
     // a service-provider organisation is not self-serve (Stage 17 review): the service refuses without the staff verification flag
     await assert.rejects(() => orgs.createOrganization(OA.id, { name: `Provider A ${S}`, type: 'service_provider', billingEmail: OA.email }), (e: unknown) => e instanceof orgs.OrganizationAccessError && e.status === 403);
-    orgA = (await orgs.createOrganization(OA.id, { name: `Provider A ${S}`, type: 'service_provider', billingEmail: OA.email }, { verifiedProvider: true })).id;
-    orgB = (await orgs.createOrganization(OB.id, { name: `Provider B ${S}`, type: 'service_provider', billingEmail: OB.email }, { verifiedProvider: true })).id;
-    orgE = (await orgs.createOrganization(OE.id, { name: `Employer ${S}`, type: 'employer', billingEmail: OE.email })).id;
+    orgA = (await orgs.createOrganization(OA.id, { name: `Provider A ${S}`, type: 'service_provider', billingEmail: OA.email }, { verifiedOrganization: true })).id;
+    orgB = (await orgs.createOrganization(OB.id, { name: `Provider B ${S}`, type: 'service_provider', billingEmail: OB.email }, { verifiedOrganization: true })).id;
+    orgE = (await orgs.createOrganization(OE.id, { name: `Employer ${S}`, type: 'employer', billingEmail: OE.email }, { verifiedOrganization: true })).id;
     for (const [u, serviceRole] of [
       [SUP, 'supervisor'],
       [CM1, 'case_manager'],
