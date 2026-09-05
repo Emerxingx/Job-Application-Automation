@@ -5,9 +5,9 @@
   "current_stage": 22,
   "last_completed_stage": 21,
   "current_branch": "claude/stage-22-autonomous-gate",
-  "current_head": "53f20744e2444d8647e472eae39f6299ab0678d4",
+  "current_head": "c90bf9c82d611fa49893f6368a31ddeb7783683f",
   "current_head_meaning": "SHA of the last commit whose full gate set was verified locally (lint, typecheck, tests, build). Set by the status-sync commit that immediately follows it, so it names a real, verified commit rather than the one it is written in.",
-  "current_pr": "pending (draft PR on base claude/stage-21-reporting-warehouse; recorded in the status-sync commit)",
+  "current_pr": "https://github.com/Emerxingx/Job-Application-Automation/pull/34",
   "main_head": "d6ae8b3a9180b529abe06f23417515432c0a7f0e",
   "run_complete": false,
   "stage_status": {
