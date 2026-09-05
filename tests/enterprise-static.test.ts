@@ -361,7 +361,9 @@ describe('impersonation, the session ceiling, the domain policy and the CSV', ()
     // The THIRD door (review H2): the mobile device sign-in.
     const device = read('src/lib/integrations/device-sessions.ts');
     assert.match(device, /const ssoRequired = await passwordSignInRefusal\(user\.email\);\s*if \(ssoRequired\) throw new ApiRequestError/);
-    assert.match(device, /sessionTtlSeconds\(await sessionMaxHoursFor\(user\.id\)\)/);
+    // The ceiling applies only when the organisation set one (review M-fix): a device key without a ceiling keeps the contract's 90 days.
+    assert.match(device, /const ceilingHours = await sessionMaxHoursFor\(user\.id\)/);
+    assert.match(device, /ceilingHours \? Math\.min\(DEVICE_SESSION_DAYS \* 24 \* 60 \* 60, sessionTtlSeconds\(ceilingHours\)\) : DEVICE_SESSION_DAYS \* 24 \* 60 \* 60/);
     assert.ok(device.indexOf('passwordSignInRefusal(user.email)') > device.indexOf('verifyPassword('), 'after the credential, so the refusal reveals nothing');
     assert.match(read('src/lib/admin/users.ts'), /revokeAllDeviceSessions\(user\.id, 'staff_revoke'\)/, '"sign out everywhere" includes the phone');
     assert.match(read('src/app/(app)/api/auth/exchange/route.ts'), /const ssoRequired = identity\.email \? await passwordSignInRefusal[\s\S]*linkSupabaseIdentity\(/, 'the exchange refuses BEFORE linking (M5)');
