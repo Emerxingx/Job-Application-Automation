@@ -4,7 +4,9 @@ import { Briefcase } from 'lucide-react';
 import { db } from '@/lib/db';
 import { requireTenant } from '@/lib/tenancy/request';
 import { requestMeta } from '@/lib/security-audit';
-import { CaseError, assignableMembers, listCaseload, requireCaseActor, serviceProviderMemberships } from '@/lib/cases/service';
+import { CaseError, assignableMembers, caseloadSummary, listCaseload, requireCaseActor, serviceProviderMemberships } from '@/lib/cases/service';
+import { canManageCaseload } from '@/lib/cases/roles';
+import { MartFreshnessNote } from '@/components/mart-freshness';
 import { OrganizationAccessError } from '@/lib/tenancy/organizations';
 import { Card, EmptyState, PageHeader } from '@/components/ui';
 import { CaseInvite } from '@/components/case-invite';
@@ -35,17 +37,19 @@ export default async function CasesPage({ searchParams }: { searchParams: Promis
   // The organisation is one of the caller's own memberships, so a refusal
   // here is a race (membership removed since the list was read) and is a
   // 404, not a server error (Stage 17 review, L10).
-  let page: { actor: Awaited<ReturnType<typeof requireCaseActor>>; caseload: Awaited<ReturnType<typeof listCaseload>>; members: Awaited<ReturnType<typeof assignableMembers>> };
+  let page: { actor: Awaited<ReturnType<typeof requireCaseActor>>; caseload: Awaited<ReturnType<typeof listCaseload>>; members: Awaited<ReturnType<typeof assignableMembers>>; summary: Awaited<ReturnType<typeof caseloadSummary>> | null };
   try {
     const { run } = await requireTenant(current.organizationId);
     const actor = await requireCaseActor({ id: user.id, email: user.email }, current.organizationId, requestMeta(undefined));
-    const [caseload, members] = await Promise.all([run((tx) => listCaseload(tx, actor, { status: params.status })), run((tx) => assignableMembers(tx, actor))]);
-    page = { actor, caseload, members };
+    const to = new Date();
+    const range = { from: new Date(to.getTime() - 90 * 86_400_000), to };
+    const [caseload, members, summary] = await Promise.all([run((tx) => listCaseload(tx, actor, { status: params.status })), run((tx) => assignableMembers(tx, actor)), canManageCaseload(actor.role) ? run((tx) => caseloadSummary(tx, actor, range)) : Promise.resolve(null)]);
+    page = { actor, caseload, members, summary };
   } catch (error) {
     if (error instanceof CaseError || error instanceof OrganizationAccessError) notFound();
     throw error;
   }
-  const { actor, caseload, members } = page;
+  const { actor, caseload, members, summary } = page;
   const policy = await db.retentionPolicy.findUnique({ where: { organizationId: current.organizationId } });
   const memberRows = await db.membership.findMany({ where: { organizationId: current.organizationId, acceptedAt: { not: null }, removedAt: null }, include: { user: { select: { fullName: true, email: true } } }, orderBy: { createdAt: 'asc' } });
   const label = (userId: string) => {
@@ -72,6 +76,26 @@ export default async function CasesPage({ searchParams }: { searchParams: Promis
       ) : null}
       <div className="grid gap-6 lg:grid-cols-[3fr_2fr]">
         <div className="space-y-6">
+          {summary ? (
+            <Card className="p-5">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h2 className="text-base font-semibold text-ink">Outcomes · last 90 days</h2>
+                <MartFreshnessNote marts={['OrganizationDailyMart']} />
+              </div>
+              <p className="mt-1 text-xs text-muted">Counts from the reporting mart, never a note or a name. An outcome figure is withheld under five clients (ADR-0012).</p>
+              <dl className="mt-3 grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
+                <div><dt className="text-muted">Cases opened</dt><dd className="text-lg font-semibold text-ink">{summary.opened}</dd></div>
+                <div><dt className="text-muted">Cases closed</dt><dd className="text-lg font-semibold text-ink">{summary.closed}</dd></div>
+                <div><dt className="text-muted">Employment outcomes</dt><dd className="text-lg font-semibold text-ink">{summary.outcomes.suppressed ? <span className="text-sm text-muted">{summary.outcomes.reason}</span> : <>{summary.outcomes.value}{summary.outcomes.withheldDays > 0 ? <span className="ml-1 text-xs font-normal text-muted">({summary.outcomes.withheldDays} day{summary.outcomes.withheldDays === 1 ? '' : 's'} under five clients withheld)</span> : null}</>}</dd></div>
+                <div><dt className="text-muted">Follow-ups completed</dt><dd className="text-lg font-semibold text-ink">{summary.followUps.completed} / {summary.followUps.due}</dd></div>
+              </dl>
+              {summary.outcomesByKind.length ? (
+                <p className="mt-2 text-xs text-muted">
+                  By kind: {summary.outcomesByKind.map((k) => `${k.kind.replace('_', ' ')} ${k.count.suppressed ? '(withheld)' : k.count.value}`).join(' · ')}
+                </p>
+              ) : null}
+            </Card>
+          ) : null}
           <Card className="p-5">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h2 className="text-base font-semibold text-ink">Caseload</h2>

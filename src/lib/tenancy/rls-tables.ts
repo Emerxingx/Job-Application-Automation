@@ -279,6 +279,11 @@ export const RLS_TABLES: Record<string, RlsKind> = {
   // tokens: administered by staff on the system client; never on the tenant path.
   SsoConnection: { kind: 'system' },
   ScimToken: { kind: 'system' },
+
+  // --- Stage 21: reporting marts (ADR-0036). The organisation mart is read by
+  // the organisation's members on the tenant path; the cohort mart by staff only.
+  OrganizationDailyMart: { kind: 'org', column: 'organizationId' },
+  SubscriptionCohortMart: { kind: 'system' },
   Region: { kind: 'reference' },
   RegionLabel: { kind: 'reference' },
 
@@ -414,6 +419,7 @@ export const STAGE_17_TABLES = ['RetentionPolicy', 'Case', 'CaseNote', 'CaseAsse
 export const STAGE_18_TABLES = ['Requisition', 'Disclosure', 'TalentPool', 'TalentPoolMember', 'Submission', 'SubmissionEvent', 'EmployerInterview', 'EmployerNote', 'Offer'];
 export const STAGE_19_TABLES = ['StaffingJurisdictionRule', 'ClientContract', 'FeeStructure', 'Engagement', 'RepresentationConsent', 'Placement', 'PlacementInvoice'];
 export const STAGE_20_TABLES = ['SsoConnection', 'ScimToken'];
+export const STAGE_21_TABLES = ['OrganizationDailyMart', 'SubscriptionCohortMart'];
 
 export const RLS_MANIFESTS: RlsManifest[] = [
   { migration: '20260903073000_row_level_security', preamble: true, tables: STAGE_01_TABLES },
@@ -435,4 +441,5 @@ export const RLS_MANIFESTS: RlsManifest[] = [
   { migration: '20260905180100_rls_talent_acquisition', preamble: false, tables: STAGE_18_TABLES },
   { migration: '20260905190100_rls_staffing', preamble: false, tables: STAGE_19_TABLES },
   { migration: '20260905200100_rls_enterprise', preamble: false, tables: STAGE_20_TABLES },
+  { migration: '20260905210100_rls_reporting_marts', preamble: false, tables: STAGE_21_TABLES },
 ];

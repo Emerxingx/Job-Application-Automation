@@ -300,7 +300,12 @@ describe('staffing - roles, contracts, fees, engagements, representation, placem
     assert.equal(cancelled.status, 'cancelled');
     assert.equal(cancelled.fellOffAt, null);
     assert.ok(!svc.withinGuarantee(cancelled));
+    // Stage 21 (ADR-0036): productivity reads the organisation mart; the rollup is the one reader of the staffing tables.
+    const { rollupOrganizations } = await import('../src/lib/analytics/organization/rollup');
+    await rollupOrganizations({ start: new Date(Date.now() - 2 * 86_400_000), end: new Date(Date.now() + 2 * 86_400_000) }, { organizationId: orgA });
     const prodFin = await tenant(FIN.id, orgA, (tx) => svc.recruiterProductivity(tx, fin(), { from: new Date(Date.now() - 86_400_000), to: new Date(Date.now() + 86_400_000) }));
+    assert.equal(prodFin.invoices?.issued.count, 1, 'finance sees the invoice summary from the mart');
+    assert.equal(prodFin.invoices?.credited.cents, 1_800_000);
     const recRow = prodFin.recruiters.find((r) => r.recruiterId === REC.id)!;
     assert.equal(recRow.placements, 2);
     assert.equal(recRow.fellOffInGuarantee, 1, 'the cancelled placement is not a fall-off');

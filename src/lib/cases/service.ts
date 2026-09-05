@@ -22,6 +22,7 @@ import { hashEmail, recordSecurityEvent, type RequestMeta, type SecurityEvent } 
 import { LIMITS, rateLimit } from '@/lib/rate-limit';
 import { findActiveMembership } from '@/lib/tenancy/organizations';
 import { canManageCaseload, canOpenCase, canWriteCase, caseRoleOf, isServiceRole, type CaseRole, type ServiceRole } from './roles';
+import { readCaseloadSummary } from '@/lib/analytics/organization/read';
 import { assertNotImpersonating } from '@/lib/auth';
 
 type Client = Prisma.TransactionClient | typeof db;
@@ -264,6 +265,17 @@ export async function closeCase(tx: Client, actor: CaseActor, caseId: string, re
  * the tenant path returned - the clients consented to this organisation -
  * and never for a declined case.
  */
+/**
+ * Stage 21 (ADR-0036): the supervisor's employment-outcome summary, from the
+ * cases mart (OrganizationDailyMart, product cases) - counts only, no cut but
+ * outcome kind, and an outcome figure withheld under five distinct clients.
+ * Never a note, a barrier or a name; nothing here reads a case row.
+ */
+export async function caseloadSummary(tx: Client, actor: CaseActor, range: { from: Date; to: Date }) {
+  if (!canManageCaseload(actor.role)) throw new CaseError('Only a supervisor or an administrator reads the outcome summary.', 403);
+  return readCaseloadSummary(tx, actor.organizationId, range);
+}
+
 export async function listCaseload(tx: Client, actor: CaseActor, filter: { status?: string } = {}) {
   const where: Prisma.CaseWhereInput = { organizationId: actor.organizationId, ...(filter.status ? { status: filter.status } : {}) };
   if (actor.role === 'case_manager') where.caseManagerId = actor.user.id;

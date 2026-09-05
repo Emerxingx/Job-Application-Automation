@@ -577,6 +577,13 @@ export interface DailyRevenueRow {
   grossMrrChurnParts: number;
   netRevenueRetentionParts: number;
   dunningRecoveryParts: number;
+  /** Stage 21 (ADR-0036): payment counts on the currency row, so payment health reads the mart. */
+  invoicesBilled: number;
+  paymentsSucceeded: number;
+  paymentsFailed: number;
+  paymentsPending: number;
+  failedPaymentCents: number;
+  reactivatedCustomers: number;
 }
 
 /** What a rollup job reports back. Mirrors the `RollupRun` model. */

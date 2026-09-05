@@ -10,6 +10,7 @@ import { canCreateRequisition } from '@/lib/employer/roles';
 import { Card, EmptyState, PageHeader } from '@/components/ui';
 import { EmployerRequisitions } from '@/components/employer-requisitions';
 import { EmployerRoster } from '@/components/employer-roster';
+import { MartFreshnessNote } from '@/components/mart-freshness';
 
 export const metadata = { title: 'Hiring' };
 export const dynamic = 'force-dynamic';
@@ -85,8 +86,11 @@ export default async function EmployerPage({ searchParams }: { searchParams: Pro
               ))}
             </dl>
             <p className="mt-2 text-xs text-muted">
-              Median days to shortlist {report.daysTo.shortlist ?? '—'} · to interview {report.daysTo.interview ?? '—'} · to hire {report.daysTo.hire ?? '—'}. Counted from your own pipeline events; no candidate is named.
+              Mean days to shortlist {report.daysTo.shortlist ?? '—'} · to interview {report.daysTo.interview ?? '—'} · to hire {report.daysTo.hire ?? '—'}. Read from your organisation&apos;s reporting mart, built from your own pipeline events; no candidate is named.
             </p>
+            <div className="mt-1">
+              <MartFreshnessNote marts={['OrganizationDailyMart']} />
+            </div>
           </Card>
           <Card className="p-5">
             <h2 className="text-base font-semibold text-ink">Talent pools</h2>

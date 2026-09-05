@@ -236,6 +236,7 @@ export function computeDailyRevenueRows(
     if (!BILLED_INVOICE_STATUSES.includes(invoice.status)) continue;
     const row = byDayCurrency.get(`${dayKey(invoiceDate(invoice))}|${invoice.currency}`);
     if (!row) continue;
+    row.invoicesBilled += 1;
     row.invoicedCents += invoice.totalCents;
     row.discountCents += invoice.discountCents;
     row.taxCents += invoice.taxCents;
@@ -243,9 +244,17 @@ export function computeDailyRevenueRows(
   }
 
   for (const payment of input.payments) {
-    if (!isSettledPayment(payment.status)) continue;
     const row = byDayCurrency.get(`${dayKey(paymentDate(payment))}|${payment.currency}`);
     if (!row) continue;
+    // Stage 21: every payment is counted by outcome (payment health reads the
+    // mart); only a SETTLED one moves cash.
+    if (isSettledPayment(payment.status)) row.paymentsSucceeded += 1;
+    else if (payment.status === 'failed') {
+      row.paymentsFailed += 1;
+      row.failedPaymentCents += payment.amountCents;
+    }
+    else if (payment.status === 'pending' || payment.status === 'requires_action') row.paymentsPending += 1;
+    if (!isSettledPayment(payment.status)) continue;
     row.paidCents += payment.amountCents;
     row.refundedCents += payment.amountRefundedCents;
     row.feeCents += payment.feeCents;
@@ -282,6 +291,7 @@ export function computeDailyRevenueRows(
         row.payingCustomers = closing.subscriptions;
         row.newCustomers = movement.newSubscribers;
         row.churnedCustomers = movement.churnedSubscribers;
+        row.reactivatedCustomers = movement.reactivatedSubscribers;
         row.arpuCents =
           closing.subscriptions > 0 ? Math.round(closing.mrrCents / closing.subscriptions) : 0;
 
@@ -346,6 +356,12 @@ function emptyRevenueRow(day: string, currency: string): DailyRevenueRow {
     grossMrrChurnParts: 0,
     netRevenueRetentionParts: 0,
     dunningRecoveryParts: 0,
+    invoicesBilled: 0,
+    paymentsSucceeded: 0,
+    paymentsFailed: 0,
+    paymentsPending: 0,
+    failedPaymentCents: 0,
+    reactivatedCustomers: 0,
   };
 }
 
@@ -744,10 +760,22 @@ export async function rollupPlatformMetrics(
  * rest.
  */
 export async function rollupAll(range: DateRange): Promise<RollupResult[]> {
+  // Stage 21 (ADR-0036): the platform, organisation, cohort and candidate
+  // marts join the sweep, so one operator command rebuilds every mart a
+  // dashboard reads. Lazy imports keep this module's pure half importable
+  // without dragging every rollup's dependencies into a test.
+  const [{ rollupPlatform }, { rollupOrganizations }, { rollupCohorts }, { rollupCandidateOutcomes }] = await Promise.all([import('./platform/rollup'), import('./organization/rollup'), import('./finance/cohorts'), import('./candidate/rollup')]);
   const jobs: [string, () => Promise<RollupResult>][] = [
     ['daily_usage', () => rollupUsage(range)],
     ['daily_revenue', () => rollupRevenue(range)],
     ['daily_metrics', () => rollupPlatformMetrics(range)],
+    ['platform_metrics', () => rollupPlatform(range)],
+    ['organization_reporting', () => rollupOrganizations(range)],
+    ['subscription_cohorts', () => rollupCohorts()],
+    ['candidate_outcomes', async () => {
+      const r = await rollupCandidateOutcomes(range);
+      return { job: r.job, windowStart: r.windowStart, windowEnd: r.windowEnd, days: r.days, rowsRead: r.applicationsRead + r.matchesRead, rowsWritten: r.outcomeRows + r.matchRows + r.benchmarkRows, status: r.status };
+    }],
   ];
 
   const results: RollupResult[] = [];

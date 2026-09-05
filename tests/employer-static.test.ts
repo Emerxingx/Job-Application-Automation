@@ -109,7 +109,15 @@ describe('employer code - static boundaries', () => {
     const offenders: string[] = [];
     for (const dir of ['src/lib/matching', 'src/lib/eligibility', 'src/lib/analytics', 'src/lib/ai']) {
       for (const f of files(path.join(root, dir))) {
-        if (/\b(requisition|disclosure|submission|talentPool|employerNote|employerInterview|offer)\.(findMany|findFirst|findUnique|create|update|count|aggregate|groupBy)\b/.test(readFileSync(f, 'utf8'))) offenders.push(path.relative(root, f));
+        const rel = path.relative(root, f);
+        const text = readFileSync(f, 'utf8');
+        if (rel === 'src/lib/analytics/organization/rollup.ts') {
+          // Stage 21 (ADR-0036): the ONE analytics reader of submissions and their stage events (ids, source,
+          // dates, member actor) for the employer's funnel; never a disclosure, a note, an interview or an offer.
+          if (/\b(requisition|disclosure|talentPool|employerNote|employerInterview|offer)\.\w+\(|\b(matchBreakdown|rejectedReason|note|candidateUserId|disclosureId|matchScore)\s*:\s*true\b|\binclude\s*:/.test(text)) offenders.push(rel);
+          continue;
+        }
+        if (/\b(requisition|disclosure|submission|talentPool|employerNote|employerInterview|offer)\.(findMany|findFirst|findUnique|create|update|count|aggregate|groupBy)\b/.test(text)) offenders.push(rel);
       }
     }
     assert.deepEqual(offenders, []);

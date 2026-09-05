@@ -292,7 +292,7 @@ governed `PromptVersion` registry in the transactional database (approval,
 evaluation-gated promotion, rollback, step-up, audit) and the AI gateway.
 **Remediation:** `ADR-0006` — implemented; see `STAGE03_EVIDENCE.md`.
 
-### G-25 — Reporting shares the transactional store · PARTIAL (candidate side CLOSED, Stage 13)
+### G-25 — Reporting shares the transactional store · CLOSED on the engineering side (Stage 13 candidate; Stage 21 staff and organisation); event stream and warehouse NOT BUILT
 Rollup models and 1,066 lines of revenue analytics exist — genuinely capable. But
 dashboards queried the transactional database directly, which the brief explicitly
 warns against. No event stream.
@@ -301,7 +301,17 @@ metric dictionary, rebuilt by replacement with a `RollupRun` per run; a static t
 refuses a transactional read on those pages. Remaining: the console/revenue pages
 still read transactional tables (Stage 21); no event stream feeds the marts
 (ADR-0011); no scheduler runs the sweep.
-**Remediation:** `ADR-0012`, Stage 21.
+**Stage 21 (ADR-0036):** the console overview and revenue pages, the employer report,
+staffing productivity and the supervisor's caseload summary read marts through one
+platform metric dictionary (`METRIC_DICTIONARY.md` mirrors it); `OrganizationDailyMart`
+(org-scoped) and `SubscriptionCohortMart` join the reused `DailyMetric` and
+`DailyRevenueRollup`; a static test refuses a transactional metric on every reporting
+surface and allow-lists the two operational queues as lists; every page shows its
+mart's freshness and says STALE past the 26-hour SLA; the warehouse extraction boundary
+is a tested CSV contract (`WAREHOUSE_EXTRACTION.md`). Remaining, stated: no event stream
+(ADR-0011), no scheduler, no warehouse, extraction and rollup throughput at volume NOT
+VERIFIED.
+**Remediation:** `ADR-0012`, `ADR-0036`; the rest is ADR-0011 and Stage 23.
 
 ### G-26 — No platform admin; founder cannot operate the business · PARTIAL (Stage 20: organisations, users, roles, flags, audit, impersonation, SSO, SCIM built; plans/prices, notifications, retention and system health not)
 The founder is non-technical. Today, changing a plan price, a matching weight, a
