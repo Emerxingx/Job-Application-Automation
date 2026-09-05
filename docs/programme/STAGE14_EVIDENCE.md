@@ -157,8 +157,8 @@ contrast - **computed** by `tests/theme.test.ts` (the first draft failed it
 three times and was corrected, which is the point of computing it).
 
 **Gates run here** (`mobile/`): `npm run typecheck` 0 errors;
-`npm test` **24 / 24** (client 6, cache 4, contract parity 4, format /
-device / config 5, contrast 3 + 2 more); `npm run export:web` bundles every
+`npm test` **24 / 24** (client 7, cache 5, contract parity 4, format /
+device / config 5, contrast 3); `npm run export:web` bundles every
 screen with Metro (1.2 MB web bundle, 0 errors) - the compile gate.
 
 **NOT VERIFIED (no device, no emulator, no store account here).** Running
@@ -257,4 +257,27 @@ baseline.
 
 ## 11. Independent review of 1.1.0 and the app
 
-PENDING - a separate adversarial pass over the 1.1.0 amendment, the device sessions and `mobile/` runs after the first push of this work; its findings and fixes are recorded here.
+A separate agent, 2026-09-05, against the committed diff `88de4d1..aa317c8`;
+it re-ran the root typecheck, lint, the contract suite (17/17) and the
+mobile typecheck and tests (24/24) itself.
+
+| # | Severity | Finding | Outcome |
+| --- | --- | --- | --- |
+| 1 | MEDIUM | The public sign-in's only throttle was keyed on `X-Forwarded-For`'s leftmost entry, which the caller writes - a fresh bucket per request, unlimited online guessing | **FIXED** - `clientAddress` believes only the entry `TRUSTED_PROXY_HOPS` from the right (default 1; 0 = ignore the header), documented in `.env.example`; and both sign-ins (`POST /v1/auth/sessions`, `POST /api/auth/login`) now also budget attempts PER ACCOUNT by the digest of the email (`LIMITS.authAccount`, 30 / 15 min), so a rotating address still runs out of guesses |
+| 2 | MEDIUM | The signed document link's authority came from the request's Host header; a forwarded Host could carry a live, owner-bound signature to an attacker's domain | **FIXED** - `src/lib/app-url.ts`: the authority is `NEXT_PUBLIC_APP_URL` (required in production), the convention Stripe, PayPal and invoices already follow; the test asserts the origin is the configured one and not the request's |
+| 3 | LOW | `PATCH /v1/me` answered 403 for an unrecognised mode value as well as for the unreachable one | **FIXED** - 403 only for the ADR-0016 refusal, 400 otherwise |
+| 4 | LOW | `setConsent` was check-then-act; two taps could record two grants and two audit rows | **FIXED** - checked and granted under one advisory lock in one transaction |
+| 5 | MEDIUM | The card border was tested at 1.5:1 while the tokens claimed AA for UI colours; the real ratios were 2.5:1 and 1.7:1 | **FIXED** - both borders moved to `#6b7280` (light 4.8:1, dark 3.9:1) and the test now demands SC 1.4.11's 3:1; the claim and the test agree |
+| 6 | LOW | The evidence's per-suite test breakdown was off by one in two buckets (the 24 total was right) | **FIXED** - client 7, cache 5, parity 4, format/device/config 5, contrast 3 |
+| 7 | LOW | Device recycling and creation were separate statements; two racing sign-ins could briefly exceed the cap | **FIXED** - recycle and create run in one transaction under an advisory lock per account |
+
+Sound per the reviewer: ownership scoping on every 1.1 loader (a document
+needs the application AND the owner; a job needs the caller's match), device
+and integration keys isolated in every revocation path, no `admin` anywhere
+in the contract, password change and sign-out-everywhere revoking every
+device, the locked confirm serialising a double-confirm and a
+confirm-versus-submit race, no raw key in any log, audit row or cache, the
+secure store with no AsyncStorage anywhere, the cache holding only
+allow-listed GETs and wiped on every sign-out and every 401, the double-tap
+and offline guards, the 1.1 schemas matching the code field for field, the
+migration additive, and every numeric claim in this document re-verified.

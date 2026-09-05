@@ -28,7 +28,7 @@ export const PATCH = v1Route('write', async (context) => {
     me = await updateMe(context.key.userId, body);
   } catch (error) {
     // The unreachable mode (ADR-0016): refused with its reason, as the web profile route refuses it.
-    if (error instanceof ApplicationModeError) throw new ApiRequestError('invalid_request', error.message, 403, 'applicationMode');
+    if (error instanceof ApplicationModeError) throw new ApiRequestError('invalid_request', error.message, error.status === 403 ? 403 : 400, 'applicationMode');
     throw error;
   }
   if (!me) throw notFound('No profile for this key.');

@@ -24,6 +24,7 @@
  * platform's secure storage (Keychain / Keystore; never AsyncStorage,
  * MOBILE_ARCHITECTURE.md). Nothing here writes it anywhere else.
  */
+import type { Prisma } from '@prisma/client';
 import { db } from '@/lib/db';
 import { verifyPassword } from '@/lib/auth';
 import type { ConsentPurpose } from '@/lib/consent';
@@ -35,6 +36,7 @@ import {
   verifySupabaseAccessToken,
   withProviderVerification,
 } from '@/lib/identity/supabase';
+import { LIMITS, rateLimit } from '@/lib/rate-limit';
 import { hashEmail, recordSecurityEvent, type RequestMeta } from '@/lib/security-audit';
 import { generateApiKey, serialiseScopes, type ApiScope } from './api-keys';
 import { ApiRequestError } from './http';
@@ -120,6 +122,10 @@ export async function issueDeviceSession(
 
   if (signIn.method === 'password') {
     const email = signIn.email.toLowerCase().trim();
+    // Budgeted per account as well as per address: the address is only as
+    // trustworthy as the proxy in front (rate-limit.ts), the account is not.
+    const budget = rateLimit('auth_account', hashEmail(email), LIMITS.authAccount);
+    if (!budget.ok) throw new ApiRequestError('rate_limited', 'Too many sign-in attempts for this account. Try again later.', 429);
     const found = await db.user.findUnique({ where: { email }, select: { id: true, email: true, role: true, onboardedAt: true, passwordHash: true } });
     if (!found || !(await verifyPassword(signIn.password, found.passwordHash))) {
       await recordSecurityEvent({
@@ -164,23 +170,27 @@ export async function issueDeviceSession(
     }
   }
 
-  await recycleDevices(user.id, meta);
-
   const generated = generateApiKey('live');
   const expiresAt = new Date(Date.now() + DEVICE_SESSION_DAYS * 24 * 60 * 60 * 1000);
-  const row = await db.apiKey.create({
-    data: {
-      userId: user.id,
-      name: device.name,
-      kind: 'device',
-      platform: device.platform,
-      prefix: generated.prefix,
-      keyHash: generated.keyHash,
-      scopes: serialiseScopes(DEVICE_SCOPES),
-      environment: 'live',
-      rateLimitPerMinute: DEVICE_RATE_LIMIT_PER_MINUTE,
-      expiresAt,
-    },
+  // Recycle and create under one advisory lock per account, so two sign-ins
+  // racing cannot both see room for one more device (Stage 14 review).
+  const row = await db.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`device:${user.id}`}::text))`;
+    await recycleDevices(tx, user.id, meta);
+    return tx.apiKey.create({
+      data: {
+        userId: user.id,
+        name: device.name,
+        kind: 'device',
+        platform: device.platform,
+        prefix: generated.prefix,
+        keyHash: generated.keyHash,
+        scopes: serialiseScopes(DEVICE_SCOPES),
+        environment: 'live',
+        rateLimitPerMinute: DEVICE_RATE_LIMIT_PER_MINUTE,
+        expiresAt,
+      },
+    });
   });
   await recordSecurityEvent({
     event: 'auth.device.issued',
@@ -209,8 +219,8 @@ export async function issueDeviceSession(
 }
 
 /** Beyond the cap, revoke the least recently used devices so the new one fits. */
-async function recycleDevices(userId: string, meta: RequestMeta): Promise<void> {
-  const active = await db.apiKey.findMany({
+async function recycleDevices(client: Prisma.TransactionClient | typeof db, userId: string, meta: RequestMeta): Promise<void> {
+  const active = await client.apiKey.findMany({
     where: { userId, kind: 'device', revokedAt: null },
     orderBy: [{ lastUsedAt: { sort: 'asc', nulls: 'first' } }, { createdAt: 'asc' }],
     select: { id: true },
@@ -218,8 +228,9 @@ async function recycleDevices(userId: string, meta: RequestMeta): Promise<void> 
   const excess = active.length - (MAX_DEVICES_PER_USER - 1);
   if (excess <= 0) return;
   const victims = active.slice(0, excess).map((k) => k.id);
-  await db.apiKey.updateMany({ where: { id: { in: victims }, userId }, data: { revokedAt: new Date() } });
-  await recordSecurityEvent({
+  await client.apiKey.updateMany({ where: { id: { in: victims }, userId }, data: { revokedAt: new Date() } });
+  await recordSecurityEvent(
+    {
     event: 'auth.device.revoked',
     user: { id: userId, email: '' },
     actor: { type: 'system' },
@@ -228,7 +239,9 @@ async function recycleDevices(userId: string, meta: RequestMeta): Promise<void> 
     summary: `Recycled ${victims.length} least-recently-used device${victims.length === 1 ? '' : 's'} (cap ${MAX_DEVICES_PER_USER})`,
     detail: { revoked: victims.length, reason: 'device_cap' },
     meta,
-  });
+    },
+    client,
+  );
 }
 
 /** The owner's live devices, most recently used first. */

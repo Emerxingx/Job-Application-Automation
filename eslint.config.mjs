@@ -45,6 +45,8 @@ const config = [
       'node_modules/**',
       // Stage 14: the Expo app is its own package with its own toolchain (mobile/package.json).
       'mobile/**',
+      // Sibling worktrees used during stage work; never part of this tree's lint.
+      'scratchpad/**',
       '.next/**',
       'out/**',
       'build/**',

@@ -1,4 +1,4 @@
-/** WCAG 2.2 contrast, computed: text on its background ≥ 4.5:1, UI colours ≥ 3:1, in both themes. */
+/** WCAG 2.2 contrast, computed: text on its background ≥ 4.5:1 (SC 1.4.3), UI component edges ≥ 3:1 (SC 1.4.11), in both themes. */
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { DARK, LIGHT, TOUCH, type Theme } from '../src/ui/tokens';
@@ -31,7 +31,8 @@ function check(name: string, t: Theme) {
     ['success on pill', t.success, t.pillBg, 4.5],
     ['warning on pill', t.warning, t.pillBg, 4.5],
     ['danger on pill', t.danger, t.pillBg, 4.5],
-    ['border on card', t.border, t.card, 1.5],
+    // Non-text contrast (SC 1.4.11): the card boundary is a UI component edge, so 3:1.
+    ['border on card', t.border, t.card, 3],
   ];
   for (const [label, fg, bg, min] of pairs) {
     const ratio = contrast(fg, bg);

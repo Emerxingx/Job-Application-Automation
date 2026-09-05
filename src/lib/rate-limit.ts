@@ -57,6 +57,8 @@ export const LIMITS = {
   auth: { limit: 10, windowSeconds: 60 * 5 },
   /** Stage 13: a candidate rebuilding their own analytics marts — bounded to their rows, but a scan of them. */
   analyticsRefresh: { limit: 3, windowSeconds: 60 * 10 },
+  /** Stage 14 review: sign-in attempts per ACCOUNT (keyed by the digest of the email), whatever address they claim to come from. */
+  authAccount: { limit: 30, windowSeconds: 60 * 15 },
 } as const satisfies Record<string, RateLimitRule>;
 
 /**
@@ -102,13 +104,40 @@ export function rateLimit(bucketName: string, key: string, rule: RateLimitRule):
 }
 
 /**
- * Best-effort client address, for limiting requests that have no user yet.
- * Only trusted when the deployment sits behind a proxy that sets these.
+ * How many proxies in front of the app append to X-Forwarded-For. Default 1:
+ * one load balancer, the usual managed-hosting shape. 0 means "believe no
+ * forwarded header at all".
  */
-export function clientAddress(request: Request): string {
-  const forwarded = request.headers.get('x-forwarded-for');
-  if (forwarded) return forwarded.split(',')[0]!.trim();
-  return request.headers.get('x-real-ip') ?? 'unknown';
+export function trustedProxyHops(env: NodeJS.ProcessEnv = process.env): number {
+  const n = Number(env.TRUSTED_PROXY_HOPS ?? '1');
+  return Number.isInteger(n) && n >= 0 ? n : 1;
+}
+
+/**
+ * Best-effort client address, for limiting requests that have no user yet.
+ *
+ * Stage 14 review: X-Forwarded-For is client-writable, so its LEFTMOST entry
+ * is whatever the caller wrote and keying a limiter on it hands out a fresh
+ * bucket per request. Each trusted proxy APPENDS the address it saw, so the
+ * believable entry is the one `hops` from the right; anything to its left is
+ * untrusted and ignored. With zero hops the header is ignored entirely and
+ * every anonymous caller shares one bucket - honest about what the app can
+ * know without a proxy (a Next route handler has no socket address). An
+ * address limit is therefore never the only bound on a credential endpoint:
+ * the sign-in routes also budget attempts PER ACCOUNT (`LIMITS.authAccount`).
+ */
+export function clientAddress(request: Request, hops: number = trustedProxyHops()): string {
+  if (hops > 0) {
+    const forwarded = request.headers.get('x-forwarded-for');
+    if (forwarded) {
+      const parts = forwarded.split(',').map((p) => p.trim()).filter(Boolean);
+      const candidate = parts[parts.length - hops];
+      if (candidate) return candidate;
+    }
+    const real = request.headers.get('x-real-ip');
+    if (real) return real.trim();
+  }
+  return 'unknown';
 }
 
 /** Test seam — clears all counters. */

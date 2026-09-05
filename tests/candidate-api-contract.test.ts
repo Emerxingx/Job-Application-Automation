@@ -136,6 +136,7 @@ describe('candidate API contract - against the backend', { skip: SKIP }, () => {
   before(async () => {
     process.env.DATABASE_URL = CONNECTION_STRING;
     process.env.JOB_PROVIDER = 'mock';
+    process.env.NEXT_PUBLIC_APP_URL = 'https://app.test';
     ({ db } = await import('../src/lib/db'));
     keys = await import('../src/lib/integrations/api-keys');
     const { hashPassword } = await import('../src/lib/auth');
@@ -365,7 +366,7 @@ describe('candidate API contract - against the backend', { skip: SKIP }, () => {
     const link = await call(POST!, readKey, `/v1/applications/${ids.application}/documents/${doc.id}/link`, params, 'POST');
     conforms('post', '/v1/applications/{applicationId}/documents/{documentId}/link', link, 201);
     const url = new URL((link.body as { url: string }).url);
-    assert.equal(url.origin, 'https://api.test');
+    assert.equal(url.origin, 'https://app.test', 'the authority is NEXT_PUBLIC_APP_URL, never the request host (https://api.test)');
     assert.equal(verifyDocumentLink({ documentId: doc.id, userId: url.searchParams.get('u') ?? '', expiresAt: Number(url.searchParams.get('exp')), signature: url.searchParams.get('sig') ?? '' }), 'ok');
     assert.equal(url.searchParams.get('u'), A.id);
     conforms('post', '/v1/applications/{applicationId}/documents/{documentId}/link', await call(POST!, otherKey, `/v1/applications/${ids.application}/documents/${doc.id}/link`, params, 'POST'), 404);

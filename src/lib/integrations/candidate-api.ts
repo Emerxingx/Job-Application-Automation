@@ -19,7 +19,7 @@ import { folderCompleteness } from '@/lib/applications/folder';
 import { serialiseApplication, serialiseJobMatch, type PublicApplication, type PublicJob } from './public-api';
 import { ApiRequestError, notFound, type Pagination } from './http';
 import { parseApplicationMode, type ApplicationMode } from '@/lib/apply/modes';
-import { CONSENT_PURPOSES, CONSENT_VERSIONS, REQUIRED_AT_SIGNUP, grantConsent, revokeConsent, type ConsentPurpose } from '@/lib/consent';
+import { CONSENT_PURPOSES, CONSENT_VERSIONS, REQUIRED_AT_SIGNUP, grantConsent, hasCurrentConsent, revokeConsent, type ConsentPurpose } from '@/lib/consent';
 import { documentLinkPath, signDocumentLink } from '@/lib/documents/sign';
 import type { RequestMeta } from '@/lib/security-audit';
 
@@ -363,8 +363,12 @@ export async function setConsent(userId: string, purpose: ConsentPurpose, grante
     throw new ApiRequestError('invalid_request', `Consent for ${purpose} cannot be recorded yet.`, 409, 'purpose');
   }
   if (granted) {
-    const current = (await listConsents(userId)).find((c) => c.purpose === purpose);
-    if (!current?.granted) await grantConsent(db, user, purpose, { source: 'settings', meta });
+    // Check and grant under one advisory lock: two taps or a retry must not
+    // record two grants (and two audit rows) for one decision (Stage 14 review).
+    await db.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`consent:${userId}:${purpose}`}::text))`;
+      if (!(await hasCurrentConsent(tx, userId, purpose))) await grantConsent(tx, user, purpose, { source: 'settings', meta });
+    });
   } else {
     if (REQUIRED_AT_SIGNUP.includes(purpose)) {
       throw new ApiRequestError('invalid_request', `Withdrawing ${purpose} closes the account; do that from the web privacy page.`, 409, 'purpose');
