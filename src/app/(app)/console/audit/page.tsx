@@ -15,11 +15,11 @@ export default async function ConsoleAuditPage({ searchParams }: { searchParams:
   const p = await searchParams;
   const date = (v?: string) => (v && !Number.isNaN(new Date(v).getTime()) ? new Date(v) : undefined);
   const { rows, nextCursor } = await queryAuditLog({ action: p.action, entityType: p.entityType, entityId: p.entityId, actorEmail: p.actorEmail, from: date(p.from), to: date(p.to), cursor: p.cursor, take: 100 });
-  const exportAllowed = await isFlagEnabled('console.audit_export', gate.staff.id);
+  const exportAllowed = await isFlagEnabled('console.report_export', gate.staff.id);
   const qs = new URLSearchParams(Object.entries(p).filter(([k, v]) => v && k !== 'cursor') as [string, string][]);
   return (
     <>
-      <PageHeader title="Audit log" description="Append-only. Every staff change, every consent, every sensitive read, every sign-in outcome. Rows carry ids, kinds and digests - never a secret, a body, a note or an address in clear. An export is itself an audit row." />
+      <PageHeader title="Audit log" description="Append-only. Every staff change, every consent, every sensitive read, every sign-in outcome. Rows carry ids, kinds and reasons - never a secret, a token, a body or a note; a failed sign-in names only a digest, while a row a person acted on carries their address as its actor. An export is itself an audit row." />
       <form method="get" className="mb-4 grid gap-2 md:grid-cols-6">
         <input name="action" defaultValue={p.action ?? ''} placeholder="action prefix (e.g. staffing.)" className="rounded-md border border-line bg-surface px-3 py-2 text-sm" />
         <input name="entityType" defaultValue={p.entityType ?? ''} placeholder="entity type" className="rounded-md border border-line bg-surface px-3 py-2 text-sm" />
@@ -39,7 +39,7 @@ export default async function ConsoleAuditPage({ searchParams }: { searchParams:
             Export these rows as CSV (up to 1000)
           </a>
         ) : (
-          'CSV export is switched off (feature flag console.audit_export).'
+          'CSV export is switched off (feature flag console.report_export).'
         )}
       </p>
       <Card className="p-0">

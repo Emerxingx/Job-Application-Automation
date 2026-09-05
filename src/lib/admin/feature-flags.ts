@@ -31,7 +31,7 @@ export interface FlagDeclaration {
 
 export const FLAG_REGISTRY = {
   'auth.sso_start_button': { description: 'Show "Sign in with your organisation" on the login page (enterprise SSO entry point).', defaultEnabled: true, readBy: 'src/app/(app)/(auth)/login/page.tsx' },
-  'console.audit_export': { description: 'Allow staff to export the audit log as CSV from /console/audit.', defaultEnabled: true, readBy: 'src/app/(app)/api/console/audit/export/route.ts' },
+  'console.report_export': { description: 'Allow staff to export the audit log as CSV from /console/audit.', defaultEnabled: true, readBy: 'src/app/(app)/api/console/audit/export/route.ts' },
 } as const satisfies Record<string, FlagDeclaration>;
 
 export type FlagKey = keyof typeof FLAG_REGISTRY;
@@ -41,7 +41,7 @@ export function isFlagKey(value: unknown): value is FlagKey {
 }
 
 /** Words a flag key may never carry: each names a Tier-2 control (ADR-0019). */
-export const TIER_TWO_WORDS = /(^|[._-])(auth(entication)?|session|rls|isolation|tenant|policy|consent|sensitive|apply[_-]?mode|auto[_-]?apply|residency|encrypt(ion)?|secret|audit[_-]?(log|integrity)|permission|role|sso[._-]?(require|bypass)|scim[._-]?(auth|token))([._-]|$)/i;
+export const TIER_TWO_WORDS = /(^|[._-])(auth(entication|z)?|sessions?|rls|isolation|tenant|policy|consent|sensitive|apply[_-]?mode|auto[_-]?apply|residency|encrypt(ion)?|secret|audit([_-]?(log|integrity))?|permissions?|roles?|impersonat(e|ion)|step[_-]?up|mfa|password|tokens?|rate[_-]?limit|sso[._-]?(require|bypass)|scim[._-]?(auth|token))([._-]|$)/i;
 
 export function isTierTwoKey(key: string): boolean {
   // The entry point flag names "auth." because that is where the button lives;

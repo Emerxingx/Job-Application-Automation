@@ -3,6 +3,7 @@ import { db } from '../db';
 import { assertTenantId, TenantContextError } from '../tenancy/context';
 import { GUC_USER_ID } from '../tenancy/rls-tables';
 import { recordSecurityEvent, type RequestMeta } from '../security-audit';
+import { assertNotImpersonating } from '@/lib/auth';
 
 /**
  * Voluntary demographic self-identification — the ONLY code that touches the
@@ -132,6 +133,7 @@ export async function readSelfIdentification(
   user: { id: string; email: string },
   options: { meta?: RequestMeta; client?: typeof db } = {},
 ): Promise<SelfIdentification | null> {
+  await assertNotImpersonating('sensitive self-identification');
   await recordSecurityEvent(
     { event: 'sensitive.read', user, entityType: 'SelfIdentification', entityId: user.id, summary: 'Viewed own self-identification', meta: options.meta },
     options.client,
@@ -154,6 +156,7 @@ export async function writeSelfIdentification(
   input: SelfIdentificationInput,
   options: { meta?: RequestMeta; client?: typeof db } = {},
 ): Promise<SelfIdentification> {
+  await assertNotImpersonating('sensitive self-identification');
   if (!isSelfIdentificationInput(input)) {
     throw new TenantContextError('self-identification values are outside the permitted vocabulary');
   }
@@ -183,6 +186,7 @@ export async function eraseSelfIdentification(
   user: { id: string; email: string },
   options: { meta?: RequestMeta; client?: typeof db; actor?: 'user' | 'system' } = {},
 ): Promise<boolean> {
+  if ((options.actor ?? 'user') === 'user') await assertNotImpersonating('sensitive self-identification');
   await recordSecurityEvent(
     { event: 'sensitive.erased', user, actor: options.actor === 'system' ? { type: 'system' } : undefined, entityType: 'SelfIdentification', entityId: user.id, summary: 'Self-identification erasure requested', meta: options.meta },
     options.client,

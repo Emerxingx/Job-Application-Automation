@@ -62,7 +62,6 @@ export function DashboardShell({
   showCases = false,
   showHiring = false,
   showStaffing = false,
-  impersonation = null,
   children,
 }: {
   user: { fullName: string; email: string };
@@ -73,8 +72,6 @@ export function DashboardShell({
   showHiring?: boolean;
   /** Stage 19: the staffing entry, only for a member of a staffing agency. */
   showStaffing?: boolean;
-  /** Stage 20: a staff member is viewing this account read-only; the banner says so and offers the way out. */
-  impersonation?: { staffEmail: string; endsAt: string } | null;
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
@@ -199,20 +196,6 @@ export function DashboardShell({
       </aside>
 
       <main className="lg:pl-64">
-        {impersonation ? (
-          <div role="status" className="border-b border-warning/40 bg-warning/10 px-4 py-2 text-sm text-ink">
-            <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-2">
-              <span>
-                <strong>Support view (read-only).</strong> {impersonation.staffEmail} is viewing this account as the customer sees it until {new Date(impersonation.endsAt).toLocaleTimeString('en-CA')}. Nothing can be changed while impersonating.
-              </span>
-              <form method="post" action="/api/console/impersonation/end">
-                <button type="submit" className="btn-secondary text-xs">
-                  End impersonation
-                </button>
-              </form>
-            </div>
-          </div>
-        ) : null}
         <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">{children}</div>
       </main>
     </div>

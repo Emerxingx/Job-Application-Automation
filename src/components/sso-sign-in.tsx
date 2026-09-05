@@ -10,10 +10,18 @@ import { Loader2 } from 'lucide-react';
  * an account created at first sign-in, and the page says so before the
  * redirect - that statement is the consent the sign-in records.
  */
+/** The callback sends a CODE, never text; the wording lives here (review L2). */
+const MESSAGES: Record<string, string> = {
+  provider: 'The identity provider did not complete the sign-in. Try again, or contact your administrator.',
+  expired: 'This sign-in has expired. Start again.',
+  refused: 'Your organisation\'s sign-in was refused for this account. Your administrator can see why in the audit log.',
+  unavailable: 'Organisation sign-in is not available on this deployment yet.',
+};
+
 export function SsoSignIn({ message }: { message?: string }) {
   const [email, setEmail] = useState('');
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(message ?? null);
+  const [error, setError] = useState<string | null>(message ? (MESSAGES[message] ?? MESSAGES.refused!) : null);
 
   async function start(e: React.FormEvent) {
     e.preventDefault();

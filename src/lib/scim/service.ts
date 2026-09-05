@@ -1,6 +1,7 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { db } from '@/lib/db';
 import { hashPassword, revokeAllSessions } from '@/lib/auth';
+import { revokeAllDeviceSessions } from '@/lib/integrations/device-sessions';
 import type { StaffContext } from '@/lib/crm/auth';
 import { hashEmail, recordSecurityEvent, type RequestMeta } from '@/lib/security-audit';
 import { ensurePersonalWorkspace } from '@/lib/tenancy/organizations';
@@ -160,15 +161,17 @@ async function provisioningDomains(organizationId: string): Promise<string[]> {
 /** POST /Users: provision (or attach) the account and an accepted membership. */
 export async function createScimUser(p: ScimPrincipal, body: { userName?: unknown; name?: unknown; active?: unknown; emails?: unknown }, baseUrl: string, meta?: RequestMeta): Promise<ScimUser> {
   const userName = typeof body.userName === 'string' ? body.userName.trim().toLowerCase() : '';
-  if (!userName || !userName.includes('@')) throw new ScimError('userName is the person\'s email address.', 400, 'invalidValue');
+  if (!isEmailAddress(userName)) throw new ScimError('userName is the person\'s email address.', 400, 'invalidValue');
   const domains = await provisioningDomains(p.organizationId);
   if (domains.length === 0) throw new ScimError('This organisation has no provisioning domain configured; JobPilot staff set one under its policy or SSO connection.', 403);
   if (!domainAllowed(domains, userName)) throw new ScimError(`Addresses under ${emailDomain(userName) || '(none)'} are not provisioned for this organisation.`, 403);
   const name = body.name && typeof body.name === 'object' ? (body.name as Record<string, unknown>) : {};
   const formatted = typeof name.formatted === 'string' && name.formatted.trim() ? name.formatted.trim() : [name.givenName, name.familyName].filter((s) => typeof s === 'string' && s).join(' ').trim() || userName.split('@')[0]!;
   const active = body.active !== false;
-  const existing = await db.user.findUnique({ where: { email: userName }, select: { id: true, anonymizedAt: true } });
-  if (existing?.anonymizedAt) throw new ScimError('That address belongs to an erased account.', 409, 'uniqueness');
+  const existing = await db.user.findUnique({ where: { email: userName }, select: { id: true, anonymizedAt: true, role: true } });
+  // The same answer for an erased account as for any other refusal: whether an
+  // address once existed is not the identity provider's to learn (review L5).
+  if (existing?.anonymizedAt || (existing && existing.role !== 'member')) throw new ScimError('That address cannot be provisioned for this organisation.', 409, 'uniqueness');
   const current = existing ? await db.membership.findUnique({ where: { organizationId_userId: { organizationId: p.organizationId, userId: existing.id } } }) : null;
   if (current && current.removedAt === null && current.acceptedAt !== null) throw new ScimError('That user is already a member.', 409, 'uniqueness');
   const userId = await db.$transaction(async (tx) => {
@@ -181,7 +184,9 @@ export async function createScimUser(p: ScimPrincipal, body: { userName?: unknow
     await tx.membership.upsert({
       where: { organizationId_userId: { organizationId: p.organizationId, userId: id } },
       create: { organizationId: p.organizationId, userId: id, role: 'member', invitedEmail: userName, acceptedAt: active ? new Date() : null, removedAt: active ? null : new Date() },
-      update: { acceptedAt: active ? new Date() : null, removedAt: active ? null : new Date() },
+      // A membership the organisation removed comes back as a MEMBER: a prior
+      // owner or admin role is not restored by a provisioning client (review M4).
+      update: { role: 'member', serviceRole: null, acceptedAt: active ? new Date() : null, removedAt: active ? null : new Date() },
     });
     return id;
   });
@@ -195,20 +200,34 @@ export async function setScimUserActive(p: ScimPrincipal, userId: string, active
   if (!m) throw new ScimError('User not found.', 404);
   const isActive = m.removedAt === null;
   if (isActive !== active) {
-    await db.membership.update({ where: { id: m.id }, data: active ? { removedAt: null, acceptedAt: m.acceptedAt ?? new Date() } : { removedAt: new Date() } });
+    // An OWNER is never deactivated by a provisioning client: the organisation
+    // keeps its owner invariant (tenancy/organizations.ts) and a leaked token
+    // cannot decapitate it; reinstatement is always as a member (review M4).
+    if (!active && m.role === 'owner') throw new ScimError('An owner is not deactivated through provisioning; an owner transfers ownership first.', 403);
+    await db.membership.update({ where: { id: m.id }, data: active ? { removedAt: null, acceptedAt: m.acceptedAt ?? new Date(), role: 'member', serviceRole: null } : { removedAt: new Date() } });
     let revoked = 0;
-    if (!active) revoked = await revokeAllSessions(userId, 'staff_revoke');
+    // Sessions and device keys are the PERSON's, platform-wide: deactivating
+    // their membership signs them out everywhere (the organisation's IdP says
+    // they left; a still-live phone is the common leak). Stated in ADR-0035.
+    if (!active) revoked = (await revokeAllSessions(userId, 'staff_revoke')) + (await revokeAllDeviceSessions(userId, 'staff_revoke'));
     await recordSecurityEvent({ event: active ? 'scim.user.reactivated' : 'scim.user.deactivated', user: { id: userId, email: m.user.email }, actor: { type: 'api_key', id: p.tokenId, email: '', role: 'scim' }, entityType: 'Membership', entityId: userId, summary: active ? 'SCIM reactivated a membership' : `SCIM deactivated a membership (${revoked} session(s) revoked)`, detail: { organizationId: p.organizationId, tokenPrefix: p.prefix, sessionsRevoked: revoked }, meta });
   }
   return getScimUser(p, userId, baseUrl);
 }
 
+/** A person's name is theirs: a provisioning client renames only an account that has never signed in with a password (one the organisation or its provider created and the person has not taken ownership of). Otherwise the change is accepted and ignored, as RFC 7644 allows for a read-only attribute (review L5). */
 export async function renameScimUser(p: ScimPrincipal, userId: string, formatted: string): Promise<void> {
   const m = await db.membership.findUnique({ where: { organizationId_userId: { organizationId: p.organizationId, userId } }, select: { id: true, user: { select: { anonymizedAt: true } } } });
   if (!m) throw new ScimError('User not found.', 404);
   if (m.user.anonymizedAt) return;
+  const ownsIt = (await db.session.count({ where: { userId, method: 'password' } })) > 0;
+  if (ownsIt) return;
   const name = formatted.trim().slice(0, 120);
   if (name) await db.user.update({ where: { id: userId }, data: { fullName: name } });
+}
+
+export function isEmailAddress(value: string): boolean {
+  return /^(?=.{3,254}$)[^\s@"]+@(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i.test(value);
 }
 
 /** The PatchOp body → the two things this endpoint honours. Anything else is refused, not ignored. */

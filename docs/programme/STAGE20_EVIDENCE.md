@@ -29,7 +29,9 @@ Decision record: ADR-0035.
   `/console/organizations/:id`): staff create a VERIFIED employer, service
   provider or staffing agency for an existing owner (the types self-service
   refuses since Stages 17-19), stamped `verifiedAt`/`verifiedByEmail`;
-  suspend and reactivate (a suspended organisation has no tenant path -
+  suspend and reactivate (a suspended organisation has no active members
+  anywhere: `findActiveMembership` answers null, so the tenant context, cases,
+  hiring, staffing and the roster all refuse -
   `requireTenant` refuses; its SSO signs nobody in; its SCIM tokens are
   refused); tenant policy - `requireSso`, `allowedEmailDomains`,
   `sessionMaxHours` - set by staff only. Every write: admin, step-up, reason,
@@ -37,10 +39,11 @@ Decision record: ADR-0035.
 - **Users** (`src/lib/admin/users.ts`, `/console/users`): lookup by email
   (role, live sessions by id and method, memberships); platform role
   assignment (`member` or a staff rank; never one's own; never an erased
-  account); sign out everywhere (`staff_revoke`). Audited.
+  account); sign out everywhere (`staff_revoke` - web sessions AND device
+  keys). Audited.
 - **Feature flags** (`src/lib/admin/feature-flags.ts`, `/console/flags`):
   `FLAG_REGISTRY` declares the two flags the code reads
-  (`auth.sso_start_button`, `console.audit_export`), each with its default and
+  (`auth.sso_start_button`, `console.report_export`), each with its default and
   the file that reads it; `setFeatureFlag` refuses an undeclared key and any
   key `isTierTwoKey` matches; evaluation is deterministic (a percentage cohort
   by hash, an allow-list); audited with before/after.
@@ -63,11 +66,13 @@ Decision record: ADR-0035.
 - `allowedEmailDomains` bounds `inviteMember` (an address outside the list is
   refused with 403) and SCIM provisioning (the SSO domain counts too; with
   neither configured nothing is provisioned - fail closed).
-- `sessionMaxHours` shortens the platform's 30-day session through
+- `sessionMaxHours` shortens the platform's 30-day session and the mobile
+  device key through
   `createSession({ maxHours })` on the password, identity-provider and SSO
   routes; `sessionTtlSeconds` never lengthens; the shortest of a person's
   organisations wins.
-- `requireSso` closes the password and Supabase doors for the connection's
+- `requireSso` closes the password, Supabase and device doors for the
+  organisation's ACCEPTED MEMBERS under the connection's
   domain, checked AFTER the password so the refusal reveals nothing; it cannot
   be set without an enabled connection.
 
@@ -110,7 +115,7 @@ impersonation,audit}`, `/api/auth/sso/*`, `/api/scim/v2/*`.
 
 ## 7. Tests - `PASS`
 
-`tests/enterprise-static.test.ts` (20): the admin authorisation matrix
+`tests/enterprise-static.test.ts` (25): the admin authorisation matrix
 (every `/api/console` handler wrapped and role-gated, the one unwrapped route
 named; every Stage 20 write admin + step-up with the role check first; the
 console map at the pages' ranks); the flag boundary (declared keys pass the
@@ -123,14 +128,14 @@ PatchOp and filter parsing, the erased member, the digest; the SCIM routes
 not `route()`; the public prefixes segment-aware; system-only RLS;
 impersonation liveness (eight cases) and the read-only refusal in `route()`;
 the session ceiling; the domain policy; the CSV; forbidden paths.
-`tests/enterprise.test.ts` (10, database): verified creation and its refusals;
+`tests/enterprise.test.ts` (12, database): verified creation and its refusals;
 policy validation, invitation bounded by domain, the session ceiling per
 membership; roles and staff session revocation; flags; the audited export;
 impersonation from refusal to end; the connection with an encrypted secret,
 one claimant per domain, `requireSso`; SSO end to end with provisioning and a
 second sign-in; six audited refusals plus suspension and JIT off; SCIM tokens,
 scoping, provisioning, deactivation, reactivation, revocation and suspension.
-Root suite: 1236 / 1236 (0 skipped) with the database URLs set.
+Root suite: 1243 / 1243 (0 skipped) with the database URLs set.
 
 ## 8. What is NOT done, and why
 
@@ -159,7 +164,7 @@ Root suite: 1236 / 1236 (0 skipped) with the database URLs set.
 | --- | --- |
 | `npm run lint:ci` | 0 errors, 7 warnings (ceiling 8) |
 | `npx tsc --noEmit` | 0 errors |
-| `npm test` (database URLs set, `CI=true`) | 1236 / 1236, 0 skipped |
+| `npm test` (database URLs set, `CI=true`) | 1243 / 1243, 0 skipped |
 | `npm run build` | 0 errors (main tree; Turbopack refuses the worktree's symlinked `node_modules`) |
 | Fresh-database rehearsal | 52 migrations applied to an empty PostgreSQL 16; `migrate diff` clean; 155 forced-RLS tables in `public` |
 
@@ -187,4 +192,31 @@ integrations are mechanism-complete and unvalidated.
 
 ## 12. Independent review
 
-__REVIEW__
+An adversarial review of the stage (2026-09-05) returned 3 HIGH, 7 MEDIUM
+and 12 LOW findings. Every HIGH and MEDIUM and every LOW but two accepted
+ones (L7 `verifiedByEmail` column visibility; L12 the unkeyed digest, stated
+in the ADR) is fixed on the branch with a test; the table names the fix.
+
+| # | Severity | Finding | Fix |
+| --- | --- | --- | --- |
+| H1 | HIGH | SSO minted a session for ANY existing account under the claimed domain, staff included; a public or staff domain could be claimed | A staff account (role or allow-list) is never signed in by a tenant's provider; an existing account is signed in only when it is already a member or invited (an account that merely shares the domain is refused); JIT creates new accounts only; public mail domains and `STAFF_EMAILS` domains are unclaimable; one claimant per domain under an advisory lock (database tests, pure tests) |
+| H2 | HIGH | The mobile device sign-in ignored `requireSso` and the session ceiling; "sign out everywhere" and SCIM deactivation left phones signed in | `issueDeviceSession` refuses under `requireSso` after the credential and caps the key with the ceiling; staff revocation and SCIM deactivation revoke device keys (database test signs a phone in, is refused, is capped, is revoked) |
+| H3 | HIGH | Impersonation reached the sensitive schema and every audited delegated read, attributing the read to the customer | `assertNotImpersonating()` refuses sensitive self-identification (read/write/erase), RESTRICTED case notes and assessments, the delegated client view, disclosed candidates and sourcing, mailbox metadata and document links, each BEFORE its audit row (static test walks every path); the banner says so |
+| M1 | MEDIUM | The impersonation cookie was a free-standing bearer credential | Honoured only beside the staff session it names (`impersonationBoundToSession`; pure test and a static check of the per-request binding) |
+| M2 | MEDIUM | "Never a staff account" was role-only; an allow-listed `member` could be impersonated into `/console` | The allow-list is checked at start and the target is re-checked per request (role, allow-list, erasure) (database test with `STAFF_EMAILS`) |
+| M3 | MEDIUM | Suspension stopped only `requireTenant`; cases, hiring, staffing and the roster kept working | `findActiveMembership` answers null for a suspended organisation, so every path inherits it (database test) |
+| M4 | MEDIUM | SCIM could deactivate the last owner, reinstate a removed admin with their role, and over-revoked silently | An owner is never deactivated through provisioning; reinstatement is as a member; the platform-wide revocation (now including device keys) is stated in the ADR (database tests) |
+| M5 | MEDIUM | `requireSso` locked out non-member accounts under the domain; the exchange route created an account before refusing | `passwordSignInRefusal` binds accepted members of the requiring organisation only; the exchange refuses before linking (database test, static test) |
+| M6 | MEDIUM | Issuer-supplied endpoints trusted too far: http, no timeouts, no algorithm pin, JWKS rebuilt per sign-in | https required (loopback exempt), `AbortSignal.timeout` and `redirect: 'error'` on every call, `algorithms` pinned to the asymmetric set, JWKS cached per URI (pure tests) |
+| M7 | MEDIUM | "Read-only" still rebuilt marts on a GET; logout was refused under impersonation; no way out from non-dashboard pages | The first-visit rebuild is skipped under impersonation; logout is the one allowed write and `destroySession` ends the impersonation first; the banner moved to the root layout (static tests) |
+| L1-L11 | LOW | State-cookie path; free-text `?sso=` message and the key error shown to visitors; check-then-write on the domain claim; flag-regex gaps; SCIM userName, non-object body, unauthenticated flood, rename semantics, erased-account disclosure; CSV tab/CR; FeatureFlag tenant-readable; unaudited start-side refusals; target not re-checked; a false comment; a domain policy set after an invitation | All fixed: the cookie is cleared under its path; the callback sends a fixed code; the claim is under an advisory lock; the regex covers `authz`, `sessions`, `roles`, `permissions`, `impersonation`, `step_up`, `mfa`, `password`, `token`, `rate_limit`; `isEmailAddress`, a 400 for a non-object body, a per-address budget, renames only for provisioned accounts, one refusal wording; tabs and CRs neutralised; `FeatureFlag` system-only (the Stage 01 RLS migration regenerated); every refusal audited; the target re-checked per request; the comment corrected; `acceptInvitation` honours the policy |
+| L7, L12 | LOW | `Organization.verifiedByEmail` readable on the tenant path; `hashEmail` unkeyed | Accepted and stated in ADR-0035 |
+
+The review also corrected the documentation: ADR-0035 §1, §2, §5, §6, §7 and
+§8, CLAUDE.md item 31, TEST_STRATEGY ("three doors") and the audit page's
+own text were rewritten to say what the code does; ADR-0019 is no longer
+"Accepted" by the stage that builds on it - the founder's sign-off is.
+
+Root suite after the fixes: 1243 / 1243 with the database URLs set; lint 0
+errors / 7 warnings; typecheck and build pass; 52 migrations apply to an
+empty database with no drift.

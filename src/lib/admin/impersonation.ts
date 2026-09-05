@@ -1,6 +1,7 @@
 import { db } from '@/lib/db';
 import { IMPERSONATION_MAX_MINUTES, mintImpersonationToken } from '@/lib/auth';
 import type { StaffContext } from '@/lib/crm/auth';
+import { isAllowlistedStaffEmail } from '@/lib/crm/allowlist';
 import { recordSecurityEvent, type RequestMeta } from '@/lib/security-audit';
 import { AdminError } from './organizations';
 
@@ -30,7 +31,7 @@ export async function startImpersonation(staff: StaffContext, input: { userId: s
   if (target.anonymizedAt) throw new AdminError('That account was erased.', 409);
   // Staff are never impersonated: their console access would become the
   // impersonator's, and a staff member's actions must always be their own.
-  if (target.role !== 'member') throw new AdminError('Staff accounts are not impersonated.', 403);
+  if (target.role !== 'member' || isAllowlistedStaffEmail(target.email, process.env.STAFF_EMAILS)) throw new AdminError('Staff accounts are not impersonated.', 403);
   const open = await db.impersonationSession.findFirst({ where: { staffId: staff.id, endedAt: null, startedAt: { gt: new Date(Date.now() - IMPERSONATION_MAX_MINUTES * 60_000) } }, select: { id: true } });
   if (open) throw new AdminError('End your current impersonation first.', 409);
   const row = await db.impersonationSession.create({ data: { staffId: staff.id, staffEmail: staff.email, userId: target.id, reason, readOnly: true, ipAddress: meta?.ip ?? null } });

@@ -22,18 +22,23 @@ export const GET = route(async (request: Request) => {
   const providerError = url.searchParams.get('error');
   const store = await cookies();
   const stateToken = store.get(SSO_STATE_COOKIE)?.value ?? '';
-  store.delete(SSO_STATE_COOKIE);
-  const back = (message: string) => NextResponse.redirect(`${appUrl()}/login?sso=${encodeURIComponent(message)}`, 303);
-  if (providerError) return back('The identity provider did not complete the sign-in.');
-  if (!code || !state || !stateToken) return back('This sign-in has expired. Start again.');
+  // Deleted with the path it was set under, or the browser keeps it (review L1).
+  store.set(SSO_STATE_COOKIE, '', { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', path: '/api/auth/sso', maxAge: 0 });
+  // The login page maps a fixed CODE to its wording; no free text travels in
+  // the URL (review L2), and the detail is in the audit log.
+  const back = (code: 'provider' | 'expired' | 'refused' | 'unavailable') => NextResponse.redirect(`${appUrl()}/login?sso=${code}`, 303);
+  if (providerError) return back('provider');
+  if (!code || !state || !stateToken) return back('expired');
   const meta = requestMeta(request);
   try {
     const result = await completeSsoSignIn({ code, state, stateToken, meta });
     const sessionId = await createSession(result.userId, { method: 'sso', meta, maxHours: await sessionMaxHoursFor(result.userId) });
-    await recordSecurityEvent({ event: 'auth.login.succeeded', user: { id: result.userId, email: '' }, entityType: 'Session', entityId: sessionId, summary: 'Signed in', detail: { method: 'sso', organizationId: result.organizationId, provisioned: result.provisioned }, meta });
+    await recordSecurityEvent({ event: 'auth.login.succeeded', user: { id: result.userId, email: result.email }, entityType: 'Session', entityId: sessionId, summary: 'Signed in', detail: { method: 'sso', organizationId: result.organizationId, provisioned: result.provisioned }, meta });
     return NextResponse.redirect(`${appUrl()}${result.onboarded ? '/dashboard' : '/onboarding'}`, 303);
   } catch (error) {
-    if (error instanceof SsoError || error instanceof OidcError || error instanceof SsoKeyMissingError) return back(error.message);
+    if (error instanceof SsoKeyMissingError) return back('unavailable');
+    if (error instanceof SsoError) return back(error.status === 400 ? 'expired' : 'refused');
+    if (error instanceof OidcError) return back(error.status >= 500 ? 'provider' : 'refused');
     throw error;
   }
 });

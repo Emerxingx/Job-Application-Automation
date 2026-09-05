@@ -27,17 +27,23 @@ remain code and migration only, and the tests hold it.
    step-up, audited.** `createVerifiedOrganization` creates one of the three
    verified types for an EXISTING account (the owner) and stamps
    `verifiedAt` / `verifiedByEmail`. Suspension keeps every row; a suspended
-   organisation has no tenant path (`requireTenant` refuses), its SSO signs
-   nobody in and its SCIM tokens are refused.
+   organisation has no active members anywhere - `findActiveMembership`, which
+   every product path (tenant context, cases, hiring, staffing, the roster)
+   resolves through, answers null - so its SSO signs nobody in and its SCIM
+   tokens are refused.
 
 2. **Tenant policy is set by JobPilot staff, never by the tenant's own
-   admins, and only narrows.** On `Organization`: `requireSso` (the password
-   and identity-provider doors close for the connection's domain — checked
-   AFTER the password so the refusal reveals nothing about it),
+   admins, and only narrows.** On `Organization`: `requireSso` (the password,
+   identity-provider AND mobile-device doors close for the organisation's
+   ACCEPTED MEMBERS under the connection's domain — checked AFTER the
+   credential so the refusal reveals nothing about it; an account that merely
+   shares the domain keeps its own doors, the policy binding the
+   organisation's people rather than everyone at a domain),
    `allowedEmailDomains` (bounds whom the organisation's admins may invite
-   and whom SCIM may provision; empty = any), `sessionMaxHours` (shortens the
-   platform's 30-day session for the person's organisations; never lengthens;
-   the shortest wins across memberships). Requiring SSO with no enabled
+   and whom SCIM may provision; empty = any; a policy set after an invitation
+   still binds its acceptance), `sessionMaxHours` (shortens the platform's
+   30-day session AND the mobile device key for the person's organisations;
+   never lengthens; the shortest wins across memberships). Requiring SSO with no enabled
    connection is refused: it would lock every member out.
 
 3. **Platform roles are ASSIGNED here and DEFINED in code.** `setPlatformRole`
@@ -61,15 +67,28 @@ remain code and migration only, and the tests hold it.
    `ImpersonationSession` model that had no code now has one.** The staff
    member keeps their own session and gains a second signed cookie naming an
    `ImpersonationSession` row (60 minutes, reason of at least ten characters,
-   never a staff account, never oneself, one at a time). While it is live —
-   the row unended, inside its window, read-only, and the staff member's OWN
-   session still live, checked on every request with no cache — every
+   never a staff account - by role OR by the `STAFF_EMAILS` allow-list -
+   never oneself, one at a time). The token is honoured only beside the very
+   staff session it was minted under: a copied impersonation cookie in another
+   browser is refused. While it is live — the row unended, inside its window,
+   read-only, the staff member's OWN session still live, and the target still
+   an ordinary member, all checked on every request with no cache — every
    authoritative read answers with the target's id, so pages render as the
-   customer sees them, and `route()` refuses every non-GET request with 403.
-   No `Session` row is ever issued for the target; the one unwrapped write is
-   the endpoint that ends the impersonation. Start and end are audit rows
-   with the reason; the row snapshots the staff email so the record survives
-   offboarding; the banner in the customer's shell says who is looking.
+   customer sees them, and `route()` refuses every non-GET request with 403
+   (logout is the one write allowed, and it ends the impersonation first).
+   **What the impersonator does NOT see:** the customer's sensitive
+   self-identification, RESTRICTED case notes and assessments, a delegated
+   client view, a disclosed candidate or sourcing, mailbox metadata and
+   document bytes - every such read is audited under the reader's identity,
+   which under an impersonation would name the customer for something the
+   staff member did, so each of those paths refuses first
+   (`assertNotImpersonating`) and no audited read is reachable. A page never
+   writes on the impersonator's behalf either (the analytics first-visit
+   rebuild is skipped). No `Session` row is ever issued for the target; the
+   unwrapped write is the endpoint that ends the impersonation. Start and end
+   are audit rows with the reason; the row snapshots the staff email so the
+   record survives offboarding; the banner is rendered by the ROOT layout, so
+   every page - onboarding included - says who is looking and offers the way out.
 
 6. **Single sign-on is OpenID Connect, one connection per organisation,
    authoritative for one email domain, staff-administered.** Authorization
@@ -77,20 +96,33 @@ remain code and migration only, and the tests hold it.
    issuer (the document's issuer MUST match), the ID token verified against
    the issuer's JWKS for signature, issuer, audience, expiry and nonce; the
    released email must be `email_verified` and must fall under the
-   connection's domain. The client secret is AES-256-GCM under
+   connection's domain; every provider endpoint is https (loopback http only
+   for a test issuer), every call to the provider is bounded by a timeout and
+   refuses redirects, the ID token's algorithms are pinned to the asymmetric
+   set, and the JWKS is cached per connection. **The platform authorises:**
+   a staff account (by role or by the allow-list) never signs in through a
+   tenant's provider; an EXISTING account is signed in only when it already
+   belongs to the organisation - an accepted membership, or an invitation the
+   person answers by signing in through the organisation's own provider - and
+   an account that merely shares the domain is refused until the organisation
+   invites the person and they accept from their own session. A public mail
+   domain and any `STAFF_EMAILS` domain can never be claimed by a connection.
+   The client secret is AES-256-GCM under
    `SSO_ENCRYPTION_KEY` (a key separate from the mailbox one — a separate
    blast radius) and is decrypted in exactly one place, to redeem a code; the
    console never sees it again. One ENABLED connection may claim a domain.
-   The provider authenticates; the platform authorises: the session issued
-   afterwards is the same revocable row every sign-in gets, under the
-   organisation's session ceiling. Just-in-time provisioning creates the
-   account (a random, unusable password; a verified email), its personal
-   workspace, the signup consents (source `sso` — the organisation sign-in
-   page states the terms before the redirect) and an ACCEPTED membership,
-   because the organisation's provider vouched for the person. A membership
-   the organisation REMOVED is never reinstated by a sign-in: that is the
-   organisation's decision, made through SCIM or an admin. Every refusal is
-   audited against the address's digest. SAML is not built; the plan named
+   The session issued afterwards is the same revocable row every sign-in
+   gets, under the organisation's session ceiling. Just-in-time provisioning
+   creates a NEW account only (a random password nobody knows and that cannot
+   be set - no reset flow exists - so the account signs in through SSO; a
+   verified email), its personal workspace, the signup consents (source
+   `sso` — the organisation sign-in page states the terms before the redirect)
+   and an ACCEPTED membership, because the organisation's provider vouched
+   for the person. A membership the organisation REMOVED is never reinstated
+   by a sign-in: that is the organisation's decision, made through SCIM or an
+   admin. Every refusal - at the start, on a stale state, on the provider's
+   answer, on the account - is audited against the address's digest; the
+   callback sends the login page a fixed code, never free text. SAML is not built; the plan named
    "SAML/OIDC" and OIDC is what every major provider offers.
 
 7. **SCIM 2.0, the Users resource only, scoped to one organisation by a
@@ -102,18 +134,31 @@ remain code and migration only, and the tests hold it.
    domains (its allowed domains, or its enabled SSO domain; neither → nothing
    is provisioned, fail closed) and records NO consent — the person's first
    sign-in does that, having seen the wording. Deactivating (`active: false`
-   or DELETE) removes the membership and revokes the person's sessions; it
-   never deletes or scrubs the account, because the person's own data is
-   theirs and erasure is their request under the privacy process. Only
-   `active` and `name.formatted` are patchable; anything else is refused,
-   not ignored. The endpoint is not `route()`: a machine with a token gets
+   or DELETE) removes the membership and revokes the person's web sessions
+   AND device keys PLATFORM-WIDE (the organisation's provider says they left;
+   a still-live phone is the common leak - stated, not hidden); it never
+   deletes or scrubs the account, because the person's own data is theirs and
+   erasure is their request under the privacy process. An OWNER is never
+   deactivated through provisioning (the organisation keeps its owner
+   invariant and a leaked token cannot decapitate it), and a removed member
+   is reinstated as a MEMBER, never with a prior owner or admin role. Only
+   `active` and `name.formatted` are patchable - a name only for an account
+   that has never signed in with a password, i.e. one the organisation
+   provisioned; anything else is refused, not ignored. A staff or erased
+   address is refused with the same words as any other refusal; unauthenticated
+   attempts are budgeted per address. The endpoint is not `route()`: a machine with a token gets
    SCIM errors, not the cookie envelope.
 
 8. **The audit log has a viewer and an audited export.** Filtered by action
    prefix, entity, actor and date; the CSV carries ids, actions, summaries and
    reasons — the columns the writers already redacted — never the IP or
    user-agent columns; formula cells are neutralised; and the export is itself
-   an `audit.exported` row.
+   an `audit.exported` row. Stated plainly: an audit row's `actorEmail` IS an
+   address (the customer's, on a row they acted on) and the CSV carries it;
+   what the log never carries is a body, a note, a secret or a token, and a
+   FAILED sign-in names only a digest. `hashEmail` is an unkeyed SHA-256:
+   a digest of a known address is recognisable, which is its purpose
+   (correlating failures against one account) and its limit.
 
 9. **Nothing external has been validated.** No real identity provider has
    completed a sign-in against this platform and no real SCIM client has
@@ -131,6 +176,11 @@ remain code and migration only, and the tests hold it.
   `sessionMaxHours` (migration `20260905200000_enterprise_controls`).
 - `SessionMethod` gains `sso`; `createSession` takes `maxHours`. The
   `staff_impersonation` method stays reserved and unissued.
+- `FeatureFlag` is SYSTEM-only under RLS (its allow-list is account ids);
+  `Organization.verifiedByEmail` (a staff address) is a column the tenant role
+  can read on its own organisation's row - stated, accepted.
+- The Stage 20 review (evidence §12) found 3 HIGH, 7 MEDIUM and 12 LOW; every
+  HIGH and MEDIUM and every LOW but the two accepted above is fixed on the branch.
 - New audit events: `organization.verified` / `.suspended` / `.reactivated`
   / `.policy.set`, `staff.role.set`, `feature_flag.set`,
   `user.impersonation.started` / `.ended`, `audit.exported`,

@@ -323,7 +323,9 @@ export const RLS_TABLES: Record<string, RlsKind> = {
   Job: { kind: 'reference' },
   TaxRate: { kind: 'reference', where: `"active" = true` },
   TaxRegistration: { kind: 'reference', where: `"active" = true` },
-  FeatureFlag: { kind: 'reference' },
+  // Stage 20 review (L7): a flag's allow-list is a list of account ids; the
+  // tenant role has no business reading it. Flags are evaluated on the system client.
+  FeatureFlag: { kind: 'system' },
 
   // --- System only -------------------------------------------------------------
   // Coupon codes are secrets that must be resolvable only by presenting one;

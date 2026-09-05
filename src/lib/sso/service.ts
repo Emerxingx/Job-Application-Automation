@@ -4,6 +4,7 @@ import { hashPassword, signingSecret } from '@/lib/auth';
 import { REQUIRED_AT_SIGNUP, grantConsent, hasCurrentConsent } from '@/lib/consent';
 import { hashEmail, recordSecurityEvent, type RequestMeta } from '@/lib/security-audit';
 import { ensurePersonalWorkspace } from '@/lib/tenancy/organizations';
+import { isAllowlistedStaffEmail, parseStaffAllowlist } from '@/lib/crm/allowlist';
 import type { StaffContext } from '@/lib/crm/auth';
 import { decryptClientSecret, encryptClientSecret } from './crypto';
 import { OidcError, authorizationUrl, discover, emailDomain, exchangeCode, isEmailDomain, isIssuerUrl, pkcePair, randomToken, verifyIdToken, type OidcDiscovery } from './oidc';
@@ -40,6 +41,24 @@ export class SsoError extends Error {
 export const SSO_STATE_TTL_SECONDS = 10 * 60;
 export const SSO_STATE_COOKIE = 'jobpilot_sso_state';
 
+/**
+ * Domains no organisation may claim (Stage 20 review, H1): a public mail
+ * domain is not an organisation's, and the STAFF_EMAILS domains would let a
+ * single admin's connection mint sessions for every other admin.
+ */
+export const PUBLIC_MAIL_DOMAINS: ReadonlySet<string> = new Set(['gmail.com', 'googlemail.com', 'outlook.com', 'hotmail.com', 'live.com', 'msn.com', 'yahoo.com', 'yahoo.ca', 'ymail.com', 'icloud.com', 'me.com', 'mac.com', 'aol.com', 'proton.me', 'protonmail.com', 'pm.me', 'gmx.com', 'gmx.net', 'zoho.com', 'mail.com', 'fastmail.com', 'hey.com', 'yandex.com', 'qq.com', '163.com']);
+
+export function staffDomains(raw: string | null | undefined = process.env.STAFF_EMAILS): Set<string> {
+  return new Set(parseStaffAllowlist(raw).map((e) => e.slice(e.lastIndexOf('@') + 1).toLowerCase()).filter(Boolean));
+}
+
+/** Why a domain may not be claimed by a connection, or null. Pure. */
+export function domainClaimRefusal(domain: string, staffRaw: string | null | undefined = process.env.STAFF_EMAILS): string | null {
+  if (PUBLIC_MAIL_DOMAINS.has(domain)) return 'A public mail domain cannot be an organisation\'s sign-in domain.';
+  if (staffDomains(staffRaw).has(domain)) return 'That domain is JobPilot staff\'s and cannot be claimed by an organisation.';
+  return null;
+}
+
 export interface SsoConnectionInput {
   issuer: string;
   clientId: string;
@@ -57,17 +76,13 @@ export async function upsertSsoConnection(staff: StaffContext, organizationId: s
   const domain = input.emailDomain.trim().toLowerCase();
   if (!isEmailDomain(domain)) throw new SsoError('The email domain is not a domain name.', 422);
   if (!reason.trim()) throw new SsoError('A reason is required.', 422);
+  const refusal = domainClaimRefusal(domain);
+  if (refusal) throw new SsoError(refusal, 422);
   const org = await db.organization.findUnique({ where: { id: organizationId }, select: { id: true, type: true } });
   if (!org || org.type === 'personal') throw new SsoError('Organisation not found.', 404);
   const existing = await db.ssoConnection.findUnique({ where: { organizationId } });
   const secret = input.clientSecret?.trim() ? encryptClientSecret(input.clientSecret.trim()) : null;
   if (!existing && !secret) throw new SsoError('A client secret is required to create a connection.', 422);
-  // One domain is claimed by at most one ENABLED connection: the domain is how
-  // an email is routed to its issuer, and two claimants would make sign-in ambiguous.
-  if (input.status === 'enabled') {
-    const claimant = await db.ssoConnection.findFirst({ where: { emailDomain: domain, status: 'enabled', NOT: { organizationId } }, select: { organizationId: true } });
-    if (claimant) throw new SsoError('Another organisation\'s enabled connection already claims that email domain.', 409);
-  }
   const data = {
     issuer: input.issuer.replace(/\/$/, ''),
     clientId: input.clientId.trim(),
@@ -76,11 +91,23 @@ export async function upsertSsoConnection(staff: StaffContext, organizationId: s
     status: input.status,
     ...(secret ? { clientSecretCiphertext: secret.ciphertext, clientSecretIv: secret.iv, clientSecretTag: secret.tag, clientSecretKeyVersion: secret.keyVersion } : {}),
   };
-  const row = existing
-    ? await db.ssoConnection.update({ where: { id: existing.id }, data })
-    : await db.ssoConnection.create({ data: { organizationId, createdByEmail: staff.email, ...data, clientSecretCiphertext: secret!.ciphertext, clientSecretIv: secret!.iv, clientSecretTag: secret!.tag, clientSecretKeyVersion: secret!.keyVersion } });
+  // One domain is claimed by at most one ENABLED connection: the domain is how
+  // an email is routed to its issuer, and two claimants would make sign-in
+  // ambiguous. Checked and written under one advisory lock keyed by the
+  // domain (a partial unique index would be invisible to Prisma's drift
+  // check), so two admins racing cannot both claim it (review L3).
+  const row = await db.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'sso_domain:' + domain}))`;
+    if (input.status === 'enabled') {
+      const claimant = await tx.ssoConnection.findFirst({ where: { emailDomain: domain, status: 'enabled', NOT: { organizationId } }, select: { organizationId: true } });
+      if (claimant) throw new SsoError('Another organisation\'s enabled connection already claims that email domain.', 409);
+    }
+    return existing
+      ? tx.ssoConnection.update({ where: { id: existing.id }, data })
+      : tx.ssoConnection.create({ data: { organizationId, createdByEmail: staff.email, ...data, clientSecretCiphertext: secret!.ciphertext, clientSecretIv: secret!.iv, clientSecretTag: secret!.tag, clientSecretKeyVersion: secret!.keyVersion } });
+  });
   await recordSecurityEvent(
-    { event: 'sso.connection.updated', actor: { type: 'staff', id: staff.id, email: staff.email, role: staff.role }, entityType: 'SsoConnection', entityId: row.id, summary: `SSO connection ${existing ? 'updated' : 'created'} (${input.status})`, detail: { organizationId, issuer: data.issuer, clientId: data.clientId, emailDomain: domain, jitProvisioning: input.jitProvisioning, status: input.status, secretRotated: secret !== null }, reason: reason.trim().slice(0, 500), meta },
+    { event: 'sso.connection.updated', actor: { type: 'staff', id: staff.id, email: staff.email, role: staff.role }, entityType: 'SsoConnection', entityId: row.id, summary: `SSO connection ${existing ? 'updated' : 'created'} (${input.status})`, detail: { organizationId, issuer: data.issuer, clientId: data.clientId, emailDomain: domain, jitProvisioning: input.jitProvisioning, status: input.status, secretRotated: secret !== null, issuerBefore: existing?.issuer ?? null, clientIdBefore: existing?.clientId ?? null, emailDomainBefore: existing?.emailDomain ?? null, jitProvisioningBefore: existing?.jitProvisioning ?? null, statusBefore: existing?.status ?? null }, reason: reason.trim().slice(0, 500), meta },
     db,
     { strict: true },
   );
@@ -103,10 +130,19 @@ export async function connectionForEmail(email: string) {
   return db.ssoConnection.findFirst({ where: { emailDomain: domain, status: 'enabled' }, include: { organization: { select: { id: true, name: true, slug: true, status: true, requireSso: true, sessionMaxHours: true } } } });
 }
 
-/** Why a password sign-in for this address is refused, or null when it is allowed (the organisation requires SSO for its domain). */
+/**
+ * Why a password (or identity-provider, or device) sign-in for this address
+ * is refused, or null when it is allowed. The organisation's `requireSso`
+ * binds ITS MEMBERS: an accepted member of the organisation whose enabled
+ * connection claims the address's domain (review M5). An account under that
+ * domain that is not a member keeps its own doors - the policy is the
+ * organisation's over its people, not over everyone at the domain.
+ */
 export async function passwordSignInRefusal(email: string): Promise<string | null> {
   const c = await connectionForEmail(email);
   if (!c || !c.organization.requireSso) return null;
+  const member = await db.membership.findFirst({ where: { organizationId: c.organizationId, acceptedAt: { not: null }, removedAt: null, user: { email: email.trim().toLowerCase() } }, select: { id: true } });
+  if (!member) return null;
   return `${c.organization.name} requires its members to sign in through the organisation's single sign-on. Use "Sign in with your organisation".`;
 }
 
@@ -132,12 +168,21 @@ interface StateClaims {
  * the signed state token the route stores in an httpOnly cookie. The `state`
  * query parameter is the token's id; the callback matches the two.
  */
-export async function beginSsoSignIn(input: { email: string; redirectUri: string; fetchImpl?: typeof fetch }): Promise<{ url: string; stateToken: string; organizationName: string }> {
+export async function beginSsoSignIn(input: { email: string; redirectUri: string; fetchImpl?: typeof fetch; meta?: RequestMeta }): Promise<{ url: string; stateToken: string; organizationName: string }> {
   const email = input.email.trim().toLowerCase();
   const c = await connectionForEmail(email);
   if (!c) throw new SsoError('No organisation sign-in is configured for that email domain.', 404);
-  if (c.organization.status === 'suspended') throw new SsoError('That organisation is suspended.', 403);
-  const discovery = await discover(c.issuer, input.fetchImpl);
+  if (c.organization.status === 'suspended') {
+    await recordSecurityEvent({ event: 'auth.sso.failed', actor: { type: 'system' }, entityType: 'SsoConnection', entityId: c.id, summary: 'SSO sign-in refused at start', detail: { organizationId: c.organizationId, emailDigest: hashEmail(email), reason: 'organisation suspended' }, meta: input.meta });
+    throw new SsoError('That organisation is suspended.', 403);
+  }
+  let discovery;
+  try {
+    discovery = await discover(c.issuer, input.fetchImpl);
+  } catch (error) {
+    await recordSecurityEvent({ event: 'auth.sso.failed', actor: { type: 'system' }, entityType: 'SsoConnection', entityId: c.id, summary: 'SSO sign-in refused at start (discovery)', detail: { organizationId: c.organizationId, emailDigest: hashEmail(email), reason: error instanceof Error ? error.message : 'discovery failed' }, meta: input.meta });
+    throw error;
+  }
   const { verifier, challenge } = pkcePair();
   const nonce = randomToken();
   const stateId = randomToken();
@@ -149,6 +194,7 @@ export async function beginSsoSignIn(input: { email: string; redirectUri: string
 
 export interface SsoSignInResult {
   userId: string;
+  email: string;
   organizationId: string;
   provisioned: boolean;
   onboarded: boolean;
@@ -170,12 +216,12 @@ export async function completeSsoSignIn(input: { code: string; state: string; st
   }
   if (!claims.jti || claims.jti !== input.state) throw new SsoError('This sign-in does not match the one that was started.', 400);
   const c = await db.ssoConnection.findUnique({ where: { id: claims.connectionId }, include: { organization: { select: { id: true, name: true, status: true, allowedEmailDomains: true } } } });
-  if (!c || c.status !== 'enabled') throw new SsoError('That organisation sign-in is no longer enabled.', 403);
-  if (c.organization.status === 'suspended') throw new SsoError('That organisation is suspended.', 403);
   const refuse = async (message: string, status: number, detail: Record<string, string | number | boolean | null> = {}) => {
-    await recordSecurityEvent({ event: 'auth.sso.failed', actor: { type: 'system' }, entityType: 'SsoConnection', entityId: c.id, summary: 'SSO sign-in refused', detail: { organizationId: c.organizationId, emailDigest: claims.emailDigest, reason: message, ...detail }, meta: input.meta });
+    await recordSecurityEvent({ event: 'auth.sso.failed', actor: { type: 'system' }, entityType: 'SsoConnection', entityId: c?.id ?? claims.connectionId, summary: 'SSO sign-in refused', detail: { organizationId: c?.organizationId ?? claims.organizationId, emailDigest: claims.emailDigest, reason: message, ...detail }, meta: input.meta });
     return new SsoError(message, status);
   };
+  if (!c || c.status !== 'enabled') throw await refuse('That organisation sign-in is no longer enabled.', 403);
+  if (c.organization.status === 'suspended') throw await refuse('That organisation is suspended.', 403);
   const discovery = input.discovery ?? (await discover(c.issuer, input.fetchImpl));
   const clientSecret = decryptClientSecret({ ciphertext: c.clientSecretCiphertext, iv: c.clientSecretIv, tag: c.clientSecretTag, keyVersion: c.clientSecretKeyVersion });
   let identity;
@@ -192,6 +238,15 @@ export async function completeSsoSignIn(input: { code: string; state: string; st
   if (emailDomain(identity.email) !== c.emailDomain) throw await refuse(`The identity provider released an address outside ${c.emailDomain}.`, 403);
   const existing = await db.user.findUnique({ where: { email: identity.email }, select: { id: true, email: true, role: true, anonymizedAt: true, onboardedAt: true } });
   if (existing?.anonymizedAt) throw await refuse('That account was erased.', 403);
+  // The platform AUTHORISES (review H1): an organisation's provider never
+  // signs in a staff account - a console credential is the platform's, not
+  // a tenant's - and an existing account is signed in only when it already
+  // belongs to the organisation (an accepted membership, or an invitation the
+  // person answers by signing in through the organisation's own provider).
+  // An account that merely shares the domain is not the organisation's to
+  // take over: it is refused until the organisation invites the person and
+  // they accept from their own session.
+  if (existing && (existing.role !== 'member' || isAllowlistedStaffEmail(existing.email, process.env.STAFF_EMAILS))) throw await refuse('Staff accounts sign in with their own credentials, never through an organisation\'s provider.', 403);
   let userId: string;
   let provisioned = false;
   let onboarded = existing?.onboardedAt !== null && existing?.onboardedAt !== undefined;
@@ -199,8 +254,9 @@ export async function completeSsoSignIn(input: { code: string; state: string; st
     if (!c.jitProvisioning) throw await refuse('No account exists for that address and this organisation does not provision accounts at sign-in.', 403);
     // The account exists because the organisation's provider vouched for the
     // person. It has a password nobody knows (a random one, hashed) so the
-    // password route cannot be used against it; the person may set one later
-    // through the ordinary password-change flow, which requires a session.
+    // password route cannot be used against it. It cannot set one either:
+    // the password-change flow needs the current one, and no reset flow
+    // exists (stated in ADR-0035) - the account signs in through SSO.
     const passwordHash = await hashPassword(randomToken(32));
     const created = await db.$transaction(async (tx) => {
       const u = await tx.user.create({ data: { email: identity.email, passwordHash, fullName: identity.name || identity.email.split('@')[0]!, country: 'CA', emailVerifiedAt: new Date() }, select: { id: true, email: true, fullName: true } });
@@ -217,10 +273,8 @@ export async function completeSsoSignIn(input: { code: string; state: string; st
     userId = existing.id;
     const m = await db.membership.findUnique({ where: { organizationId_userId: { organizationId: c.organizationId, userId } } });
     if (m?.removedAt) throw await refuse('Your organisation removed your membership; ask your administrator to reinstate it.', 403);
-    if (!m) {
-      if (!c.jitProvisioning) throw await refuse('You are not a member of that organisation and it does not provision membership at sign-in.', 403);
-      await db.membership.create({ data: { organizationId: c.organizationId, userId, role: 'member', invitedEmail: identity.email, acceptedAt: new Date() } });
-    } else if (!m.acceptedAt) {
+    if (!m) throw await refuse('Your account is not a member of that organisation. Ask an administrator to invite you, accept the invitation from your own session, then sign in here.', 403);
+    if (!m.acceptedAt) {
       // An invitation the person had not answered: signing in through the
       // organisation's own provider is the acceptance.
       await db.membership.update({ where: { id: m.id }, data: { acceptedAt: new Date() } });
@@ -233,5 +287,5 @@ export async function completeSsoSignIn(input: { code: string; state: string; st
   }
   db.ssoConnection.update({ where: { id: c.id }, data: { lastSignInAt: new Date() } }).catch(() => undefined);
   await recordSecurityEvent({ event: 'auth.sso.succeeded', user: { id: userId, email: identity.email }, entityType: 'SsoConnection', entityId: c.id, summary: 'Signed in through the organisation\'s SSO', detail: { organizationId: c.organizationId, provisioned }, meta: input.meta });
-  return { userId, organizationId: c.organizationId, provisioned, onboarded };
+  return { userId, email: identity.email, organizationId: c.organizationId, provisioned, onboarded };
 }

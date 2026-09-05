@@ -26,7 +26,8 @@
  */
 import type { Prisma } from '@prisma/client';
 import { db } from '@/lib/db';
-import { verifyPassword } from '@/lib/auth';
+import { sessionTtlSeconds, verifyPassword } from '@/lib/auth';
+import { passwordSignInRefusal, sessionMaxHoursFor } from '@/lib/sso/service';
 import type { ConsentPurpose } from '@/lib/consent';
 import { IdentityLinkError, linkSupabaseIdentity } from '@/lib/identity/link';
 import {
@@ -170,8 +171,16 @@ export async function issueDeviceSession(
     }
   }
 
+  // Stage 20 review (H2): the device door honours the organisation's
+  // policies as the web doors do - `requireSso` refuses the password and
+  // identity-provider methods for the organisation's members, checked AFTER
+  // the credential so the refusal reveals nothing; the session ceiling caps
+  // the key's life.
+  const ssoRequired = await passwordSignInRefusal(user.email);
+  if (ssoRequired) throw new ApiRequestError('unauthorized', ssoRequired, 403);
   const generated = generateApiKey('live');
-  const expiresAt = new Date(Date.now() + DEVICE_SESSION_DAYS * 24 * 60 * 60 * 1000);
+  const ceilingHours = await sessionMaxHoursFor(user.id);
+  const expiresAt = new Date(Date.now() + (ceilingHours ? Math.min(DEVICE_SESSION_DAYS * 24 * 60 * 60, sessionTtlSeconds(ceilingHours)) : DEVICE_SESSION_DAYS * 24 * 60 * 60) * 1000);
   // Recycle and create under one advisory lock per account, so two sign-ins
   // racing cannot both see room for one more device (Stage 14 review).
   const row = await db.$transaction(async (tx) => {
@@ -254,7 +263,7 @@ export async function listDeviceSessions(userId: string, currentKeyId: string | 
   return rows.map((r) => serialiseDevice(r, currentKeyId));
 }
 
-export type DeviceRevokeReason = 'logout' | 'user_revoke' | 'password_change' | 'sign_out_everywhere';
+export type DeviceRevokeReason = 'logout' | 'user_revoke' | 'password_change' | 'sign_out_everywhere' | 'staff_revoke';
 
 /**
  * Revoke one device, scoped by owner (a stranger's guess at an id revokes

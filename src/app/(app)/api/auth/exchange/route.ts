@@ -65,6 +65,11 @@ export const POST = route(async (request: Request) => {
     throw error;
   }
 
+  // Stage 20 (ADR-0035, review M5): an organisation that requires SSO for its
+  // members closes this door for them too - BEFORE anything is linked or
+  // created, so a refusal leaves no account and no plan behind.
+  const ssoRequired = identity.email ? await passwordSignInRefusal(identity.email) : null;
+  if (ssoRequired) return fail(ssoRequired, 403);
   try {
     const { user, created } = await linkSupabaseIdentity(identity, {
       consents: body.consents,
@@ -78,10 +83,6 @@ export const POST = route(async (request: Request) => {
         // The plan is a convenience default; its absence is not a sign-in failure.
       }
     }
-    // Stage 20 (ADR-0035): an organisation that requires SSO for its domain
-    // closes this door for that domain too.
-    const ssoRequired = await passwordSignInRefusal(user.email);
-    if (ssoRequired) return fail(ssoRequired, 403);
     const sessionId = await createSession(user.id, {
       method: 'supabase',
       assuranceLevel: identity.assuranceLevel,

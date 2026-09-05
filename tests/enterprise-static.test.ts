@@ -17,7 +17,9 @@ import { auditCsv } from '../src/lib/admin/audit';
 import { domainAllowed } from '../src/lib/admin/organizations';
 import { isPlatformRole } from '../src/lib/admin/users';
 import { parsePatch, parseUserNameFilter, toScimUser, hashScimToken, ScimError } from '../src/lib/scim/service';
-import { isImpersonationLive, sessionTtlSeconds, IMPERSONATION_MAX_MINUTES } from '../src/lib/auth';
+import { impersonationBoundToSession, isImpersonationLive, sessionTtlSeconds, ImpersonationReadOnlyError, IMPERSONATION_MAX_MINUTES } from '../src/lib/auth';
+import { domainClaimRefusal, staffDomains } from '../src/lib/sso/service';
+import { isEmailAddress } from '../src/lib/scim/service';
 import { emailDomainAllowed } from '../src/lib/tenancy/organizations';
 import { isPublicPath } from '../src/proxy';
 import { RLS_TABLES } from '../src/lib/tenancy/rls-tables';
@@ -104,12 +106,12 @@ describe('feature flags - ADR-0019: the code declares what is flaggable, and no 
     }
   });
   it('a key that would name a security control is refused; an undeclared key is not a flag', () => {
-    for (const k of ['auth.session_bypass', 'rls.disable', 'consent.skip', 'apply_mode.auto_apply', 'residency.override', 'encryption.off', 'audit_log.mute', 'permission.widen', 'sso.require', 'scim.token.static', 'tenant.isolation_off', 'policy.ignore']) {
+    for (const k of ['auth.session_bypass', 'rls.disable', 'consent.skip', 'apply_mode.auto_apply', 'residency.override', 'encryption.off', 'audit_log.mute', 'permission.widen', 'sso.require', 'scim.token.static', 'tenant.isolation_off', 'policy.ignore', 'authz.skip', 'sessions.long', 'roles.widen', 'permissions.all', 'impersonation.write', 'step_up.off', 'mfa.skip', 'password.weak', 'token.static', 'rate_limit.off', 'audit.off']) {
       assert.ok(isTierTwoKey(k), `${k} is Tier 2`);
       assert.ok(!isFlagKey(k));
     }
     assert.ok(!isFlagKey('dashboard.new_thing'), 'undeclared');
-    assert.ok(isFlagKey('console.audit_export'));
+    assert.ok(isFlagKey('console.report_export'));
   });
   it('evaluation is deterministic: off is off; 100% is everyone; an allow-listed account is in at 0%; the same account gets the same answer', () => {
     assert.equal(evaluateFlag({ enabled: false, rolloutPercent: 100, allowlist: '[]' }, 'k', 'u'), false);
@@ -132,7 +134,7 @@ describe('feature flags - ADR-0019: the code declares what is flaggable, and no 
     assert.ok(ins.size === on);
   });
   it('no security module reads a flag', () => {
-    for (const dir of ['src/lib/auth.ts', 'src/lib/auth-policy.ts', 'src/lib/tenancy', 'src/lib/consent.ts', 'src/lib/apply/modes.ts', 'src/lib/sensitive', 'src/lib/crm/auth.ts', 'src/lib/crm/step-up.ts', 'src/proxy.ts', 'src/lib/security-audit.ts', 'src/lib/sso', 'src/lib/scim']) {
+    for (const dir of ['src/lib/auth.ts', 'src/lib/auth-policy.ts', 'src/lib/tenancy', 'src/lib/consent.ts', 'src/lib/apply', 'src/lib/sensitive', 'src/lib/crm', 'src/proxy.ts', 'src/lib/security-audit.ts', 'src/lib/sso', 'src/lib/scim', 'src/lib/integrations', 'src/lib/identity', 'src/lib/documents', 'src/lib/entitlements', 'src/lib/cases', 'src/lib/employer', 'src/lib/staffing', 'src/lib/mailbox', 'src/lib/rate-limit.ts']) {
       const full = path.join(root, dir);
       const list = statSync(full).isDirectory() ? [...files(full)] : [full];
       for (const f of list) assert.ok(!/isFlagEnabled|featureFlag\./.test(readFileSync(f, 'utf8')), `${path.relative(root, f)} reads a flag`);
@@ -157,10 +159,31 @@ describe('OIDC - PKCE, discovery, the authorization request and ID-token verific
     const fetchWith = (body: unknown, status = 200) => (async () => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })) as unknown as typeof fetch;
     assert.deepEqual(await discover('https://idp.test', fetchWith(good)), good);
     await assert.rejects(discover('https://idp.test', fetchWith({ ...good, issuer: 'https://evil.test' })), (e: unknown) => e instanceof OidcError && /different issuer/.test(e.message));
-    await assert.rejects(discover('https://idp.test', fetchWith({ issuer: 'https://idp.test', token_endpoint: 'https://idp.test/t', jwks_uri: 'https://idp.test/j' })), /lacks authorization_endpoint/);
+    await assert.rejects(discover('https://idp.test', fetchWith({ issuer: 'https://idp.test', token_endpoint: 'https://idp.test/t', jwks_uri: 'https://idp.test/j' })), /lacks an https authorization_endpoint/);
     await assert.rejects(discover('https://idp.test', fetchWith({ ...good, code_challenge_methods_supported: ['plain'] })), /PKCE S256/);
     await assert.rejects(discover('https://idp.test', fetchWith({}, 500)), /Discovery failed/);
     await assert.rejects(discover('not a url', fetchWith(good)), /not a valid URL/);
+  });
+
+  it('review M6: every provider endpoint is https (loopback http only for a test issuer), every fetch is bounded, and the ID token algorithms are pinned', async () => {
+    const good = { issuer: 'https://idp.test', authorization_endpoint: 'https://idp.test/a', token_endpoint: 'https://idp.test/t', jwks_uri: 'https://idp.test/j' };
+    const fetchWith = (body: unknown) => (async () => new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } })) as unknown as typeof fetch;
+    await assert.rejects(discover('https://idp.test', fetchWith({ ...good, token_endpoint: 'http://idp.test/t' })), /https token_endpoint/);
+    await assert.rejects(discover('https://idp.test', fetchWith({ ...good, jwks_uri: 'http://evil.test/j' })), /https jwks_uri/);
+    assert.deepEqual(await discover('https://idp.test', fetchWith({ ...good, jwks_uri: 'http://127.0.0.1:9/j' })), { ...good, jwks_uri: 'http://127.0.0.1:9/j' }, 'loopback is the test exemption');
+    const oidc = read('src/lib/sso/oidc.ts');
+    assert.equal((oidc.match(/signal: AbortSignal\.timeout\(OIDC_FETCH_TIMEOUT_MS\)/g) ?? []).length, 2, 'discovery and the token exchange are bounded');
+    assert.match(oidc, /algorithms: \[\.\.\.ID_TOKEN_ALGORITHMS\]/);
+    assert.match(oidc, /const jwksCache = new Map/);
+    assert.match(oidc, /redirect: 'error'/);
+  });
+
+  it('review H1: a public mail domain and a STAFF_EMAILS domain can never be claimed by a connection', () => {
+    assert.match(domainClaimRefusal('gmail.com', 'ops@jobpilot.ai') ?? '', /public mail domain/);
+    assert.match(domainClaimRefusal('jobpilot.ai', 'ops@jobpilot.ai, admin@JobPilot.ai') ?? '', /staff/);
+    assert.equal(domainClaimRefusal('acme.test', 'ops@jobpilot.ai'), null);
+    assert.deepEqual([...staffDomains('a@x.test, b@Y.test,,')].sort(), ['x.test', 'y.test']);
+    assert.deepEqual([...staffDomains('')], []);
   });
 
   it('the authorization request carries code + S256 + state + nonce + the redirect; the ID token verifies only with the right key, issuer, audience and nonce, and a verified email', async () => {
@@ -221,6 +244,16 @@ describe('SCIM - the Users subset, parsed strictly', () => {
     assert.throws(() => parsePatch({ schemas: ['urn:ietf:params:scim:api:messages:2.0:PatchOp'], Operations: [{ op: 'replace', path: 'userName', value: 'x@y.test' }] }), (e: unknown) => e instanceof ScimError && e.scimType === 'invalidPath');
     assert.throws(() => parsePatch({ schemas: ['urn:ietf:params:scim:api:messages:2.0:PatchOp'], Operations: [{ op: 'replace', path: 'active', value: 'yes' }] }), /boolean/);
   });
+  it('review L5: a userName is a real address, not anything with an @', () => {
+    assert.ok(isEmailAddress('person@acme.test') && isEmailAddress('first.last+tag@sub.acme.co.uk'));
+    for (const bad of ['@corp.com', 'nobody', 'a@b', 'a b@acme.test', 'a@-acme.test', 'a@acme.', '"quoted"@acme.test']) assert.ok(!isEmailAddress(bad), bad);
+    const scimRoute = read('src/lib/scim/route.ts');
+    assert.match(scimRoute, /rateLimit\('auth', `scim:\$\{clientAddress\(request\)\}`, LIMITS\.auth\)/, 'unauthenticated attempts are budgeted per address');
+    const scim = read('src/lib/scim/service.ts');
+    assert.match(scim, /m\.role === 'owner'\) throw new ScimError\('An owner is not deactivated/);
+    assert.match(scim, /revokeAllDeviceSessions\(userId, 'staff_revoke'\)/, 'deactivation revokes device keys too (review H2)');
+  });
+
   it('the only filter is userName eq; an erased member is inactive with no address; a token digest is SHA-256', () => {
     assert.equal(parseUserNameFilter(null), null);
     assert.equal(parseUserNameFilter('userName eq "A@B.test"'), 'a@b.test');
@@ -260,10 +293,48 @@ describe('impersonation, the session ceiling, the domain policy and the CSV', ()
     assert.equal(isImpersonationLive(row(), claims, false), false, 'revoking the staff session ends it');
     assert.equal(IMPERSONATION_MAX_MINUTES, 60);
   });
+  it('review M1: the impersonation token is honoured only beside the staff session it names', () => {
+    assert.equal(impersonationBoundToSession(claims, 's1'), true);
+    assert.equal(impersonationBoundToSession(claims, 'other-session'), false);
+    assert.equal(impersonationBoundToSession(claims, null), false);
+    assert.equal(impersonationBoundToSession(claims, ''), false);
+    const auth = read('src/lib/auth.ts');
+    assert.match(auth, /const presented = await readCookieClaims\(\);\s*if \(!impersonationBoundToSession\(claims, presented\?\.sid\)\) return null;/);
+    assert.match(auth, /target\.role !== 'member' \|\| isAllowlistedStaffEmail\(target\.email, process\.env\.STAFF_EMAILS\)\) return null;/, 'the target is re-checked per request (M2, L9)');
+  });
+
+  it('review H3: sensitive, RESTRICTED, disclosed, mailbox and document reads refuse under an impersonation, so no audited read is reachable', () => {
+    const e = new ImpersonationReadOnlyError('x');
+    assert.equal(e.status, 403);
+    for (const [rel, fns] of [
+      ['src/lib/sensitive/self-identification.ts', ['readSelfIdentification', 'writeSelfIdentification', 'eraseSelfIdentification']],
+      ['src/lib/cases/client-view.ts', ['readClientSummary', 'clientSignalsFor']],
+      ['src/lib/cases/service.ts', ['listNotes', 'listAssessments']],
+      ['src/lib/employer/candidate-view.ts', ['readDisclosedCandidate', 'sourceCandidates']],
+      ['src/lib/mailbox/service.ts', ['loadFolders', 'listConnections']],
+    ] as const) {
+      const text = read(rel);
+      for (const fn of fns) {
+        const start = text.indexOf(`export async function ${fn}(`);
+        assert.ok(start >= 0, `${rel}#${fn}`);
+        const body = text.slice(start, start + 900);
+        assert.ok(/assertNotImpersonating\(/.test(body), `${rel}#${fn} refuses under impersonation`);
+        const audit = body.indexOf('recordSecurityEvent(');
+        const guard = body.indexOf('assertNotImpersonating(');
+        assert.ok(audit === -1 || guard < audit, `${rel}#${fn}: the refusal precedes the audit row`);
+      }
+    }
+    assert.match(read('src/app/(app)/api/documents/[id]/route.ts'), /await assertNotImpersonating\('a document'\);\s*const \{ user, run \} = await requireTenant\(\);/);
+    assert.match(read('src/app/(app)/dashboard/analytics/page.tsx'), /!built\?\.analyticsBuiltAt && !\(await currentImpersonation\(\)\)/, 'no first-visit rebuild under impersonation (M7)');
+    assert.match(read('src/app/(app)/layout.tsx'), /<ImpersonationBanner \/>/, 'the banner is on every page (M7)');
+    assert.match(read('src/lib/api.ts'), /new URL\(request\.url\)\.pathname !== '\/api\/auth\/logout'/, 'logout is the one allowed write; destroySession ends the impersonation first');
+    assert.match(read('src/lib/auth.ts'), /const impersonation = await currentImpersonation\(\);\s*if \(impersonation\) \{\s*await db\.impersonationSession\.updateMany/);
+  });
+
   it('route() refuses every non-GET under an impersonation, before the handler runs; the ending route is the one unwrapped write', () => {
     const api = read('src/lib/api.ts');
     assert.match(api, /const READ_METHODS = new Set\(\['GET', 'HEAD', 'OPTIONS'\]\)/);
-    assert.match(api, /if \(request instanceof Request && !READ_METHODS\.has\(request\.method\) && \(await currentImpersonation\(\)\)\) \{\s*return fail\('This is a read-only support session/);
+    assert.match(api, /if \(request instanceof Request && !READ_METHODS\.has\(request\.method\) && new URL\(request\.url\)\.pathname !== '\/api\/auth\/logout' && \(await currentImpersonation\(\)\)\) \{\s*return fail\('This is a read-only support session/);
     assert.ok(api.indexOf('await currentImpersonation()') < api.indexOf('return await handler(...args)'));
     const auth = read('src/lib/auth.ts');
     assert.ok(auth.indexOf('const impersonation = await currentImpersonation();') < auth.indexOf('const claims = await readCookieClaims();\n  if (!claims) return null;\n\n  const session'), 'getSessionUserId answers with the target first');
@@ -287,6 +358,15 @@ describe('impersonation, the session ceiling, the domain policy and the CSV', ()
       assert.match(text, /passwordSignInRefusal\(/, `${rel} honours requireSso`);
       assert.match(text, /maxHours: await sessionMaxHoursFor\(/, `${rel} honours the session ceiling`);
     }
+    // The THIRD door (review H2): the mobile device sign-in.
+    const device = read('src/lib/integrations/device-sessions.ts');
+    assert.match(device, /const ssoRequired = await passwordSignInRefusal\(user\.email\);\s*if \(ssoRequired\) throw new ApiRequestError/);
+    assert.match(device, /sessionTtlSeconds\(await sessionMaxHoursFor\(user\.id\)\)/);
+    assert.ok(device.indexOf('passwordSignInRefusal(user.email)') > device.indexOf('verifyPassword('), 'after the credential, so the refusal reveals nothing');
+    assert.match(read('src/lib/admin/users.ts'), /revokeAllDeviceSessions\(user\.id, 'staff_revoke'\)/, '"sign out everywhere" includes the phone');
+    assert.match(read('src/app/(app)/api/auth/exchange/route.ts'), /const ssoRequired = identity\.email \? await passwordSignInRefusal[\s\S]*linkSupabaseIdentity\(/, 'the exchange refuses BEFORE linking (M5)');
+    assert.match(read('src/lib/tenancy/organizations.ts'), /organization: \{ status: \{ not: 'suspended' \} \}/, 'suspension is inherited by every membership check (M3)');
+    assert.equal(RLS_TABLES.FeatureFlag?.kind, 'system', 'an allow-list of account ids is not tenant-readable (L7)');
   });
   it('the audit CSV neutralises formula cells, quotes commas and newlines, and carries no IP or user-agent column', () => {
     const csv = auditCsv([{ id: '1', createdAt: new Date('2026-09-05T00:00:00Z'), actorType: 'staff', actorEmail: 'a@b.test', actorRole: 'admin', action: 'x.y', entityType: 'T', entityId: 'e', summary: '=HYPERLINK("http://evil")', reason: 'a, "quoted"\nline' }]);
@@ -294,6 +374,7 @@ describe('impersonation, the session ceiling, the domain policy and the CSV', ()
     assert.equal(header, 'id,createdAt,actorType,actorEmail,actorRole,action,entityType,entityId,summary,reason');
     assert.ok(!/\bip\b|userAgent/.test(header));
     assert.ok(line!.includes(`"'=HYPERLINK(""http://evil"")"`));
+    assert.ok(auditCsv([{ id: '2', createdAt: new Date(0), actorType: 'staff', actorEmail: '', actorRole: '', action: 'a', entityType: 'T', entityId: 'e', summary: '\tX', reason: null }]).includes("'\tX"), 'a leading tab is neutralised too (L6)');
     assert.ok(line!.includes('"a, ""quoted""\nline"'));
   });
   it('nothing under the Stage 20 modules reaches the sensitive schema, the AI gateway or the mailbox', () => {

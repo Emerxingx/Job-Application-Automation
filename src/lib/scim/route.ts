@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { LIMITS, rateLimit } from '@/lib/rate-limit';
+import { LIMITS, clientAddress, rateLimit } from '@/lib/rate-limit';
 import { SCIM_ERROR_SCHEMA, ScimError, authenticateScim, type ScimPrincipal } from './service';
 
 /**
@@ -25,13 +25,17 @@ export function scimBaseUrl(request: Request): string {
 export function scimRoute<Args extends unknown[]>(handler: (principal: ScimPrincipal, request: Request, ...args: Args) => Promise<Response>): (request: Request, ...args: Args) => Promise<Response> {
   return async (request: Request, ...args: Args) => {
     try {
+      // Unauthenticated attempts are budgeted per address (review L5): a token
+      // guesser gets the auth limit, not unlimited tries at the digest table.
+      const guesses = rateLimit('auth', `scim:${clientAddress(request)}`, LIMITS.auth);
+      if (!guesses.ok) return scimError(429, 'Too many requests.');
       const principal = await authenticateScim(request.headers.get('authorization'));
       const limit = rateLimit('scim', principal.tokenId, LIMITS.scim);
       if (!limit.ok) return scimError(429, 'Too many requests.');
       return await handler(principal, request, ...args);
     } catch (error) {
       if (error instanceof ScimError) return scimError(error.status, error.message, error.scimType);
-      if (error instanceof SyntaxError) return scimError(400, 'The request body is not JSON.', 'invalidSyntax');
+      if (error instanceof SyntaxError || error instanceof TypeError) return scimError(400, 'The request body is not a JSON object.', 'invalidSyntax');
       console.error('[scim] unhandled error:', error);
       return scimError(500, 'Something went wrong.');
     }

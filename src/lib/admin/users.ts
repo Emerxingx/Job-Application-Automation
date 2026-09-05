@@ -1,5 +1,6 @@
 import { db } from '@/lib/db';
 import { revokeAllSessions } from '@/lib/auth';
+import { revokeAllDeviceSessions } from '@/lib/integrations/device-sessions';
 import { STAFF_ROLES, isStaffRole, type StaffContext } from '@/lib/crm/auth';
 import { recordSecurityEvent, type RequestMeta } from '@/lib/security-audit';
 import { AdminError } from './organizations';
@@ -51,11 +52,13 @@ export async function revokeUserSessions(staff: StaffContext, userId: string, re
   if (!reason.trim()) throw new AdminError('A reason is required.', 422);
   const user = await db.user.findUnique({ where: { id: userId }, select: { id: true, email: true, role: true } });
   if (!user) throw new AdminError('No such user.', 404);
+  // Web sessions AND device keys (review H2): "sign out everywhere" includes the phone.
   const count = await revokeAllSessions(user.id, 'staff_revoke');
+  const devices = await revokeAllDeviceSessions(user.id, 'staff_revoke');
   await recordSecurityEvent(
-    { event: 'auth.sessions.revoked_all', user, actor: { type: 'staff', id: staff.id, email: staff.email, role: staff.role }, entityType: 'User', entityId: user.id, summary: `Staff revoked ${count} session(s)`, detail: { count, by: 'staff' }, reason: reason.trim().slice(0, 500), meta },
+    { event: 'auth.sessions.revoked_all', user, actor: { type: 'staff', id: staff.id, email: staff.email, role: staff.role }, entityType: 'User', entityId: user.id, summary: `Staff revoked ${count} session(s) and ${devices} device key(s)`, detail: { count, devices, by: 'staff' }, reason: reason.trim().slice(0, 500), meta },
     db,
     { strict: true },
   );
-  return count;
+  return count + devices;
 }

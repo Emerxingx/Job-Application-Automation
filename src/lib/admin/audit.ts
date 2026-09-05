@@ -38,7 +38,7 @@ export async function queryAuditLog(q: AuditQuery) {
 const csvCell = (v: unknown) => {
   const s = v === null || v === undefined ? '' : v instanceof Date ? v.toISOString() : String(v);
   // A cell beginning with = + - @ is neutralised so a spreadsheet never executes it.
-  const safe = /^[=+\-@]/.test(s) ? `'${s}` : s;
+  const safe = /^[=+\-@\t\r]/.test(s) ? `'${s}` : s;
   return /[",\n\r]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
 };
 

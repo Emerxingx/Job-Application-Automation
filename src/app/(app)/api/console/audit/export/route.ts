@@ -5,10 +5,10 @@ import { requestMeta } from '@/lib/security-audit';
 import { exportAuditLog } from '@/lib/admin/audit';
 import { isFlagEnabled } from '@/lib/admin/feature-flags';
 
-/** GET /api/console/audit/export?action=&entityType=&entityId=&actorEmail=&from=&to= - up to 1000 rows as CSV; the export is itself audited. Admin; gated by the `console.audit_export` flag. */
+/** GET /api/console/audit/export?action=&entityType=&entityId=&actorEmail=&from=&to= - up to 1000 rows as CSV; the export is itself audited. Admin; gated by the `console.report_export` flag. */
 export const GET = governanceRoute(async (request: Request) => {
   const staff = await requireStaff('admin');
-  if (!(await isFlagEnabled('console.audit_export', staff.id))) return fail('Audit export is switched off.', 403);
+  if (!(await isFlagEnabled('console.report_export', staff.id))) return fail('Audit export is switched off.', 403);
   const q = new URL(request.url).searchParams;
   const date = (v: string | null) => (v ? new Date(v) : undefined);
   const from = date(q.get('from'));

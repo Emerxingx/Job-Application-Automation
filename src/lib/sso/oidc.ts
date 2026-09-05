@@ -1,6 +1,11 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { createRemoteJWKSet, jwtVerify, type JWTVerifyGetKey } from 'jose';
 
+/** Every call to the provider is bounded (review M6): a hung issuer must not hold a request open. */
+export const OIDC_FETCH_TIMEOUT_MS = 10_000;
+/** The signing algorithms an ID token may use; HS* would let the client secret sign one, `none` is refused by jose already. */
+export const ID_TOKEN_ALGORITHMS = ['RS256', 'RS384', 'RS512', 'PS256', 'PS384', 'PS512', 'ES256', 'ES384', 'ES512'] as const;
+
 /**
  * Stage 20 (ADR-0035) - the OpenID Connect pieces, kept pure and injectable.
  *
@@ -54,6 +59,15 @@ export function isIssuerUrl(value: unknown): value is string {
     const u = new URL(value);
     if (u.search || u.hash) return false;
     if (u.protocol === 'https:') return true;
+    return isLoopbackHttp(value);
+  } catch {
+    return false;
+  }
+}
+
+function isLoopbackHttp(value: string): boolean {
+  try {
+    const u = new URL(value);
     return u.protocol === 'http:' && (u.hostname === '127.0.0.1' || u.hostname === 'localhost');
   } catch {
     return false;
@@ -66,7 +80,7 @@ export async function discover(issuer: string, fetchImpl: typeof fetch = fetch):
   const url = issuer.replace(/\/$/, '') + '/.well-known/openid-configuration';
   let res: Response;
   try {
-    res = await fetchImpl(url, { headers: { accept: 'application/json' } });
+    res = await fetchImpl(url, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(OIDC_FETCH_TIMEOUT_MS), redirect: 'error' });
   } catch {
     throw new OidcError('The identity provider could not be reached for discovery.', 502);
   }
@@ -74,7 +88,10 @@ export async function discover(issuer: string, fetchImpl: typeof fetch = fetch):
   const doc = (await res.json()) as Partial<OidcDiscovery>;
   if (doc.issuer?.replace(/\/$/, '') !== issuer.replace(/\/$/, '')) throw new OidcError('The discovery document names a different issuer.', 502);
   for (const k of ['authorization_endpoint', 'token_endpoint', 'jwks_uri'] as const) {
-    if (typeof doc[k] !== 'string' || !/^https?:\/\//.test(doc[k] as string)) throw new OidcError(`The discovery document lacks ${k}.`, 502);
+    // Every endpoint is https (the client secret is POSTed to the token
+    // endpoint; the JWKS decides who may sign in) - loopback http only for a
+    // test issuer, the same rule as the issuer itself.
+    if (typeof doc[k] !== 'string' || !isIssuerUrl(doc[k] as string) && !isLoopbackHttp(doc[k] as string)) throw new OidcError(`The discovery document lacks an https ${k}.`, 502);
   }
   if (doc.code_challenge_methods_supported && !doc.code_challenge_methods_supported.includes('S256')) throw new OidcError('The identity provider does not support PKCE S256.', 502);
   return doc as OidcDiscovery;
@@ -120,7 +137,7 @@ export async function exchangeCode(
   const body = new URLSearchParams({ grant_type: 'authorization_code', code: input.code, redirect_uri: input.redirectUri, client_id: input.clientId, client_secret: input.clientSecret, code_verifier: input.codeVerifier });
   let res: Response;
   try {
-    res = await fetchImpl(discovery.token_endpoint, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json' }, body });
+    res = await fetchImpl(discovery.token_endpoint, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json' }, body, signal: AbortSignal.timeout(OIDC_FETCH_TIMEOUT_MS), redirect: 'error' });
   } catch {
     throw new OidcError('The identity provider could not be reached to redeem the code.', 502);
   }
@@ -143,11 +160,23 @@ export interface VerifiedIdentity {
  * needs: a verified email, lower-cased. An unverified email is refused - the
  * provider is vouching for an address the platform will trust as an identity.
  */
+const jwksCache = new Map<string, JWTVerifyGetKey>();
+
+/** One remote JWKS per URI, cached for the process: jose refreshes it on an unknown kid and rate-limits refetches, so a sign-in does not refetch the key set every time. */
+export function remoteJwks(jwksUri: string): JWTVerifyGetKey {
+  let getKey = jwksCache.get(jwksUri);
+  if (!getKey) {
+    getKey = createRemoteJWKSet(new URL(jwksUri), { timeoutDuration: OIDC_FETCH_TIMEOUT_MS, cooldownDuration: 30_000, cacheMaxAge: 10 * 60_000 });
+    jwksCache.set(jwksUri, getKey);
+  }
+  return getKey;
+}
+
 export async function verifyIdToken(idToken: string, opts: { issuer: string; clientId: string; nonce: string; getKey?: JWTVerifyGetKey; jwksUri?: string }): Promise<VerifiedIdentity> {
-  const getKey = opts.getKey ?? createRemoteJWKSet(new URL(opts.jwksUri ?? ''));
+  const getKey = opts.getKey ?? remoteJwks(opts.jwksUri ?? '');
   let payload;
   try {
-    ({ payload } = await jwtVerify(idToken, getKey, { issuer: [opts.issuer, opts.issuer.replace(/\/$/, ''), opts.issuer.replace(/\/$/, '') + '/'], audience: opts.clientId, clockTolerance: 60 }));
+    ({ payload } = await jwtVerify(idToken, getKey, { issuer: [opts.issuer, opts.issuer.replace(/\/$/, ''), opts.issuer.replace(/\/$/, '') + '/'], audience: opts.clientId, clockTolerance: 60, algorithms: [...ID_TOKEN_ALGORITHMS] }));
   } catch {
     throw new OidcError('The ID token did not verify.', 401);
   }

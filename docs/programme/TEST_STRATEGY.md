@@ -645,8 +645,11 @@ never occurred.
   staff session dead) and the read-only refusal placed before the handler in
   `route()`; no `staff_impersonation` session issued. The session ceiling
   shortens and never lengthens; the domain policy; the platform roles; the
-  suspended-organisation refusal in `requireTenant`; both sign-in routes
-  honour `requireSso` and the ceiling. The CSV neutralises formulas, quotes
+  suspended-organisation refusal in `findActiveMembership` (inherited by
+  every product path); all THREE sign-in doors - password, identity provider
+  and the mobile device key - honour `requireSso` and the ceiling, the
+  device door after the credential; "sign out everywhere" includes device
+  keys. The CSV neutralises formulas, quotes
   commas and newlines and has no IP column. Forbidden paths under
   `src/lib/{sso,scim,admin}`.
 - **Database (`tests/enterprise.test.ts`):** verified creation (non-verified

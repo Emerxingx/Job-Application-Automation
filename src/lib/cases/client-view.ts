@@ -24,6 +24,7 @@ import { recordSecurityEvent } from '@/lib/security-audit';
 import { canOpenCase } from './roles';
 import { CaseError, type CaseActor } from './service';
 import type { ClientSignals } from './copilot';
+import { assertNotImpersonating } from '@/lib/auth';
 
 export interface ClientSummary {
   client: { name: string; country: string | null; city: string | null };
@@ -127,6 +128,7 @@ export async function collectClientSignals(clientUserId: string, targetOccupatio
 
 /** The client summary a case manager sees on the case page. */
 export async function readClientSummary(actor: CaseActor, caseId: string, now = new Date()): Promise<ClientSummary> {
+  await assertNotImpersonating('a client\'s job-search data');
   const c = await delegated(actor, caseId, 'summary');
   const [user, applications, interviews, versions, prefs, signals] = await Promise.all([
     db.user.findUniqueOrThrow({ where: { id: c.clientUserId }, select: { fullName: true, country: true, city: true } }),
@@ -152,6 +154,7 @@ export async function readClientSummary(actor: CaseActor, caseId: string, now = 
 
 /** The signals for the copilot, after the same four checks and its own audit row. */
 export async function clientSignalsFor(actor: CaseActor, caseId: string, now = new Date()): Promise<{ caseId: string; signals: ClientSignals }> {
+  await assertNotImpersonating('a client\'s job-search data');
   const c = await delegated(actor, caseId, 'copilot');
   return { caseId: c.id, signals: await collectClientSignals(c.clientUserId, c.targetOccupationId, now) };
 }

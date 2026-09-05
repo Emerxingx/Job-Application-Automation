@@ -26,7 +26,7 @@ remediation has begun.**
 npm ci                # install from the lockfile
 npm run dev           # http://localhost:3000
 npx tsc --noEmit      # typecheck  — PASSES
-npm test              # 1236 tests  — PASSES with the two database URLs below set; the
+npm test              # 1243 tests  — PASSES with the two database URLs below set; the
                       #   database suites skip WITH A REASON without them and THROW
                       #   when CI=true, so CI cannot pass by skipping them
 npm run build         # production — PASSES
@@ -460,10 +460,12 @@ npm run cms:types          # regenerate payload-types.ts
 31. **Platform administration sits on the ADR-0019 line, and the enterprise
     doors are machine-verified** (Stage 20, ADR-0035). `src/lib/admin/`:
     staff create VERIFIED organisations (`createVerifiedOrganization`),
-    suspend them (a suspended organisation has no tenant path -
-    `requireTenant` refuses) and set tenant policy (`requireSso`,
-    `allowedEmailDomains`, `sessionMaxHours`) - never the tenant's own
-    admins; platform roles are ASSIGNED there and DEFINED in code; feature
+    suspend them (a suspended organisation has no active members anywhere -
+    `findActiveMembership` answers null, so every product path refuses) and
+    set tenant policy (`requireSso` binds the organisation's ACCEPTED
+    MEMBERS on the password, identity-provider AND device doors;
+    `allowedEmailDomains`; `sessionMaxHours` caps sessions and device keys)
+    - never the tenant's own admins; platform roles are ASSIGNED there and DEFINED in code; feature
     flags are DECLARED in `FLAG_REGISTRY` with the file that reads them,
     `isTierTwoKey` refuses a key naming a security control, and a static
     test keeps every security module free of flag reads - never add
@@ -473,18 +475,28 @@ npm run cms:types          # regenerate payload-types.ts
     static test walks the matrix). **Impersonation is read-only**: a second
     cookie names an `ImpersonationSession` row, `getSessionUserId` answers
     with the target while it is live (checked per request, no cache), and
-    `route()` refuses every non-GET - the only unwrapped write is
-    `/api/console/impersonation/end`; no `Session` row is ever issued for
-    the target. **SSO is OIDC** (`src/lib/sso/`): one connection per
+    `route()` refuses every non-GET (logout excepted; it ends the
+    impersonation first) - the only unwrapped write is
+    `/api/console/impersonation/end`; the token is honoured only beside the
+    staff session it was minted under; the target is re-checked per
+    request; **`assertNotImpersonating()` refuses the sensitive schema,
+    RESTRICTED case reads, the client view, disclosed candidates and
+    sourcing, mailbox metadata and document links** - add it to any new
+    audited read; no `Session` row is ever issued for the target. **SSO is OIDC** (`src/lib/sso/`): one connection per
     organisation for one domain, the client secret AES-256-GCM under
     `SSO_ENCRYPTION_KEY` (a separate key from the mailbox one) and decrypted
     in exactly one place; PKCE, discovery with issuer match, JWKS
-    verification, a verified email inside the domain; JIT provisioning
-    records the signup consents as source `sso`; a removed membership is
-    never reinstated by a sign-in. **SCIM is Users-only** (`src/lib/scim/`)
+    verification with pinned algorithms, https endpoints, bounded calls
+    and a cached JWKS, a verified email inside the domain; a staff account
+    (role or allow-list) is NEVER signed in by a tenant's provider and an
+    existing account only when it is already a member (or invited); JIT
+    provisioning creates NEW accounts only and records the signup consents
+    as source `sso`; a removed membership is never reinstated by a sign-in;
+    public mail domains and staff domains are never claimable. **SCIM is Users-only** (`src/lib/scim/`)
     behind staff-issued SHA-256-hashed tokens scoped to one organisation;
-    deactivation removes the membership and revokes sessions and never
-    deletes or scrubs the account. `/api/auth/sso` and `/api/scim` are
+    deactivation removes the membership and revokes sessions AND device
+    keys platform-wide, never an owner, never deletes or scrubs the
+    account; reinstatement is as a member. `/api/auth/sso` and `/api/scim` are
     public prefixes. **No real identity provider or SCIM client has been
     validated** - the register says so; do not claim otherwise.
 

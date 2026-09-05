@@ -93,7 +93,11 @@ export async function listMemberships(client: Client, userId: string) {
  * primitive every authorisation decision in this module reduces to.
  */
 export async function findActiveMembership(client: Client, organizationId: string, userId: string) {
-  return client.membership.findFirst({ where: { organizationId, userId, ...ACTIVE } });
+  // Stage 20 review (M3): a SUSPENDED organisation has no active members
+  // anywhere - cases, hiring, staffing and the roster all resolve through
+  // here, so suspension is inherited by every product path, not only
+  // requireTenant. Its rows stay; staff reactivate it.
+  return client.membership.findFirst({ where: { organizationId, userId, ...ACTIVE, organization: { status: { not: 'suspended' } } } });
 }
 
 /**
@@ -264,8 +268,14 @@ export async function withdrawInvitation(actorUserId: string, organizationId: st
 export async function acceptInvitation(actorUserId: string, organizationId: string) {
   const pending = await db.membership.findFirst({
     where: { organizationId, userId: actorUserId, acceptedAt: null, removedAt: null },
+    include: { organization: { select: { allowedEmailDomains: true, status: true } }, user: { select: { email: true } } },
   });
   if (!pending) throw new OrganizationAccessError('No pending invitation.', 404);
+  if (pending.organization.status === 'suspended') throw new OrganizationAccessError('This organisation is suspended. Contact support.', 403);
+  // A domain policy set after the invitation still binds it (review L11).
+  if (!emailDomainAllowed(pending.organization.allowedEmailDomains, pending.user.email)) {
+    throw new OrganizationAccessError('Your address is outside the email domains this organisation admits.', 403);
+  }
   return db.membership.update({ where: { id: pending.id }, data: { acceptedAt: new Date() } });
 }
 

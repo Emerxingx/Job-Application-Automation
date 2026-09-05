@@ -31,6 +31,7 @@ type Sso = typeof import('../src/lib/sso/service');
 type Scim = typeof import('../src/lib/scim/service');
 type Tenancy = typeof import('../src/lib/tenancy/organizations');
 type Auth = typeof import('../src/lib/auth');
+type Devices = typeof import('../src/lib/integrations/device-sessions');
 
 const S = randomBytes(4).toString('hex');
 const DOMAIN = `acme-${S}.test`;
@@ -52,6 +53,7 @@ let sso: Sso;
 let scim: Scim;
 let tenancy: Tenancy;
 let auth: Auth;
+let devices: Devices;
 let orgId = '';
 let orgBId = '';
 let staffSessionId = '';
@@ -78,6 +80,7 @@ describe('enterprise controls - organisations, policy, roles, flags, audit expor
     scim = await import('../src/lib/scim/service');
     tenancy = await import('../src/lib/tenancy/organizations');
     auth = await import('../src/lib/auth');
+    devices = await import('../src/lib/integrations/device-sessions');
     for (const u of ALL) {
       await db.user.create({ data: { id: u.id, email: u.email, passwordHash: 'x', fullName: u.fullName, country: 'CA', onboardedAt: new Date(), role: u === STAFF ? 'admin' : 'member' } });
       await tenancy.ensurePersonalWorkspace(db, u);
@@ -173,19 +176,19 @@ describe('enterprise controls - organisations, policy, roles, flags, audit expor
 
   it('feature flags: only a declared key; evaluated deterministically with an allow-list; every change audited with before/after', async () => {
     await status(flags.setFeatureFlag(STAFF, 'dashboard.new_thing', { enabled: true, rolloutPercent: 100, allowlist: [] }, 'r'), 422, /declared in code/);
-    await status(flags.setFeatureFlag(STAFF, 'console.audit_export', { enabled: true, rolloutPercent: 101, allowlist: [] }, 'r'), 422);
-    assert.equal(await flags.isFlagEnabled('console.audit_export', STAFF.id), true, 'the declared default applies without a row');
-    await flags.setFeatureFlag(STAFF, 'console.audit_export', { enabled: false, rolloutPercent: 100, allowlist: [] }, 'pausing exports (test)');
-    assert.equal(await flags.isFlagEnabled('console.audit_export', STAFF.id), false);
-    await flags.setFeatureFlag(STAFF, 'console.audit_export', { enabled: true, rolloutPercent: 0, allowlist: [STAFF.id] }, 'staff only (test)');
-    assert.equal(await flags.isFlagEnabled('console.audit_export', STAFF.id), true);
-    assert.equal(await flags.isFlagEnabled('console.audit_export', OWNER.id), false);
+    await status(flags.setFeatureFlag(STAFF, 'console.report_export', { enabled: true, rolloutPercent: 101, allowlist: [] }, 'r'), 422);
+    assert.equal(await flags.isFlagEnabled('console.report_export', STAFF.id), true, 'the declared default applies without a row');
+    await flags.setFeatureFlag(STAFF, 'console.report_export', { enabled: false, rolloutPercent: 100, allowlist: [] }, 'pausing exports (test)');
+    assert.equal(await flags.isFlagEnabled('console.report_export', STAFF.id), false);
+    await flags.setFeatureFlag(STAFF, 'console.report_export', { enabled: true, rolloutPercent: 0, allowlist: [STAFF.id] }, 'staff only (test)');
+    assert.equal(await flags.isFlagEnabled('console.report_export', STAFF.id), true);
+    assert.equal(await flags.isFlagEnabled('console.report_export', OWNER.id), false);
     const rows = await db.auditLog.findMany({ where: { action: 'feature_flag.set' }, orderBy: { createdAt: 'asc' } });
     assert.ok(rows.length >= 2);
     assert.equal(JSON.parse(rows[rows.length - 1]!.after).enabledBefore, false);
     const listed = await flags.listFeatureFlags();
-    assert.deepEqual(listed.find((f) => f.key === 'console.audit_export')?.stored?.allowlist, [STAFF.id]);
-    await flags.setFeatureFlag(STAFF, 'console.audit_export', { enabled: true, rolloutPercent: 100, allowlist: [] }, 'back on (test)');
+    assert.deepEqual(listed.find((f) => f.key === 'console.report_export')?.stored?.allowlist, [STAFF.id]);
+    await flags.setFeatureFlag(STAFF, 'console.report_export', { enabled: true, rolloutPercent: 100, allowlist: [] }, 'back on (test)');
   });
 
   it('the audit export is filtered, capped, carries no IP column, and is itself an audit row', async () => {
@@ -239,10 +242,20 @@ describe('enterprise controls - organisations, policy, roles, flags, audit expor
     const auditRow = await db.auditLog.findFirstOrThrow({ where: { action: 'sso.connection.updated', entityId: raw.id } });
     assert.ok(!JSON.stringify(auditRow).includes('s3cret'));
     await status(sso.upsertSsoConnection(STAFF, orgBId, { issuer, clientId: 'x', clientSecret: 'y', emailDomain: DOMAIN, jitProvisioning: false, status: 'enabled' }, 'r'), 409, /already claims/);
-    assert.equal(await sso.passwordSignInRefusal(`anyone@${DOMAIN}`), null);
+    assert.equal(await sso.passwordSignInRefusal(MEMBER.email), null);
     await orgs.setTenantPolicy(STAFF, orgId, { requireSso: true, allowedEmailDomains: [DOMAIN], sessionMaxHours: 8 }, 'SSO mandated (test)');
-    assert.match((await sso.passwordSignInRefusal(`anyone@${DOMAIN}`)) ?? '', /requires its members to sign in through/);
+    assert.match((await sso.passwordSignInRefusal(MEMBER.email)) ?? '', /requires its members to sign in through/, 'an accepted member is bound by requireSso');
+    assert.equal(await sso.passwordSignInRefusal(`anyone@${DOMAIN}`), null, 'review M5: an account that merely shares the domain keeps its own door');
     assert.equal(await sso.passwordSignInRefusal(OUTSIDER.email), null);
+    // review H1: a public mail domain and a staff domain are never claimable
+    await status(sso.upsertSsoConnection(STAFF, orgBId, { issuer, clientId: 'x', clientSecret: 'y', emailDomain: 'gmail.com', jitProvisioning: false, status: 'disabled' }, 'r'), 422, /public mail domain/);
+    const staffEmailsBefore = process.env.STAFF_EMAILS;
+    process.env.STAFF_EMAILS = STAFF.email;
+    try {
+      await status(sso.upsertSsoConnection(STAFF, orgBId, { issuer, clientId: 'x', clientSecret: 'y', emailDomain: 'enterprise.test', jitProvisioning: false, status: 'disabled' }, 'r'), 422, /staff/);
+    } finally {
+      process.env.STAFF_EMAILS = staffEmailsBefore;
+    }
   });
 
   async function signIn(email: string, over: Record<string, unknown> = {}, tamper: (state: { param: string; token: string }) => { param: string; token: string } = (s) => s) {
@@ -288,6 +301,21 @@ describe('enterprise controls - organisations, policy, roles, flags, audit expor
     await status(signIn(`n-${S}@${DOMAIN}`, { nonce: 'wrong' }), 401, /nonce/);
     await status(signIn(`s-${S}@${DOMAIN}`, {}, (s) => ({ ...s, param: 'forged' })), 400, /does not match/);
     await status(signIn(`s2-${S}@${DOMAIN}`, {}, (s) => ({ ...s, token: s.token.slice(0, -2) + 'xx' })), 400, /expired/);
+    // review H1: an existing account that merely shares the domain is not the organisation's to sign in;
+    // a staff account never signs in through a tenant's provider
+    const LONER = { id: `en_loner_${S}`, email: `loner-${S}@${DOMAIN}` };
+    await db.user.create({ data: { id: LONER.id, email: LONER.email, passwordHash: 'x', fullName: 'Loner', country: 'CA' } });
+    provisionedIds.push(LONER.id);
+    await status(signIn(LONER.email), 403, /not a member of that organisation/);
+    assert.equal(await db.membership.count({ where: { organizationId: orgId, userId: LONER.id } }), 0, 'no membership was created');
+    const STAFFY = { id: `en_staffy_${S}`, email: `staffy-${S}@${DOMAIN}` };
+    await db.user.create({ data: { id: STAFFY.id, email: STAFFY.email, passwordHash: 'x', fullName: 'Staffy', country: 'CA', role: 'support' } });
+    provisionedIds.push(STAFFY.id);
+    await status(signIn(STAFFY.email), 403, /Staff accounts sign in with their own credentials/);
+    // an invitation the person had not answered is accepted by signing in through the organisation's provider
+    await tenancy.inviteMember(OWNER.id, orgId, { userId: LONER.id, role: 'member' });
+    assert.equal((await signIn(LONER.email)).provisioned, false);
+    assert.ok((await db.membership.findUniqueOrThrow({ where: { organizationId_userId: { organizationId: orgId, userId: LONER.id } } })).acceptedAt);
     // a member the organisation removed is not reinstated by the provider
     await tenancy.inviteMember(OWNER.id, orgId, { userId: REMOVED.id, role: 'member' });
     await tenancy.acceptInvitation(REMOVED.id, orgId);
@@ -297,14 +325,62 @@ describe('enterprise controls - organisations, policy, roles, flags, audit expor
     assert.ok(failed.length - before >= 4);
     assert.ok(failed.every((r) => !JSON.stringify(r).includes(`@${DOMAIN}`) && JSON.parse(r.after).emailDigest), 'digests, never addresses');
     await orgs.setOrganizationStatus(STAFF, orgId, 'suspended', 'non-payment (test)');
+    const failedBefore = await db.auditLog.count({ where: { action: 'auth.sso.failed' } });
     await status(sso.beginSsoSignIn({ email: `x-${S}@${DOMAIN}`, redirectUri: 'http://app.test/cb' }), 403, /suspended/);
+    assert.equal(await db.auditLog.count({ where: { action: 'auth.sso.failed' } }), failedBefore + 1, 'a start-side refusal is audited too (review L8)');
+    // review M3: suspension is inherited by every membership check, not only requireTenant
+    assert.equal(await tenancy.findActiveMembership(db, orgId, MEMBER.id), null);
+    await assert.rejects(tenancy.inviteMember(OWNER.id, orgId, { userId: OUTSIDER.id, role: 'member' }), (e: unknown) => e instanceof tenancy.OrganizationAccessError && e.status === 404);
     await orgs.setOrganizationStatus(STAFF, orgId, 'active', 'paid (test)');
+    assert.ok(await tenancy.findActiveMembership(db, orgId, MEMBER.id));
+    // review L11: a domain policy set after an invitation still binds its acceptance
+    const LATE = { id: `en_late_${S}`, email: `late-${S}@elsewhere.test` };
+    await db.user.create({ data: { id: LATE.id, email: LATE.email, passwordHash: 'x', fullName: 'Late', country: 'CA' } });
+    provisionedIds.push(LATE.id);
+    await orgs.setTenantPolicy(STAFF, orgId, { requireSso: true, allowedEmailDomains: [], sessionMaxHours: 8 }, 'open domains (test)');
+    await tenancy.inviteMember(OWNER.id, orgId, { userId: LATE.id, role: 'member' });
+    await orgs.setTenantPolicy(STAFF, orgId, { requireSso: true, allowedEmailDomains: [DOMAIN], sessionMaxHours: 8 }, 'closed again (test)');
+    await assert.rejects(tenancy.acceptInvitation(LATE.id, orgId), /outside the email domains/);
     assert.equal(await auditCount('organization.suspended', orgId), 1);
     assert.equal(await auditCount('organization.reactivated', orgId), 1);
     await sso.upsertSsoConnection(STAFF, orgId, { issuer, clientId: 'jobpilot-client', emailDomain: DOMAIN, jitProvisioning: false, status: 'enabled' }, 'JIT off (test)');
     await status(signIn(`nojit-${S}@${DOMAIN}`), 403, /does not provision/);
     await sso.upsertSsoConnection(STAFF, orgId, { issuer, clientId: 'jobpilot-client', emailDomain: DOMAIN, jitProvisioning: true, status: 'enabled' }, 'JIT on (test)');
     assert.equal((await db.ssoConnection.findUniqueOrThrow({ where: { organizationId: orgId } })).clientSecretCiphertext !== '', true, 'an update without a secret keeps the stored one');
+  });
+
+  it('review H2: the mobile device sign-in honours requireSso and the session ceiling; staff revocation includes device keys', async () => {
+    const PHONE = { id: `en_phone_${S}`, email: `phone-${S}@${DOMAIN}` };
+    await db.user.create({ data: { id: PHONE.id, email: PHONE.email, passwordHash: await auth.hashPassword('correct horse battery staple'), fullName: 'Phone Person', country: 'CA', onboardedAt: new Date() } });
+    provisionedIds.push(PHONE.id);
+    await tenancy.ensurePersonalWorkspace(db, { ...PHONE, fullName: 'Phone Person' });
+    const device = { name: 'Test phone', platform: 'ios' as const };
+    const meta = { ip: '127.0.0.1', userAgent: 'test' };
+    // not a member yet: the door is open, and the key lives the platform default
+    const first = await devices.issueDeviceSession({ method: 'password', email: PHONE.email, password: 'correct horse battery staple' }, device, meta);
+    assert.ok(new Date(first.session.expiresAt!).getTime() - Date.now() > 8 * 3600_000 + 60_000, 'no ceiling applies to a non-member');
+    await tenancy.inviteMember(OWNER.id, orgId, { userId: PHONE.id, role: 'member' });
+    await tenancy.acceptInvitation(PHONE.id, orgId);
+    // a member of an organisation that requires SSO: refused after the credential, as the web doors are
+    await assert.rejects(devices.issueDeviceSession({ method: 'password', email: PHONE.email, password: 'correct horse battery staple' }, device, meta), (e: unknown) => e instanceof Error && (e as { status?: number }).status === 403 && /single sign-on/.test(e.message));
+    await assert.rejects(devices.issueDeviceSession({ method: 'password', email: PHONE.email, password: 'wrong' }, device, meta), (e: unknown) => e instanceof Error && (e as { status?: number }).status === 401, 'the wrong password is still 401: the refusal reveals nothing');
+    await orgs.setTenantPolicy(STAFF, orgId, { requireSso: false, allowedEmailDomains: [DOMAIN], sessionMaxHours: 8 }, 'SSO optional (test)');
+    const capped = await devices.issueDeviceSession({ method: 'password', email: PHONE.email, password: 'correct horse battery staple' }, device, meta);
+    assert.ok(new Date(capped.session.expiresAt!).getTime() - Date.now() <= 8 * 3600_000 + 1000, 'the organisation\'s ceiling caps the device key');
+    const revoked = await users.revokeUserSessions(STAFF, PHONE.id, 'lost phone (test)');
+    assert.ok(revoked >= 2, 'web sessions and device keys');
+    assert.equal(await db.apiKey.count({ where: { userId: PHONE.id, kind: 'device', revokedAt: null } }), 0);
+    await orgs.setTenantPolicy(STAFF, orgId, { requireSso: true, allowedEmailDomains: [DOMAIN], sessionMaxHours: 8 }, 'SSO mandated again (test)');
+  });
+
+  it('review M2: an allow-listed account is never impersonated, whatever its stored role', async () => {
+    const before = process.env.STAFF_EMAILS;
+    process.env.STAFF_EMAILS = `${STAFF.email}, ${OUTSIDER.email}`;
+    try {
+      await status(imp.startImpersonation(STAFF, { userId: OUTSIDER.id, reason: 'long enough reason (test)', staffSessionId }), 403, /Staff accounts/);
+    } finally {
+      process.env.STAFF_EMAILS = before;
+    }
   });
 
   it('SCIM: a token is a digest scoped to one organisation; provisioning honours the domain policy; deactivation removes the membership and revokes sessions but keeps the account; another organisation\'s token sees nothing', async () => {
@@ -338,6 +414,18 @@ describe('enterprise controls - organisations, policy, roles, flags, audit expor
     assert.equal(await db.user.count({ where: { id: created.id, anonymizedAt: null } }), 1, 'the account is neither deleted nor scrubbed');
     assert.equal(await auditCount('scim.user.deactivated', created.id), 1);
     assert.equal((await scim.setScimUserActive(p, created.id, true, base)).active, true);
+    // review M4: an owner is never deactivated through provisioning; a removed admin comes back as a member
+    await status(scim.setScimUserActive(p, OWNER.id, false, base), 403, /owner/);
+    await db.membership.update({ where: { organizationId_userId: { organizationId: orgId, userId: created.id } }, data: { role: 'admin' } });
+    await scim.setScimUserActive(p, created.id, false, base);
+    await scim.setScimUserActive(p, created.id, true, base);
+    assert.equal((await db.membership.findUniqueOrThrow({ where: { organizationId_userId: { organizationId: orgId, userId: created.id } } })).role, 'member', 'reinstated as a member, not an admin');
+    // review L5: a staff or erased account is refused with the same words as any other refusal
+    const SCIMSTAFF = { id: `en_scimstaff_${S}`, email: `scimstaff-${S}@${DOMAIN}` };
+    await db.user.create({ data: { id: SCIMSTAFF.id, email: SCIMSTAFF.email, passwordHash: 'x', fullName: 'Scim Staff', country: 'CA', role: 'support' } });
+    provisionedIds.push(SCIMSTAFF.id);
+    await status(scim.createScimUser(p, { userName: SCIMSTAFF.email }, base), 409, /cannot be provisioned/);
+    await status(scim.createScimUser(p, { userName: '@corp.com' }, base), 400);
     // a token for another organisation sees none of this
     const other = await scim.issueScimToken(STAFF, orgBId, 'test');
     const pB = await scim.authenticateScim(`Bearer ${other.token}`);

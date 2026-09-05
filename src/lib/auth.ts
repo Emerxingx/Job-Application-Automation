@@ -4,6 +4,7 @@ import bcrypt from 'bcryptjs';
 import { db } from './db';
 import { DEV_AUTH_SECRET, isUsableSecret } from './auth-policy';
 import { recordSecurityEvent, type RequestMeta } from './security-audit';
+import { isAllowlistedStaffEmail } from './crm/allowlist';
 
 const COOKIE_NAME = 'jobpilot_session';
 const SESSION_DAYS = 30;
@@ -207,6 +208,33 @@ export interface CurrentImpersonation extends ImpersonationClaims {
   reason: string;
 }
 
+/** Thrown by `assertNotImpersonating`: a read that reaches sensitive, RESTRICTED or by-reference personal data is refused under a support impersonation (Stage 20 review, H3). */
+export class ImpersonationReadOnlyError extends Error {
+  readonly status = 403;
+  constructor(what: string) {
+    super(`A support impersonation does not reach ${what}. End the impersonation to continue as yourself, or ask the person.`);
+    this.name = 'ImpersonationReadOnlyError';
+  }
+}
+
+/**
+ * Refuse a read under a live impersonation. The staff member sees the
+ * product as the customer does; they do NOT see the customer's sensitive
+ * self-identification, a RESTRICTED case note, a disclosed candidate, a
+ * mailbox's subjects or a document's bytes - reads that are audited under
+ * the reader's identity, which under an impersonation would name the
+ * customer for something the staff member did. Every such path calls this
+ * first, so no audited read is reachable while impersonating.
+ */
+export async function assertNotImpersonating(what: string): Promise<void> {
+  if (await currentImpersonation()) throw new ImpersonationReadOnlyError(what);
+}
+
+/** Pure: the impersonation token must be presented by the very session it was minted under (Stage 20 review, M1) - a copied impersonation cookie in another browser is refused. */
+export function impersonationBoundToSession(claims: ImpersonationClaims, presentedSessionId: string | null | undefined): boolean {
+  return typeof presentedSessionId === 'string' && presentedSessionId.length > 0 && presentedSessionId === claims.staffSessionId;
+}
+
 async function readImpersonationClaims(): Promise<ImpersonationClaims | null> {
   let token: string | undefined;
   try {
@@ -230,12 +258,20 @@ async function readImpersonationClaims(): Promise<ImpersonationClaims | null> {
 export async function currentImpersonation(): Promise<CurrentImpersonation | null> {
   const claims = await readImpersonationClaims();
   if (!claims) return null;
-  const [row, staffSession] = await Promise.all([
+  // The token is honoured only beside the staff session it names: the
+  // request's own session cookie must be that session (M1).
+  const presented = await readCookieClaims();
+  if (!impersonationBoundToSession(claims, presented?.sid)) return null;
+  const [row, staffSession, target] = await Promise.all([
     db.impersonationSession.findUnique({ where: { id: claims.impersonationId }, select: { userId: true, staffId: true, staffEmail: true, readOnly: true, startedAt: true, endedAt: true, reason: true } }),
     db.session.findUnique({ where: { id: claims.staffSessionId }, select: { userId: true, revokedAt: true, expiresAt: true, createdAt: true, user: { select: { passwordChangedAt: true } } } }),
+    db.user.findUnique({ where: { id: claims.userId }, select: { role: true, email: true, anonymizedAt: true } }),
   ]);
   const staffLive = staffSession !== null && isSessionLive(staffSession, claims.staffId, staffSession.user.passwordChangedAt);
   if (!isImpersonationLive(row, claims, staffLive)) return null;
+  // Re-checked on every request, not only at start (M2, L9): a target promoted
+  // to staff, allow-listed for the console or erased during the window ends it.
+  if (!target || target.anonymizedAt || target.role !== 'member' || isAllowlistedStaffEmail(target.email, process.env.STAFF_EMAILS)) return null;
   return { ...claims, staffEmail: row!.staffEmail, endsAt: new Date(row!.startedAt.getTime() + IMPERSONATION_MAX_MINUTES * 60_000), reason: row!.reason };
 }
 
@@ -293,6 +329,14 @@ export async function getSessionId(): Promise<string | null> {
  * still be live for anyone who had copied it.
  */
 export async function destroySession(meta?: RequestMeta): Promise<void> {
+  // Signing out while impersonating ends the impersonation too (M7): the row
+  // is closed and its cookie dropped before the staff member's own session goes.
+  const impersonation = await currentImpersonation();
+  if (impersonation) {
+    await db.impersonationSession.updateMany({ where: { id: impersonation.impersonationId, endedAt: null }, data: { endedAt: new Date() } });
+    await recordSecurityEvent({ event: 'user.impersonation.ended', actor: { type: 'staff', id: impersonation.staffId, email: impersonation.staffEmail }, entityType: 'ImpersonationSession', entityId: impersonation.impersonationId, summary: 'Support impersonation ended (logout)', detail: { targetUserId: impersonation.userId, by: 'logout' }, meta });
+    await clearImpersonationCookie();
+  }
   const claims = await readCookieClaims();
   if (claims) {
     const revoked = await db.session.updateMany({

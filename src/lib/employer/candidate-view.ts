@@ -28,6 +28,7 @@ import { recordSecurityEvent } from '@/lib/security-audit';
 import { LIMITS, rateLimit } from '@/lib/rate-limit';
 import { canReadSourcing } from './roles';
 import { EmployerError, canSeeCandidate, grantedDisclosure, type EmployerActor } from './service';
+import { assertNotImpersonating } from '@/lib/auth';
 
 export interface SourcedCard {
   candidateUserId: string;
@@ -46,6 +47,7 @@ export interface SourcedCard {
 const SOURCING_CAP = 100;
 
 export async function sourceCandidates(actor: EmployerActor, requisitionId: string, options: { limit?: number } = {}): Promise<{ cards: SourcedCard[]; considered: number }> {
+  await assertNotImpersonating('candidate sourcing');
   if (!canReadSourcing(actor.role)) throw new EmployerError('You may not search candidates.', 403);
   const r = await db.requisition.findFirst({ where: { id: requisitionId, organizationId: actor.organizationId }, include: { job: true } });
   if (!r) throw new EmployerError('Requisition not found.', 404);
@@ -116,6 +118,7 @@ export interface DisclosedProfile {
 
 /** The profile behind a granted disclosure. Refused without one; audited per read. */
 export async function readDisclosedCandidate(actor: EmployerActor, candidateUserId: string): Promise<DisclosedProfile> {
+  await assertNotImpersonating('a disclosed candidate');
   // Role first (an interviewer only for a candidate whose interview names them; never a viewer), then the candidate's consent.
   if (!(await canSeeCandidate(db, actor, candidateUserId))) throw new EmployerError('You may not read candidate profiles.', 403);
   const d = await grantedDisclosure(db, actor.organizationId, candidateUserId);
