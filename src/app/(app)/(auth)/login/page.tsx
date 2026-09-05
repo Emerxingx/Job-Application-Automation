@@ -3,16 +3,20 @@ import { redirect } from 'next/navigation';
 import { getCurrentUser } from '@/lib/auth';
 import { Logo } from '@/components/site-header';
 import { AuthForm } from '@/components/auth-form';
+import { SsoSignIn } from '@/components/sso-sign-in';
+import { isFlagEnabled } from '@/lib/admin/feature-flags';
 
 export const metadata = { title: 'Sign in' };
 
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ demo?: string }>;
+  searchParams: Promise<{ demo?: string; sso?: string }>;
 }) {
   if (await getCurrentUser()) redirect('/dashboard');
   const params = await searchParams;
+  // Stage 20: the enterprise entry point is a declared feature flag (ADR-0019 Tier 1).
+  const showSso = await isFlagEnabled('auth.sso_start_button', null);
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-bg px-4 py-12">
@@ -25,6 +29,8 @@ export default async function LoginPage({
         <p className="mt-1.5 text-sm text-muted">Sign in to pick up where your agents left off.</p>
 
         <AuthForm mode="login" prefillDemo={params.demo === '1'} />
+
+        {showSso || params.sso ? <SsoSignIn message={params.sso} /> : null}
 
         <p className="mt-6 text-center text-sm text-muted">
           New here?{' '}

@@ -19,6 +19,10 @@ import {
   Users,
   X,
   type LucideIcon,
+  Building2,
+  UserCog,
+  ToggleLeft,
+  ScrollText,
 } from 'lucide-react';
 import { cn } from '@/components/ui';
 // TYPE ONLY, and it has to stay that way. `lib/crm/auth` imports `requireUser`,
@@ -69,6 +73,10 @@ const NAV: NavItem[] = [
   { href: '/console/match-weights', label: 'Match weights', icon: SlidersHorizontal, minRole: 'admin' },
   { href: '/console/field-mappings', label: 'Field mappings', icon: ListChecks, minRole: 'admin' },
   { href: '/console/staffing', label: 'Staffing rules', icon: Scale, minRole: 'admin' },
+  { href: '/console/organizations', label: 'Organisations', icon: Building2, minRole: 'support' },
+  { href: '/console/users', label: 'Users', icon: UserCog, minRole: 'support' },
+  { href: '/console/flags', label: 'Feature flags', icon: ToggleLeft, minRole: 'support' },
+  { href: '/console/audit', label: 'Audit log', icon: ScrollText, minRole: 'admin' },
 ];
 
 const ROLE_LABEL: Record<StaffRole, string> = {

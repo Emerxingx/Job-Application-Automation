@@ -1,7 +1,7 @@
 import { db } from '../db';
 import { requireUser, type CurrentUser } from '../auth';
 import { withTenant, type TenantTx, type WithTenantOptions } from './context';
-import { personalOrganizationId, requireMembership } from './organizations';
+import { OrganizationAccessError, personalOrganizationId, requireMembership } from './organizations';
 
 /**
  * The request-level entry point to the tenant path.
@@ -31,7 +31,13 @@ export interface TenantRequest {
 export async function requireTenant(organizationId?: string): Promise<TenantRequest> {
   const user = await requireUser();
   const orgId = organizationId ?? personalOrganizationId(user.id);
-  if (organizationId !== undefined) await requireMembership(db, orgId, user.id, 'member');
+  if (organizationId !== undefined) {
+    await requireMembership(db, orgId, user.id, 'member');
+    // Stage 20 (ADR-0035): a suspended organisation has no tenant path. Its
+    // rows stay; its members cannot act in it until staff reactivate it.
+    const org = await db.organization.findUnique({ where: { id: orgId }, select: { status: true } });
+    if (org?.status === 'suspended') throw new OrganizationAccessError('This organisation is suspended. Contact support.', 403);
+  }
   return {
     user,
     organizationId: orgId,

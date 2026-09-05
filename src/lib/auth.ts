@@ -4,9 +4,13 @@ import bcrypt from 'bcryptjs';
 import { db } from './db';
 import { DEV_AUTH_SECRET, isUsableSecret } from './auth-policy';
 import { recordSecurityEvent, type RequestMeta } from './security-audit';
+import { isAllowlistedStaffEmail } from './crm/allowlist';
 
 const COOKIE_NAME = 'jobpilot_session';
 const SESSION_DAYS = 30;
+/** Stage 20 (ADR-0035): the second cookie a staff member holds while impersonating; see impersonation below. */
+const IMPERSONATION_COOKIE = 'jobpilot_impersonation';
+export const IMPERSONATION_MAX_MINUTES = 60;
 /** How stale `Session.lastSeenAt` may be before a request refreshes it. */
 const LAST_SEEN_REFRESH_MS = 5 * 60 * 1000;
 
@@ -60,13 +64,15 @@ export async function verifyPassword(password: string, hash: string): Promise<bo
   return bcrypt.compare(password, hash);
 }
 
-export type SessionMethod = 'password' | 'supabase';
+export type SessionMethod = 'password' | 'supabase' | 'sso';
 
 export interface CreateSessionOptions {
   method?: SessionMethod;
   /** aal1 (single factor) or aal2 (MFA satisfied), in the provider's terms. */
   assuranceLevel?: 'aal1' | 'aal2';
   meta?: RequestMeta;
+  /** Stage 20: an organisation's session ceiling (hours); the platform's 30 days otherwise. Never lengthens. */
+  maxHours?: number | null;
 }
 
 /**
@@ -74,7 +80,8 @@ export interface CreateSessionOptions {
  * a cookie can never reference a session that does not exist.
  */
 export async function createSession(userId: string, options: CreateSessionOptions = {}): Promise<string> {
-  const expiresAt = new Date(Date.now() + SESSION_DAYS * 24 * 60 * 60 * 1000);
+  const ttlSeconds = sessionTtlSeconds(options.maxHours);
+  const expiresAt = new Date(Date.now() + ttlSeconds * 1000);
   const session = await db.session.create({
     data: {
       userId,
@@ -99,9 +106,16 @@ export async function createSession(userId: string, options: CreateSessionOption
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax',
     path: '/',
-    maxAge: SESSION_DAYS * 24 * 60 * 60,
+    maxAge: ttlSeconds,
   });
   return session.id;
+}
+
+/** The platform default, shortened (never lengthened) by an organisation's `sessionMaxHours` policy. Pure. */
+export function sessionTtlSeconds(maxHours: number | null | undefined): number {
+  const platform = SESSION_DAYS * 24 * 60 * 60;
+  if (typeof maxHours !== 'number' || !Number.isFinite(maxHours) || maxHours <= 0) return platform;
+  return Math.min(platform, Math.round(maxHours * 60 * 60));
 }
 
 /** The claims a valid cookie carries. `sid` is absent on pre-Stage-01 tokens. */
@@ -144,10 +158,141 @@ export function isSessionLive(
 }
 
 /**
+ * IMPERSONATION (Stage 20, ADR-0035) - read-only, reason-required, time-boxed.
+ *
+ * A staff member impersonating a customer holds TWO cookies: their own session
+ * (unchanged, still the authority on who they are) and a signed impersonation
+ * token naming an `ImpersonationSession` row, the target, and the staff
+ * session it was minted under. While that token is live every authoritative
+ * read answers with the TARGET's id, so pages render as the customer sees
+ * them; `route()` refuses every non-GET request, so nothing is written. Live
+ * means: the row exists, was not ended, is inside its window, and the staff
+ * member's own session is still live - revoking the staff session ends the
+ * impersonation with it. No `Session` row is ever issued for the target (the
+ * `staff_impersonation` method stays reserved and unissued): the
+ * ImpersonationSession row IS the session, and ending it is one update.
+ */
+export interface ImpersonationClaims {
+  impersonationId: string;
+  userId: string;
+  staffId: string;
+  staffSessionId: string;
+}
+
+export async function mintImpersonationToken(input: ImpersonationClaims & { expiresAt: Date }): Promise<string> {
+  return new SignJWT({ sub: input.userId, imp: input.impersonationId, staff: input.staffId, ssid: input.staffSessionId })
+    .setProtectedHeader({ alg: 'HS256' })
+    .setIssuedAt()
+    .setExpirationTime(input.expiresAt)
+    .sign(secret());
+}
+
+/** Pure liveness of an impersonation row given the staff member's own session state. */
+export function isImpersonationLive(
+  row: { userId: string; staffId: string; readOnly: boolean; startedAt: Date; endedAt: Date | null } | null,
+  claims: ImpersonationClaims,
+  staffSessionLive: boolean,
+  now = new Date(),
+): boolean {
+  if (!row) return false;
+  if (row.userId !== claims.userId || row.staffId !== claims.staffId) return false;
+  if (!row.readOnly) return false;
+  if (row.endedAt !== null) return false;
+  if (row.startedAt.getTime() + IMPERSONATION_MAX_MINUTES * 60_000 <= now.getTime()) return false;
+  return staffSessionLive;
+}
+
+export interface CurrentImpersonation extends ImpersonationClaims {
+  staffEmail: string;
+  endsAt: Date;
+  reason: string;
+}
+
+/** Thrown by `assertNotImpersonating`: a read that reaches sensitive, RESTRICTED or by-reference personal data is refused under a support impersonation (Stage 20 review, H3). */
+export class ImpersonationReadOnlyError extends Error {
+  readonly status = 403;
+  constructor(what: string) {
+    super(`A support impersonation does not reach ${what}. End the impersonation to continue as yourself, or ask the person.`);
+    this.name = 'ImpersonationReadOnlyError';
+  }
+}
+
+/**
+ * Refuse a read under a live impersonation. The staff member sees the
+ * product as the customer does; they do NOT see the customer's sensitive
+ * self-identification, a RESTRICTED case note, a disclosed candidate, a
+ * mailbox's subjects or a document's bytes - reads that are audited under
+ * the reader's identity, which under an impersonation would name the
+ * customer for something the staff member did. Every such path calls this
+ * first, so no audited read is reachable while impersonating.
+ */
+export async function assertNotImpersonating(what: string): Promise<void> {
+  if (await currentImpersonation()) throw new ImpersonationReadOnlyError(what);
+}
+
+/** Pure: the impersonation token must be presented by the very session it was minted under (Stage 20 review, M1) - a copied impersonation cookie in another browser is refused. */
+export function impersonationBoundToSession(claims: ImpersonationClaims, presentedSessionId: string | null | undefined): boolean {
+  return typeof presentedSessionId === 'string' && presentedSessionId.length > 0 && presentedSessionId === claims.staffSessionId;
+}
+
+async function readImpersonationClaims(): Promise<ImpersonationClaims | null> {
+  let token: string | undefined;
+  try {
+    token = (await cookies()).get(IMPERSONATION_COOKIE)?.value;
+  } catch {
+    // Outside a request scope (a script, a test calling a handler directly)
+    // there is no cookie jar and therefore no impersonation.
+    return null;
+  }
+  if (!token) return null;
+  try {
+    const { payload } = await jwtVerify(token, secret());
+    if (typeof payload.sub !== 'string' || typeof payload.imp !== 'string' || typeof payload.staff !== 'string' || typeof payload.ssid !== 'string') return null;
+    return { userId: payload.sub, impersonationId: payload.imp, staffId: payload.staff, staffSessionId: payload.ssid };
+  } catch {
+    return null;
+  }
+}
+
+/** The live impersonation this request runs under, or null. Checked against the row and the staff session on every call - no cache. */
+export async function currentImpersonation(): Promise<CurrentImpersonation | null> {
+  const claims = await readImpersonationClaims();
+  if (!claims) return null;
+  // The token is honoured only beside the staff session it names: the
+  // request's own session cookie must be that session (M1).
+  const presented = await readCookieClaims();
+  if (!impersonationBoundToSession(claims, presented?.sid)) return null;
+  const [row, staffSession, target] = await Promise.all([
+    db.impersonationSession.findUnique({ where: { id: claims.impersonationId }, select: { userId: true, staffId: true, staffEmail: true, readOnly: true, startedAt: true, endedAt: true, reason: true } }),
+    db.session.findUnique({ where: { id: claims.staffSessionId }, select: { userId: true, revokedAt: true, expiresAt: true, createdAt: true, user: { select: { passwordChangedAt: true } } } }),
+    db.user.findUnique({ where: { id: claims.userId }, select: { role: true, email: true, anonymizedAt: true } }),
+  ]);
+  const staffLive = staffSession !== null && isSessionLive(staffSession, claims.staffId, staffSession.user.passwordChangedAt);
+  if (!isImpersonationLive(row, claims, staffLive)) return null;
+  // Re-checked on every request, not only at start (M2, L9): a target promoted
+  // to staff, allow-listed for the console or erased during the window ends it.
+  if (!target || target.anonymizedAt || target.role !== 'member' || isAllowlistedStaffEmail(target.email, process.env.STAFF_EMAILS)) return null;
+  return { ...claims, staffEmail: row!.staffEmail, endsAt: new Date(row!.startedAt.getTime() + IMPERSONATION_MAX_MINUTES * 60_000), reason: row!.reason };
+}
+
+export async function setImpersonationCookie(token: string, expiresAt: Date): Promise<void> {
+  const store = await cookies();
+  store.set(IMPERSONATION_COOKIE, token, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', path: '/', expires: expiresAt });
+}
+
+export async function clearImpersonationCookie(): Promise<void> {
+  const store = await cookies();
+  store.delete(IMPERSONATION_COOKIE);
+}
+
+/**
  * Resolve the signed-in user's id, or null. This is the authoritative check:
- * signature, then the session row, then the account's password epoch.
+ * signature, then the session row, then the account's password epoch. Under a
+ * live impersonation the answer is the target's id (see above).
  */
 export async function getSessionUserId(): Promise<string | null> {
+  const impersonation = await currentImpersonation();
+  if (impersonation) return impersonation.userId;
   const claims = await readCookieClaims();
   if (!claims) return null;
 
@@ -184,6 +329,14 @@ export async function getSessionId(): Promise<string | null> {
  * still be live for anyone who had copied it.
  */
 export async function destroySession(meta?: RequestMeta): Promise<void> {
+  // Signing out while impersonating ends the impersonation too (M7): the row
+  // is closed and its cookie dropped before the staff member's own session goes.
+  const impersonation = await currentImpersonation();
+  if (impersonation) {
+    await db.impersonationSession.updateMany({ where: { id: impersonation.impersonationId, endedAt: null }, data: { endedAt: new Date() } });
+    await recordSecurityEvent({ event: 'user.impersonation.ended', actor: { type: 'staff', id: impersonation.staffId, email: impersonation.staffEmail }, entityType: 'ImpersonationSession', entityId: impersonation.impersonationId, summary: 'Support impersonation ended (logout)', detail: { targetUserId: impersonation.userId, by: 'logout' }, meta });
+    await clearImpersonationCookie();
+  }
   const claims = await readCookieClaims();
   if (claims) {
     const revoked = await db.session.updateMany({

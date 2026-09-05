@@ -69,6 +69,8 @@ export const LIMITS = {
   /** Stage 19 review: representation requests per recruiter and per agency - a request is a row a person sees under Settings, so volume is bounded as case invitations are. */
   representationRequest: { limit: 30, windowSeconds: 60 * 60 },
   representationRequestOrganization: { limit: 200, windowSeconds: 60 * 60 * 24 },
+  /** Stage 20: SCIM calls per token - an identity provider syncs in bursts, a leaked token does not get to enumerate quickly. */
+  scim: { limit: 120, windowSeconds: 60 },
 } as const satisfies Record<string, RateLimitRule>;
 
 /**

@@ -1,10 +1,12 @@
 import { NextResponse } from 'next/server';
 import { Prisma } from '@prisma/client';
 import { ZodError } from 'zod';
-import { UnauthorizedError } from './auth';
+import { currentImpersonation, ImpersonationReadOnlyError, UnauthorizedError } from './auth';
 import { TenantContextError } from './tenancy/context';
 import { OrganizationAccessError } from './tenancy/organizations';
 import { ApplicationModeError } from './apply/modes';
+
+const READ_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
 /** Standard JSON success response. */
 export function ok<T>(data: T, init?: ResponseInit) {
@@ -43,10 +45,22 @@ export function route<Args extends unknown[]>(
 ): (...args: Args) => Promise<Response> {
   return async (...args: Args) => {
     try {
+      // Stage 20 (ADR-0035): a support impersonation is READ-ONLY. Every
+      // handler that could write goes through here, so the refusal lives here
+      // and not in each route; the one exception is the endpoint that ENDS
+      // the impersonation, which is not wrapped by route().
+      const request = args[0];
+      // Logout is the one write allowed: destroySession ends the impersonation first (M7).
+      if (request instanceof Request && !READ_METHODS.has(request.method) && new URL(request.url).pathname !== '/api/auth/logout' && (await currentImpersonation())) {
+        return fail('This is a read-only support session: nothing can be changed while impersonating. End the impersonation to act as yourself.', 403);
+      }
       return await handler(...args);
     } catch (error) {
       if (error instanceof UnauthorizedError) {
         return fail('Please sign in to continue.', 401);
+      }
+      if (error instanceof ImpersonationReadOnlyError) {
+        return fail(error.message, error.status);
       }
       if (error instanceof ZodError) {
         return fail(error.issues[0]?.message ?? 'Invalid request.', 422);

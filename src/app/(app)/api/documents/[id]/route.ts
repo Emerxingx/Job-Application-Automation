@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { requireTenant } from '@/lib/tenancy/request';
 import { documentLinkPath, signDocumentLink } from '@/lib/documents/sign';
 import { fail, ok, route } from '@/lib/api';
+import { assertNotImpersonating } from '@/lib/auth';
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -13,6 +14,8 @@ type Params = { params: Promise<{ id: string }> };
  * goes through the signed route, so there is exactly one path to a file.
  */
 export const GET = route(async (request: Request, { params }: Params) => {
+  // A document's bytes are the person's (Stage 20 review, H3): no signed link is minted under a support impersonation.
+  await assertNotImpersonating('a document');
   const { user, run } = await requireTenant();
   const { id } = await params;
   const row = await run((tx) => tx.documentVersion.findFirst({ where: { id, userId: user.id }, select: { id: true } }));

@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { BarChart3, KeyRound, Radar, Sparkles, Timer } from 'lucide-react';
 import { requireTenant } from '@/lib/tenancy/request';
+import { currentImpersonation } from '@/lib/auth';
 import { readBenchmark, readCandidateMatches, readCandidateOutcomes, readCandidateTotals, type CandidateOutcomes } from '@/lib/analytics/candidate/read';
 import { candidateMartFreshness, refreshCandidateMarts } from '@/lib/analytics/candidate/rollup';
 import { DIMENSION_LABELS, type Dimension } from '@/lib/analytics/candidate/dictionary';
@@ -70,7 +71,9 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Pr
   // THEIR rows, then the flag is set - so a candidate with no applications does
   // not pay for a rebuild on every visit. A flag read, not a metric.
   const built = await run((tx) => tx.user.findUnique({ where: { id: user.id }, select: { analyticsBuiltAt: true } }));
-  if (!built?.analyticsBuiltAt) {
+  // Never under a support impersonation (Stage 20 review, M7): a read-only
+  // session writes nothing, not even the person's own marts.
+  if (!built?.analyticsBuiltAt && !(await currentImpersonation())) {
     await refreshCandidateMarts(user.id).catch((error) => console.error('[analytics] first-visit refresh failed:', error instanceof Error ? error.message : error));
   }
   const lifetime = await run((tx) => readCandidateTotals(tx, user.id));

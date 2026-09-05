@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { createSession } from '@/lib/auth';
+import { passwordSignInRefusal, sessionMaxHoursFor } from '@/lib/sso/service';
 import { describeWait, fail, ok, route, tooMany } from '@/lib/api';
 import { LIMITS, clientAddress, rateLimit } from '@/lib/rate-limit';
 import { SELF_SERVICE_PURPOSES } from '@/lib/consent';
@@ -64,6 +65,11 @@ export const POST = route(async (request: Request) => {
     throw error;
   }
 
+  // Stage 20 (ADR-0035, review M5): an organisation that requires SSO for its
+  // members closes this door for them too - BEFORE anything is linked or
+  // created, so a refusal leaves no account and no plan behind.
+  const ssoRequired = identity.email ? await passwordSignInRefusal(identity.email) : null;
+  if (ssoRequired) return fail(ssoRequired, 403);
   try {
     const { user, created } = await linkSupabaseIdentity(identity, {
       consents: body.consents,
@@ -81,6 +87,7 @@ export const POST = route(async (request: Request) => {
       method: 'supabase',
       assuranceLevel: identity.assuranceLevel,
       meta,
+      maxHours: await sessionMaxHoursFor(user.id),
     });
     await recordSecurityEvent({
       event: 'auth.login.succeeded',

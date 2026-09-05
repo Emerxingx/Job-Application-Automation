@@ -22,6 +22,7 @@ import { hashEmail, recordSecurityEvent, type RequestMeta, type SecurityEvent } 
 import { LIMITS, rateLimit } from '@/lib/rate-limit';
 import { findActiveMembership } from '@/lib/tenancy/organizations';
 import { canManageCaseload, canOpenCase, canWriteCase, caseRoleOf, isServiceRole, type CaseRole, type ServiceRole } from './roles';
+import { assertNotImpersonating } from '@/lib/auth';
 
 type Client = Prisma.TransactionClient | typeof db;
 
@@ -313,6 +314,7 @@ export async function loadCase(tx: Client, actor: CaseActor, caseId: string) {
 // --- RESTRICTED: notes and assessments --------------------------------------
 
 export async function listNotes(tx: Client, actor: CaseActor, caseId: string) {
+  await assertNotImpersonating('RESTRICTED case notes');
   const c = await ownedCase(tx, actor, caseId);
   await audit('case.note.read', actor, 'Case', c.id, 'Case notes read');
   return tx.caseNote.findMany({ where: { caseId: c.id }, orderBy: { createdAt: 'desc' } });
@@ -329,6 +331,7 @@ export async function addNote(tx: Client, actor: CaseActor, caseId: string, body
 }
 
 export async function listAssessments(tx: Client, actor: CaseActor, caseId: string) {
+  await assertNotImpersonating('RESTRICTED case assessments');
   const c = await ownedCase(tx, actor, caseId);
   await audit('case.assessment.read', actor, 'Case', c.id, 'Case assessments read');
   return tx.caseAssessment.findMany({ where: { caseId: c.id }, orderBy: { createdAt: 'desc' } });

@@ -99,9 +99,12 @@ unrecognised role is admitted at `support`, the weakest level — never `admin`.
 | Job sources / connectors | — | — | W |
 | AI models / prompt versions | — | — | W (approval required) |
 | Matching weights | — | — | W (versioned) |
-| Feature flags | — | — | W |
-| Roles & permissions | — | — | W |
-| **Impersonation** | read-only, reason, time-boxed | same | same |
+| Feature flags | R | R | W (declared in code only) |
+| Roles & permissions | — | — | W (assignment; ranks defined in code) |
+| Organisations (verify, suspend, tenant policy, SSO, SCIM tokens) | R | R | W |
+| Users (lookup, sessions) | R | R | W (sign out everywhere) |
+| Audit log / export | — | — | R / export (audited) |
+| **Impersonation** | — | — | read-only, reason, ≤60 min, audited |
 | RLS policies / auth logic | — | — | **— (code only)** |
 
 The last row is the `ADR-0019` boundary: **no admin role can edit
@@ -109,6 +112,8 @@ security-critical implementation.** A Tier 1 control may never widen a Tier 2
 boundary.
 
 ## Enforcement rules
+**Stage 20 (ADR-0035):** the platform-staff table above is enforced by `requireStaff('<rank>')` in every `/api/console` route and `consoleGate` in every page (a static test walks them); every write under `/api/console` added in Stage 20 is admin + `requireStepUp`; impersonation is read-only because `route()` refuses every non-GET request while one is live. Organisation admins never administer SSO, SCIM or their own tenant policy.
+
 **Stage 17 (ADR-0032):** the service-provider table above is enforced by `src/lib/cases/roles.ts` (`caseRoleOf`: owner/admin → admin; `Membership.serviceRole` → supervisor / case_manager / viewer, null or unknown → viewer) and the service (`canOpenCase`, `canWriteCase`, `canManageCaseload`); assignment gating is tested; case notes are audited on every read and write.
 
 1. UI hiding is **never** an authorization mechanism.

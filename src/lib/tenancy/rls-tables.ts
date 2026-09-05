@@ -274,6 +274,11 @@ export const RLS_TABLES: Record<string, RlsKind> = {
   },
   Placement: { kind: 'org', column: 'organizationId' },
   PlacementInvoice: { kind: 'org', column: 'organizationId' },
+
+  // --- Stage 20: enterprise sign-in (ADR-0035). Secrets and provisioning
+  // tokens: administered by staff on the system client; never on the tenant path.
+  SsoConnection: { kind: 'system' },
+  ScimToken: { kind: 'system' },
   Region: { kind: 'reference' },
   RegionLabel: { kind: 'reference' },
 
@@ -318,7 +323,9 @@ export const RLS_TABLES: Record<string, RlsKind> = {
   Job: { kind: 'reference' },
   TaxRate: { kind: 'reference', where: `"active" = true` },
   TaxRegistration: { kind: 'reference', where: `"active" = true` },
-  FeatureFlag: { kind: 'reference' },
+  // Stage 20 review (L7): a flag's allow-list is a list of account ids; the
+  // tenant role has no business reading it. Flags are evaluated on the system client.
+  FeatureFlag: { kind: 'system' },
 
   // --- System only -------------------------------------------------------------
   // Coupon codes are secrets that must be resolvable only by presenting one;
@@ -406,6 +413,7 @@ export const STAGE_16_TABLES = ['Credential', 'CredentialSkill', 'OccupationCred
 export const STAGE_17_TABLES = ['RetentionPolicy', 'Case', 'CaseNote', 'CaseAssessment', 'CaseTask', 'CaseOutcome', 'CaseFollowUp', 'CaseRecommendation'];
 export const STAGE_18_TABLES = ['Requisition', 'Disclosure', 'TalentPool', 'TalentPoolMember', 'Submission', 'SubmissionEvent', 'EmployerInterview', 'EmployerNote', 'Offer'];
 export const STAGE_19_TABLES = ['StaffingJurisdictionRule', 'ClientContract', 'FeeStructure', 'Engagement', 'RepresentationConsent', 'Placement', 'PlacementInvoice'];
+export const STAGE_20_TABLES = ['SsoConnection', 'ScimToken'];
 
 export const RLS_MANIFESTS: RlsManifest[] = [
   { migration: '20260903073000_row_level_security', preamble: true, tables: STAGE_01_TABLES },
@@ -426,4 +434,5 @@ export const RLS_MANIFESTS: RlsManifest[] = [
   { migration: '20260905160100_rls_case_management', preamble: false, tables: STAGE_17_TABLES },
   { migration: '20260905180100_rls_talent_acquisition', preamble: false, tables: STAGE_18_TABLES },
   { migration: '20260905190100_rls_staffing', preamble: false, tables: STAGE_19_TABLES },
+  { migration: '20260905200100_rls_enterprise', preamble: false, tables: STAGE_20_TABLES },
 ];

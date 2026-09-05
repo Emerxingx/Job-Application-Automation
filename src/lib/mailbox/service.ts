@@ -9,6 +9,7 @@ import { getMailboxConnector, MailboxNotConfiguredError } from './providers';
 import type { ConnectionKind, EventSummary, MailboxProvider, ThreadSummary, TokenSet } from './providers/types';
 import { SCOPE_INVENTORY } from './providers/types';
 import { signOAuthState, verifyOAuthState } from './state';
+import { assertNotImpersonating } from '@/lib/auth';
 
 /**
  * Stage 11 — connect, sync, associate, revoke.
@@ -136,6 +137,7 @@ type Tx = Prisma.TransactionClient;
 
 /** The folders a thread can be filed into: applications the employer has (or is about to have), with their contacts. Tenant path. */
 export async function loadFolders(tx: Tx, userId: string): Promise<FolderCandidate[]> {
+  await assertNotImpersonating('mailbox metadata');
   const rows = await tx.application.findMany({
     where: { userId, status: { in: ['ready_to_submit', 'submitted', 'interviewing', 'offer'] } },
     include: { job: { select: { company: true, normalizedCompany: true, title: true } }, contacts: { select: { email: true } } },
@@ -382,5 +384,6 @@ export async function revokeConnection(user: MailboxUser, connectionId: string, 
 
 /** The applicant's connections, on the tenant path; the secret table has no tenant policy and is never included. */
 export async function listConnections(tx: Tx, userId: string): Promise<MailboxConnection[]> {
+  await assertNotImpersonating('mailbox connections');
   return tx.mailboxConnection.findMany({ where: { userId }, orderBy: [{ status: 'asc' }, { connectedAt: 'desc' }] });
 }

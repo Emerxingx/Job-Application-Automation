@@ -93,7 +93,11 @@ export async function listMemberships(client: Client, userId: string) {
  * primitive every authorisation decision in this module reduces to.
  */
 export async function findActiveMembership(client: Client, organizationId: string, userId: string) {
-  return client.membership.findFirst({ where: { organizationId, userId, ...ACTIVE } });
+  // Stage 20 review (M3): a SUSPENDED organisation has no active members
+  // anywhere - cases, hiring, staffing and the roster all resolve through
+  // here, so suspension is inherited by every product path, not only
+  // requireTenant. Its rows stay; staff reactivate it.
+  return client.membership.findFirst({ where: { organizationId, userId, ...ACTIVE, organization: { status: { not: 'suspended' } } } });
 }
 
 /**
@@ -138,6 +142,20 @@ export function slugify(name: string): string {
  */
 /** Organisation types that only staff create, after verification (an impersonated company name is the harm). */
 export const VERIFIED_TYPES: ReadonlySet<string> = new Set(['employer', 'service_provider', 'staffing_agency']);
+
+/** Whether an address falls under an organisation's allowed-domain policy (a JSON array of lower-case domains; empty = no policy). Pure. */
+export function emailDomainAllowed(allowedEmailDomainsJson: string, email: string): boolean {
+  let domains: string[] = [];
+  try {
+    const v = JSON.parse(allowedEmailDomainsJson);
+    domains = Array.isArray(v) ? v.filter((d): d is string => typeof d === 'string') : [];
+  } catch {
+    domains = [];
+  }
+  if (domains.length === 0) return true;
+  const at = email.lastIndexOf('@');
+  return domains.includes(at < 0 ? '' : email.slice(at + 1).toLowerCase());
+}
 
 export async function createOrganization(
   actorUserId: string,
@@ -214,8 +232,13 @@ export async function inviteMember(
     if (existing && existing.acceptedAt !== null && existing.removedAt === null) {
       throw new OrganizationAccessError('That user is already a member; change their role instead.', 409);
     }
-    const target = await tx.user.findUnique({ where: { id: input.userId }, select: { id: true } });
+    const target = await tx.user.findUnique({ where: { id: input.userId }, select: { id: true, email: true } });
     if (!target) throw new OrganizationAccessError('No such user.', 404);
+    // Stage 20 (ADR-0035): the tenant's domain policy, set by JobPilot staff,
+    // bounds whom its admins may invite. No policy means any address.
+    if (!emailDomainAllowed(organization.allowedEmailDomains, target.email)) {
+      throw new OrganizationAccessError('That address is outside the email domains this organisation may invite.', 403);
+    }
     return tx.membership.upsert({
       where: { organizationId_userId: { organizationId, userId: input.userId } },
       // A removed member can be re-invited; a pending invitation is refreshed.
@@ -245,8 +268,14 @@ export async function withdrawInvitation(actorUserId: string, organizationId: st
 export async function acceptInvitation(actorUserId: string, organizationId: string) {
   const pending = await db.membership.findFirst({
     where: { organizationId, userId: actorUserId, acceptedAt: null, removedAt: null },
+    include: { organization: { select: { allowedEmailDomains: true, status: true } }, user: { select: { email: true } } },
   });
   if (!pending) throw new OrganizationAccessError('No pending invitation.', 404);
+  if (pending.organization.status === 'suspended') throw new OrganizationAccessError('This organisation is suspended. Contact support.', 403);
+  // A domain policy set after the invitation still binds it (review L11).
+  if (!emailDomainAllowed(pending.organization.allowedEmailDomains, pending.user.email)) {
+    throw new OrganizationAccessError('Your address is outside the email domains this organisation admits.', 403);
+  }
   return db.membership.update({ where: { id: pending.id }, data: { acceptedAt: new Date() } });
 }
 

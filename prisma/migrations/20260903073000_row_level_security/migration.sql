@@ -385,7 +385,7 @@ DO $$ BEGIN EXECUTE format('CREATE POLICY system_full_access ON "ExportJob" TO %
 DROP POLICY IF EXISTS tenant_update ON "ExportJob";
 CREATE POLICY tenant_access ON "ExportJob" TO app_tenant USING ("userId" = app_current_user_id()) WITH CHECK ("userId" = app_current_user_id());
 
--- FeatureFlag (reference)
+-- FeatureFlag (system)
 ALTER TABLE "FeatureFlag" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "FeatureFlag" FORCE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS system_full_access ON "FeatureFlag";
@@ -393,7 +393,7 @@ DROP POLICY IF EXISTS tenant_access ON "FeatureFlag";
 DROP POLICY IF EXISTS tenant_read ON "FeatureFlag";
 DO $$ BEGIN EXECUTE format('CREATE POLICY system_full_access ON "FeatureFlag" TO %I USING (true) WITH CHECK (true)', current_user); END $$;
 DROP POLICY IF EXISTS tenant_update ON "FeatureFlag";
-CREATE POLICY tenant_read ON "FeatureFlag" FOR SELECT TO app_tenant USING (true);
+-- (no tenant policy: a forced table with no policy for app_tenant denies every command)
 
 -- ImpersonationSession (system)
 ALTER TABLE "ImpersonationSession" ENABLE ROW LEVEL SECURITY;
