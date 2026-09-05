@@ -12,6 +12,7 @@ import {
   Receipt,
   Sparkles,
   BookOpen,
+  Scale,
   Plug,
   ListChecks,
   SlidersHorizontal,
@@ -67,6 +68,7 @@ const NAV: NavItem[] = [
   { href: '/console/ats-rulesets', label: 'ATS rulesets', icon: ListChecks, minRole: 'admin' },
   { href: '/console/match-weights', label: 'Match weights', icon: SlidersHorizontal, minRole: 'admin' },
   { href: '/console/field-mappings', label: 'Field mappings', icon: ListChecks, minRole: 'admin' },
+  { href: '/console/staffing', label: 'Staffing rules', icon: Scale, minRole: 'admin' },
 ];
 
 const ROLE_LABEL: Record<StaffRole, string> = {

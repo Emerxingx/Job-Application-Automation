@@ -27,6 +27,8 @@ export const CONSENT_PURPOSES = [
   'employment_services_case',
   // Stage 18: this person's profile may be disclosed to ONE employer organisation; one record per granted disclosure. Wording pending L-5.
   'employer_disclosure',
+  // Stage 19: this person consents to be REPRESENTED by ONE agency for ONE engagement; one record per grant. Wording pending L-5.
+  'agency_representation',
 ] as const;
 export type ConsentPurpose = (typeof CONSENT_PURPOSES)[number];
 
@@ -61,6 +63,7 @@ export const CONSENT_VERSIONS: Record<ConsentPurpose, string> = {
   employment_services_case: '2026-09-05',
   // The consent MECHANISM is in force; the wording a candidate reads is a draft until counsel settles L-5 (COMPLIANCE_REGISTER.md).
   employer_disclosure: '2026-09-05-draft',
+  agency_representation: '2026-09-05-draft',
 };
 
 export function isConsentPurpose(value: unknown): value is ConsentPurpose {

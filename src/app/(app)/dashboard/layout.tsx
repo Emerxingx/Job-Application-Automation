@@ -3,6 +3,7 @@ import { getCurrentUser } from '@/lib/auth';
 import { getQuota } from '@/lib/subscription';
 import { serviceProviderMemberships } from '@/lib/cases/service';
 import { employerMemberships } from '@/lib/employer/service';
+import { agencyMemberships } from '@/lib/staffing/service';
 import { DashboardShell } from '@/components/dashboard-shell';
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -10,13 +11,14 @@ export default async function DashboardLayout({ children }: { children: React.Re
   if (!user) redirect('/login');
   if (!user.onboardedAt) redirect('/onboarding');
 
-  const [quota, providers, employers] = await Promise.all([getQuota(user.id), serviceProviderMemberships(user.id), employerMemberships(user.id)]);
+  const [quota, providers, employers, agencies] = await Promise.all([getQuota(user.id), serviceProviderMemberships(user.id), employerMemberships(user.id), agencyMemberships(user.id)]);
 
   return (
     <DashboardShell
       user={{ fullName: user.fullName, email: user.email }}
       showCases={providers.length > 0}
       showHiring={employers.length > 0}
+      showStaffing={agencies.length > 0}
       quota={
         quota && {
           used: quota.used,

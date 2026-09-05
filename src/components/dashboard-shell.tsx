@@ -24,6 +24,7 @@ import {
   Compass,
   Briefcase,
   Building2,
+  Handshake,
 } from 'lucide-react';
 import { Logo } from '@/components/site-header';
 import { Meter, cn } from '@/components/ui';
@@ -60,6 +61,7 @@ export function DashboardShell({
   quota,
   showCases = false,
   showHiring = false,
+  showStaffing = false,
   children,
 }: {
   user: { fullName: string; email: string };
@@ -68,6 +70,8 @@ export function DashboardShell({
   showCases?: boolean;
   /** Stage 18: the hiring entry, only for a member of an employer organisation. */
   showHiring?: boolean;
+  /** Stage 19: the staffing entry, only for a member of a staffing agency. */
+  showStaffing?: boolean;
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
@@ -90,7 +94,7 @@ export function DashboardShell({
   const nav = (
     <>
       <nav className="flex-1 space-y-1 px-3">
-        {[...NAV.slice(0, 4), ...(showCases ? [{ href: '/dashboard/cases', label: 'Case management', icon: Briefcase }] : []), ...(showHiring ? [{ href: '/dashboard/employer', label: 'Hiring', icon: Building2 }] : []), ...NAV.slice(4)].map((item) => {
+        {[...NAV.slice(0, 4), ...(showCases ? [{ href: '/dashboard/cases', label: 'Case management', icon: Briefcase }] : []), ...(showHiring ? [{ href: '/dashboard/employer', label: 'Hiring', icon: Building2 }] : []), ...(showStaffing ? [{ href: '/dashboard/staffing', label: 'Staffing', icon: Handshake }] : []), ...NAV.slice(4)].map((item) => {
           // Only the exact path is "active" for the overview root.
           const active =
             item.href === '/dashboard'

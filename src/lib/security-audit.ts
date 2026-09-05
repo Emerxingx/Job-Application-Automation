@@ -91,7 +91,17 @@ export type SecurityEvent =
   | 'employer.sourcing.run'
   | 'employer.candidate.read'
   | 'employer.submission.moved'
-  | 'employer.offer.decided';
+  | 'employer.offer.decided'
+  // Stage 19 (ADR-0034): staffing. Fee data is CONFIDENTIAL: the rows carry ids, kinds and amounts in cents, never a candidate's name or a client's contact.
+  | 'staffing.jurisdiction.recorded'
+  | 'representation.requested'
+  | 'representation.granted'
+  | 'representation.declined'
+  | 'representation.revoked'
+  | 'staffing.placement.created'
+  | 'staffing.placement.updated'
+  | 'staffing.invoice.issued'
+  | 'staffing.invoice.updated';
 
 export interface RequestMeta {
   ip?: string | null;

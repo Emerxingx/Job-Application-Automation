@@ -258,6 +258,22 @@ export const RLS_TABLES: Record<string, RlsKind> = {
   EmployerInterview: { kind: 'org', column: 'organizationId' },
   EmployerNote: { kind: 'org', column: 'organizationId' },
   Offer: { kind: 'org', column: 'organizationId' },
+
+  // --- Stage 19: staffing / placement (ADR-0034). An agency's commercial rows
+  // are its members' and nobody else's; the candidate may READ their own
+  // representation request (SELECT-only) and answers it on the system client.
+  // The jurisdiction rules are staff-recorded reference data.
+  StaffingJurisdictionRule: { kind: 'reference' },
+  ClientContract: { kind: 'org', column: 'organizationId' },
+  FeeStructure: { kind: 'org', column: 'organizationId' },
+  Engagement: { kind: 'org', column: 'organizationId' },
+  RepresentationConsent: {
+    kind: 'custom',
+    using: '"organizationId" = ANY (app_member_organization_ids())',
+    readUsing: '("organizationId" = ANY (app_member_organization_ids()) OR "candidateUserId" = app_current_user_id())',
+  },
+  Placement: { kind: 'org', column: 'organizationId' },
+  PlacementInvoice: { kind: 'org', column: 'organizationId' },
   Region: { kind: 'reference' },
   RegionLabel: { kind: 'reference' },
 
@@ -389,6 +405,7 @@ export const STAGE_15_TABLES = ['Entitlement'];
 export const STAGE_16_TABLES = ['Credential', 'CredentialSkill', 'OccupationCredential', 'LearningProvider', 'LearningOffering', 'OfferingSkill', 'CareerPlan', 'CareerPlanMilestone'];
 export const STAGE_17_TABLES = ['RetentionPolicy', 'Case', 'CaseNote', 'CaseAssessment', 'CaseTask', 'CaseOutcome', 'CaseFollowUp', 'CaseRecommendation'];
 export const STAGE_18_TABLES = ['Requisition', 'Disclosure', 'TalentPool', 'TalentPoolMember', 'Submission', 'SubmissionEvent', 'EmployerInterview', 'EmployerNote', 'Offer'];
+export const STAGE_19_TABLES = ['StaffingJurisdictionRule', 'ClientContract', 'FeeStructure', 'Engagement', 'RepresentationConsent', 'Placement', 'PlacementInvoice'];
 
 export const RLS_MANIFESTS: RlsManifest[] = [
   { migration: '20260903073000_row_level_security', preamble: true, tables: STAGE_01_TABLES },
@@ -408,4 +425,5 @@ export const RLS_MANIFESTS: RlsManifest[] = [
   { migration: '20260905140100_rls_career_graph', preamble: false, tables: STAGE_16_TABLES },
   { migration: '20260905160100_rls_case_management', preamble: false, tables: STAGE_17_TABLES },
   { migration: '20260905180100_rls_talent_acquisition', preamble: false, tables: STAGE_18_TABLES },
+  { migration: '20260905190100_rls_staffing', preamble: false, tables: STAGE_19_TABLES },
 ];

@@ -131,6 +131,8 @@ model User {
   clientCases          Case[]                   @relation("CaseClient")
   managedCases         Case[]                   @relation("CaseManager")
   disclosures          Disclosure[]             @relation("DisclosureCandidate")
+  representations      RepresentationConsent[]  @relation("RepresentedCandidate")
+  placements           Placement[]              @relation("PlacedCandidate")
 }
 
 // ---------------------------------------------------------------------------
@@ -2469,17 +2471,23 @@ model Organization {
   createdAt                  DateTime @default(now())
   updatedAt                  DateTime @updatedAt
 
-  plan            Plan?            @relation(fields: [planId], references: [id], onDelete: SetNull)
-  memberships     Membership[]
-  invoices        Invoice[]
-  entitlements    Entitlement[]
-  apiKeys         ApiKey[]
-  cases           Case[]
-  retentionPolicy RetentionPolicy?
-  requisitions    Requisition[]
-  disclosures     Disclosure[]
-  talentPools     TalentPool[]
-  submissions     Submission[]
+  plan              Plan?                   @relation(fields: [planId], references: [id], onDelete: SetNull)
+  memberships       Membership[]
+  invoices          Invoice[]
+  entitlements      Entitlement[]
+  apiKeys           ApiKey[]
+  cases             Case[]
+  retentionPolicy   RetentionPolicy?
+  requisitions      Requisition[]
+  disclosures       Disclosure[]
+  talentPools       TalentPool[]
+  submissions       Submission[]
+  clientContracts   ClientContract[]
+  feeStructures     FeeStructure[]
+  engagements       Engagement[]
+  representations   RepresentationConsent[]
+  placements        Placement[]
+  placementInvoices PlacementInvoice[]
 
   @@index([status])
   @@index([type])
@@ -4367,4 +4375,208 @@ model Offer {
 
   @@index([submissionId, status])
   @@index([organizationId, status])
+}
+
+// ---------------------------------------------------------------------------
+// Staffing / placement (Stage 19, ADR-0034). An AGENCY organisation's client
+// contracts, fee structures, engagements, the candidate's representation
+// consent, placements and the invoices it raises to its CLIENT. Employer-paid
+// placement and candidate-paid subscriptions are distinct commercial objects:
+// nothing here references Invoice, Payment, Subscription or Entitlement, and
+// PlacementInvoice has no userId. Fee data is CONFIDENTIAL (organisation RLS).
+// Jurisdictional rules are DATA (StaffingJurisdictionRule), recorded by staff
+// after counsel answers L-4; nothing about a jurisdiction is hardcoded.
+// ---------------------------------------------------------------------------
+
+/// A jurisdiction's staffing rules as counsel recorded them. `unrecorded` until then: an unknown answer, never an invented one.
+model StaffingJurisdictionRule {
+  id                      String    @id @default(cuid())
+  // CA-BC, CA-ON, CA (federal fallback), US-CA, US (fallback) - most specific wins
+  jurisdiction            String    @unique
+  name                    String
+  // unrecorded | recorded | prohibited
+  status                  String    @default("unrecorded")
+  licenceRequired         Boolean?
+  candidateFeesProhibited Boolean?
+  maxGuaranteeDays        Int?
+  // The statute or regulation counsel cited, verbatim, and their note
+  reference               String    @default("")
+  notes                   String    @default("")
+  recordedByEmail         String    @default("")
+  recordedAt              DateTime?
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+}
+
+model ClientContract {
+  id                 String    @id @default(cuid())
+  organizationId     String
+  clientName         String
+  clientContactEmail String    @default("")
+  // The jurisdiction the placements under it are made in (CA-BC, CA-ON, US-NY, ...)
+  jurisdiction       String
+  // draft | active | ended
+  status             String    @default("draft")
+  terms              String    @default("")
+  // The agency's licence reference for this jurisdiction as the agency STATES it (jurisdiction.ts reads whether one is stated; nothing verifies it)
+  agencyLicenceRef   String    @default("")
+  startsAt           DateTime?
+  endsAt             DateTime?
+  createdById        String
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  organization  Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  feeStructures FeeStructure[]
+  engagements   Engagement[]
+  invoices      PlacementInvoice[]
+
+  @@index([organizationId, status])
+}
+
+/// How the CLIENT pays. `paidBy` is always `client`: the service refuses anything else, so no fee structure can ever describe a charge to a candidate.
+model FeeStructure {
+  id             String   @id @default(cuid())
+  organizationId String
+  contractId     String?
+  name           String
+  // contingency | retained | flat
+  kind           String
+  percentBps     Int?
+  flatCents      Int?
+  currency       String   @default("CAD")
+  guaranteeDays  Int      @default(90)
+  paidBy         String   @default("client")
+  createdById    String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  contract     ClientContract? @relation(fields: [contractId], references: [id], onDelete: SetNull)
+  engagements  Engagement[]
+
+  @@index([organizationId])
+}
+
+model Engagement {
+  id               String    @id @default(cuid())
+  organizationId   String
+  contractId       String
+  feeStructureId   String
+  title            String
+  description      String    @default("")
+  jurisdiction     String
+  // draft | active | filled | closed
+  status           String    @default("draft")
+  ownerRecruiterId String?
+  openedAt         DateTime?
+  closedAt         DateTime?
+  createdById      String
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  organization    Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  contract        ClientContract          @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  feeStructure    FeeStructure            @relation(fields: [feeStructureId], references: [id], onDelete: Restrict)
+  representations RepresentationConsent[]
+  placements      Placement[]
+
+  @@index([organizationId, status])
+  @@index([ownerRecruiterId])
+}
+
+/// The candidate's consent to be REPRESENTED by this agency for this engagement (ConsentRecord `agency_representation`). Requested by the agency, answered by the candidate, revocable.
+model RepresentationConsent {
+  id              String    @id @default(cuid())
+  organizationId  String
+  engagementId    String
+  // Addressed to an EMAIL (the Stage 17 rule: the accounts table is never consulted); the person is linked when they grant
+  invitedEmail    String
+  invitedName     String    @default("")
+  candidateUserId String?
+  // requested | granted | declined | revoked
+  status          String    @default("requested")
+  message         String    @default("")
+  requestedById   String
+  requestedAt     DateTime  @default(now())
+  respondedAt     DateTime?
+  consentRecordId String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  engagement   Engagement   @relation(fields: [engagementId], references: [id], onDelete: Cascade)
+  candidate    User?        @relation("RepresentedCandidate", fields: [candidateUserId], references: [id], onDelete: Cascade)
+  placements   Placement[]
+
+  @@unique([engagementId, invitedEmail])
+  @@index([candidateUserId, status])
+  @@index([organizationId, status])
+}
+
+/// A represented candidate placed with the client. The fee is computed from the structure at creation and frozen; the jurisdiction check that allowed it is stored.
+model Placement {
+  id                      String    @id @default(cuid())
+  organizationId          String
+  engagementId            String
+  candidateUserId         String
+  representationConsentId String
+  recruiterId             String?
+  startDate               DateTime
+  salaryCents             Int
+  currency                String    @default("CAD")
+  feeCents                Int
+  guaranteeDays           Int
+  guaranteeEndsAt         DateTime
+  // pending | started | completed | fell_off
+  status                  String    @default("pending")
+  fellOffAt               DateTime?
+  // candidate_resigned | client_terminated | other
+  fellOffReason           String    @default("")
+  jurisdictionCheck       String    @default("{}")
+  createdById             String
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+
+  organization   Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  engagement     Engagement            @relation(fields: [engagementId], references: [id], onDelete: Cascade)
+  candidate      User                  @relation("PlacedCandidate", fields: [candidateUserId], references: [id], onDelete: Cascade)
+  representation RepresentationConsent @relation(fields: [representationConsentId], references: [id], onDelete: Restrict)
+  invoices       PlacementInvoice[]
+
+  @@index([organizationId, status])
+  @@index([engagementId])
+  @@index([candidateUserId])
+}
+
+/// The agency's invoice to its CLIENT for a placement. Its own numbering series (PL-); no userId, no Invoice, no Payment - the candidate is never a party to it.
+model PlacementInvoice {
+  id             String    @id @default(cuid())
+  organizationId String
+  placementId    String
+  contractId     String
+  number         String?   @unique
+  // draft | issued | paid | void
+  status         String    @default("draft")
+  amountCents    Int
+  currency       String    @default("CAD")
+  creditedCents  Int       @default(0)
+  // guarantee_fell_off | other
+  creditReason   String    @default("")
+  issuedAt       DateTime?
+  dueAt          DateTime?
+  paidAt         DateTime?
+  voidedAt       DateTime?
+  // duplicate | placement_cancelled | other
+  voidReason     String    @default("")
+  createdById    String
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  placement    Placement      @relation(fields: [placementId], references: [id], onDelete: Cascade)
+  contract     ClientContract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, status])
+  @@index([placementId])
 }

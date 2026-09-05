@@ -449,6 +449,60 @@ never occurred.
   recorded), the UI beyond compile and lint, and any claim about what an
   employer accepts.
 
+## Stage 19 — staffing and placement
+
+- **Pure (`tests/staffing-static.test.ts`):** jurisdiction codes; the seeded
+  list carries names only; the most specific rule wins and a region falls
+  back to its country; an unrecorded jurisdiction is UNCONFIRMED and a
+  prohibited one BLOCKED; a recorded row is evaluated from its values (BC
+  with a licence and a 120-day limit, Ontario with neither, Washington with
+  two answers blank - fixture rows, not code); a fee not paid by the client
+  fails everywhere; fee arithmetic; the roles as a named set per the matrix
+  (admin writes contracts and fees; recruiter owns; delivery writes without
+  fees; finance invoices and never asks for representation; viewer sees
+  nothing); the `agency_representation` consent is a draft, not self-service;
+  the `PL` book is its own series. Static separation: nothing under
+  `src/lib/staffing` imports subscription, entitlement, invoice, dunning,
+  tax, profile, webhook or payment modules or names their tables; nothing
+  under the billing, entitlement or payment-provider modules names a
+  staffing table; `PlacementInvoice` has no user id and no relation to
+  `Invoice` or `Payment`; `FeeStructure.paidBy` defaults to `client`.
+- **Database (`tests/staffing.test.ts`):** the actor resolves only from a
+  staffing agency's accepted membership and a viewer reads nothing
+  commercial; contracts (admin only; a malformed jurisdiction refused) and
+  fee structures (a payer other than the client refused before any row;
+  malformed percentages and flat amounts refused; finance reads fees,
+  delivery does not; another agency sees nothing under RLS); an engagement
+  is a draft, activates only under an active contract, is owned by its
+  recruiter (another recruiter refused; delivery writes; finance reads and
+  sees no representation); representation is invited by email with no
+  account lookup (a digest in the audit row, the same answer with or without
+  an account), listed on the candidate's tenant path only once linked,
+  answered only by the addressee, no placement before consent, granted in
+  one transaction with one consent record (name snapshotted), read-only for
+  the candidate under RLS, declined is final for that engagement; a
+  placement freezes the fee and the guarantee, records the recruiter and the
+  jurisdiction evaluation (unconfirmed under unrecorded CA-BC), finance
+  cannot place, a recruiter cannot invoice, a pending placement is not
+  invoiced and neither is a started one under unrecorded rules, and the
+  candidate's invoices, payments, subscriptions and entitlements are
+  unchanged; counsel's answer needs a citation, is audited, and once
+  recorded the engagement evaluates as allowed and the invoice issues in the
+  PL book (numbered, the frozen fee, the contract; issued once; invisible
+  to another agency; a recruiter cannot list invoices; no `Invoice` row);
+  a prohibited jurisdiction blocks a new placement and a consent for another
+  engagement is refused; a fall-off needs a reason, a guarantee credit needs
+  a fall-off inside the guarantee and happens once, a credited invoice is
+  not voided, a fallen-off placement is not completed; revocation revokes the
+  consent record, refuses a new placement and leaves the record; productivity
+  counts per recruiter with fees for finance, none for delivery, own row for
+  a recruiter; no candidate or client identity in the report or any
+  `staffing.*` audit row.
+- **NOT covered, by honesty:** the UI beyond compile and lint; route-level
+  status codes; any production representation (refused until L-5); any
+  invoice under a jurisdiction counsel has not recorded (refused until L-4);
+  notifications (none are sent).
+
 ## Stage 18 — employer hiring (talent acquisition)
 
 - **Pure (`tests/employer-static.test.ts`):** the stage machine (forward

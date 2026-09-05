@@ -26,7 +26,7 @@ remediation has begun.**
 npm ci                # install from the lockfile
 npm run dev           # http://localhost:3000
 npx tsc --noEmit      # typecheck  — PASSES
-npm test              # 1179 tests  — PASSES with the two database URLs below set; the
+npm test              # 1199 tests  — PASSES with the two database URLs below set; the
                       #   database suites skip WITH A REASON without them and THROW
                       #   when CI=true, so CI cannot pass by skipping them
 npm run build         # production — PASSES
@@ -57,7 +57,7 @@ npm run cms:types          # regenerate payload-types.ts
 ## Things that will surprise you
 
 1. **The database is PostgreSQL with a versioned migration history** since
-   Stage 01 (`ADR-0002`). Forty-seven migrations under `prisma/migrations/`; CI applies
+   Stage 01 (`ADR-0002`). Forty-nine migrations under `prisma/migrations/`; CI applies
    them to an empty database and fails on drift. `DATABASE_URL` is the
    transaction pooler, `DIRECT_URL` the session endpoint for migrations. The RLS
    migration is **generated** from `src/lib/tenancy/rls-tables.ts` — regenerate
@@ -426,6 +426,29 @@ npm run cms:types          # regenerate payload-types.ts
     bump the version by hand. Nothing under `src/lib/employer` may touch
     the sensitive path, the gateway or a case record (static test). No
     notification is sent to anyone.
+
+30. **Employer-paid placement and candidate-paid subscriptions never share
+    a billing path, and jurisdiction rules are data** (Stage 19, ADR-0034).
+    `src/lib/staffing/`: an agency's `ClientContract`, `FeeStructure`
+    (`paidBy` is always `client`; the service refuses anything else),
+    `Engagement`, `RepresentationConsent`, `Placement` and
+    `PlacementInvoice` - the last has NO user id and no relation to
+    `Invoice`, `Payment`, `Subscription` or `Entitlement`; nothing under
+    `src/lib/staffing` may import the subscription, entitlement, invoice or
+    payment modules and nothing under those may name a staffing table
+    (static tests; a database test proves the candidate's billing is
+    untouched). Its numbers come from the shared numbering BOOK
+    (`DocumentSequence`, scope `placement_invoice`, series `PL`), allocated
+    in a system-client transaction - a counter, not a billing path.
+    `StaffingJurisdictionRule` rows are seeded with NAMES ONLY; counsel's
+    answer is recorded at `/console/staffing` (audited); `jurisdiction.ts`
+    is pure and an unknown is never a pass: a `blocked` verdict refuses a
+    placement, `unconfirmed` marks it, and **no invoice is issued unless the
+    verdict is `allowed`** (L-4). Never assert a jurisdiction's rule in
+    code. Representation follows the Stage 17/18 consent pattern (invited by
+    email, one transaction, SELECT-only for the candidate, revocable);
+    `agency_representation` is `2026-09-05-draft` and refused in production
+    (L-5).
 
 ## Conventions worth preserving
 

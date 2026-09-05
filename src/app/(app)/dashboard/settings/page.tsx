@@ -11,6 +11,8 @@ import { listClientCases } from '@/lib/cases/service';
 import { CaseInvitations } from '@/components/case-invitations';
 import { listCandidateDisclosures } from '@/lib/employer/service';
 import { DisclosureRequests } from '@/components/disclosure-requests';
+import { listCandidateRepresentations } from '@/lib/staffing/service';
+import { RepresentationRequests } from '@/components/representation-requests';
 import { SCOPE_INVENTORY } from '@/lib/mailbox/providers/types';
 
 export const metadata = { title: 'Settings' };
@@ -18,8 +20,8 @@ export const dynamic = 'force-dynamic';
 
 export default async function SettingsPage({ searchParams }: { searchParams: Promise<{ mailbox?: string }> }) {
   const { user, run } = await requireTenant();
-  const [preferences, workAuthorization, connections, clientCases, disclosures] = await run((tx) =>
-    Promise.all([loadPreferences(tx, user.id), loadWorkAuthorization(tx, user.id), listConnections(tx, user.id), listClientCases(tx, { id: user.id, email: user.email }), listCandidateDisclosures(tx, user.id)]),
+  const [preferences, workAuthorization, connections, clientCases, disclosures, representations] = await run((tx) =>
+    Promise.all([loadPreferences(tx, user.id), loadWorkAuthorization(tx, user.id), listConnections(tx, user.id), listClientCases(tx, { id: user.id, email: user.email }), listCandidateDisclosures(tx, user.id), listCandidateRepresentations(tx, { id: user.id, email: user.email })]),
   );
   const { mailbox: mailboxNotice } = await searchParams;
   // Stage 11: connections (never a token) and the scope inventory, so what is asked for is what is shown.
@@ -97,6 +99,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
       </Card>
 
       <MailboxConnections connections={connectionViews} scopes={scopeViews} notice={mailboxNotice ?? null} />
+      <RepresentationRequests representations={representations.map((r) => ({ id: r.id, agency: r.organization.name, engagement: r.engagement, status: r.status, message: r.message }))} />
       <DisclosureRequests disclosures={disclosures.map((d) => ({ id: d.id, organization: d.organization.name, requisitionTitle: d.requisitionTitle, status: d.status, message: d.message, requestedAt: d.requestedAt.toISOString() }))} />
       <CaseInvitations cases={clientCases.map((c) => ({ id: c.id, organization: c.organization.name, status: c.status, consentedAt: c.consentedAt?.toISOString() ?? null, createdAt: c.createdAt.toISOString() }))} />
 

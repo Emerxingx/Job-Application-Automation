@@ -1,13 +1,13 @@
 {
   "$comment": "Machine-readable controller for the autonomous build programme. Authoritative over any chat transcript: if this file and a conversation disagree, this file wins. Updated at every stage checkpoint.",
   "schema_version": 1,
-  "updated_at": "2026-09-05T14:25:00Z",
-  "current_stage": "18",
-  "last_completed_stage": "17",
-  "current_branch": "claude/stage-18-talent-acquisition",
+  "updated_at": "2026-09-05T15:05:00Z",
+  "current_stage": "19",
+  "last_completed_stage": "18",
+  "current_branch": "claude/stage-19-staffing-placement",
   "current_head": "31a052148829782080a2b022873c1187a0d82371",
   "current_head_meaning": "SHA of the last commit whose full gate set was verified locally (lint, typecheck, tests, build). Set by the status-sync commit that immediately follows it, so it names a real, verified commit rather than the one it is written in.",
-  "current_pr": "https://github.com/Emerxingx/Job-Application-Automation/pull/30",
+  "current_pr": "__PRURL__",
   "main_head": "d6ae8b3a9180b529abe06f23417515432c0a7f0e",
   "run_complete": false,
   "stage_status": {
@@ -30,7 +30,7 @@
     "16": "PASS_ENGINEERING_EXIT_BLOCKED_LEGAL",
     "17": "PASS_ENGINEERING_EXIT_BLOCKED_L1",
     "18": "PASS_ENGINEERING_EXIT_BLOCKED_L5",
-    "19": "NOT_STARTED",
+    "19": "PASS_ENGINEERING_EXIT_BLOCKED_L4_L5",
     "20": "NOT_STARTED",
     "21": "NOT_STARTED",
     "22": "BLOCKED_BY_DESIGN",
@@ -83,7 +83,7 @@
     ],
     "verdict": "Stage 01 is PARTIAL, not PASS. Every unmet item traces to the staging project being unreachable from the build environment, except tenant-path adoption, which is engineering and continues in Stage 02 alongside the schema work that touches those handlers."
   },
-  "next_requirement": "Stage 18 independent adversarial review (fix HIGH/MEDIUM), then Stage 19 (Staffing / Placement OS: client contracts, engagements, fees, guarantee periods, representation consent, placements, invoicing kept apart from candidate-paid billing; L-4 licensing and L-5 representation consent open) on a stacked branch from the Stage 18 head.",
+  "next_requirement": "Stage 19 independent adversarial review (fix HIGH/MEDIUM), then Stage 20 (enterprise tenant controls, SSO, public-sector readiness: tenant configuration, retention/erasure review across the new products, audit export, SSO; L-1) on a stacked branch from the Stage 19 head.",
   "blockers": [
     {
       "id": "ATS-SANDBOX-CREDENTIAL",
@@ -182,6 +182,15 @@
       "latest_blocking_stage": "18",
       "status": "OPEN",
       "effect": "grantConsent refuses the employer_disclosure purpose when NODE_ENV is production, so no candidate can be disclosed to an employer in production. Everything else in Stage 18 is proven locally."
+    },
+    {
+      "id": "L-4-STAFFING-JURISDICTION-RULES",
+      "type": "LEGAL",
+      "issue": "No jurisdiction's staffing rules (licence, candidate-fee prohibition, guarantee limit) have been recorded by counsel (COMPLIANCE_REGISTER.md L-4); every StaffingJurisdictionRule row is unrecorded",
+      "owner": "Founder + employment / regulatory counsel",
+      "latest_blocking_stage": "19",
+      "status": "OPEN",
+      "effect": "issuePlacementInvoice refuses under any jurisdiction whose verdict is not `allowed`; placements are recorded and marked unconfirmed. Everything else in Stage 19 is proven locally."
     }
   ],
   "external_actions": [
@@ -701,5 +710,32 @@
       "Staging rehearsal (NOT VERIFIED — R-34)"
     ],
     "verdict": "Stage 18 engineering is complete; production disclosure is blocked on L-5. Merge posture inherited from the stack."
+  },
+  "stage_19_progress": {
+    "organisations_roles": "DONE — staffing_agency organisations (self-serve); Membership.serviceRole as a named set (recruiter | delivery | finance | viewer; owner/admin → admin; unknown → viewer sees nothing commercial) enforced per the matrix row",
+    "commercial_objects": "DONE — migration 20260905190000_staffing (7 tables) + RLS 20260905190100_rls_staffing; ClientContract (jurisdiction, stated licence ref), FeeStructure (contingency/retained bps or flat; guarantee days; paidBy always client, refused otherwise), Engagement (owner recruiter; active only under an active contract), Placement (frozen fee, guarantee end, stored jurisdiction evaluation), PlacementInvoice (PL book, no userId, no relation to Invoice/Payment)",
+    "separation": "DONE — static: nothing under src/lib/staffing imports subscription/entitlement/invoice/dunning/tax/payment modules or names their tables, nothing under billing/entitlements/payment providers names a staffing table; database: the candidate's invoices, payments, subscriptions and entitlements unchanged across placement, invoice, credit and revocation; the PL number matches no Invoice row",
+    "jurisdiction_rules": "DONE (engine) / BLOCKED (LEGAL, L-4) for invoicing — StaffingJurisdictionRule rows seeded with names only; /console/staffing records counsel's answer with a citation (audited); jurisdiction.ts pure (most specific row, four checks pass/fail/unknown, unconfirmed/blocked/allowed); a placement is refused when blocked and marked when unconfirmed; issuePlacementInvoice refuses unless allowed",
+    "representation": "DONE (mechanism) / BLOCKED (LEGAL, L-5) in production — invited by email (no account lookup; digest audited); granted in one transaction with ConsentRecord agency_representation (linked, name snapshotted); declined final per engagement; revoked stops new placements; SELECT-only for the candidate under RLS; version 2026-09-05-draft refused in production",
+    "invoicing_guarantee_productivity": "DONE — finance/admin issue PL-YYYY-NNNNNN in one system-client transaction with the book; paid | void (named reason; never a credited one) | guarantee credit (fall-off inside the guarantee, once); recruiter productivity with fees for admin/finance only",
+    "surfaces": "DONE — /dashboard/staffing, /dashboard/staffing/[engagementId], /console/staffing; nav entry for agency members; Settings representation section; /api/staffing/*, /api/representations/*, /api/console/staffing/jurisdictions",
+    "independent_review": "PENDING"
+  },
+  "stage_19_exit_gate": {
+    "met": [
+      "Placement lifecycle complete (contract → fee → engagement → representation → placement → invoice → guarantee credit → productivity; tested end to end)",
+      "Jurisdiction-aware: rules as recorded data, pure engine with reasons; an unknown is never a pass; tested with BC / Ontario / Washington fixture rows",
+      "Candidate-paid and employer-paid flows cannot cross (static and database proofs)",
+      "No candidate charged on an employer-paid engagement (no payer but the client can be described; candidate billing untouched, tested)",
+      "Representation consent explicit, revocable, audited (mechanism)",
+      "Full gate set green: lint 0/7, typecheck 0, tests 1199 / 1199 (0 skipped), build 0; rehearsal 49 migrations, drift clean, 153 forced tables"
+    ],
+    "not_met": [
+      "Any invoice under a jurisdiction counsel has not recorded — BLOCKED (LEGAL, L-4), refused by code",
+      "Production representation — BLOCKED (LEGAL, L-5), refused by code",
+      "Notifications, client portal, invoice PDF/tax/partial payments, cross-product candidate exchange — NOT IMPLEMENTED",
+      "Staging rehearsal (NOT VERIFIED — R-34)"
+    ],
+    "verdict": "Stage 19 engineering is complete; invoicing is blocked on L-4 and production representation on L-5. Merge posture inherited from the stack."
   }
 }
