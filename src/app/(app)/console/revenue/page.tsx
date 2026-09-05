@@ -1,5 +1,6 @@
 import { CircleDollarSign, Percent, Repeat, TrendingDown, TrendingUp, Users } from 'lucide-react';
-import { loadRevenueSummary } from '@/lib/analytics/revenue';
+import { loadRevenueSummaryFromMarts } from '@/lib/analytics/finance/summary';
+import { describeFreshness, martFreshness } from '@/lib/analytics/freshness';
 import { rangeOfDays } from '@/lib/analytics/time';
 import { type Granularity } from '@/lib/analytics/types';
 import { Card, PageHeader, cn } from '@/components/ui';
@@ -78,14 +79,20 @@ export default async function ConsoleRevenuePage({ searchParams }: { searchParam
   const now = new Date();
   const window = rangeOfDays(config.days, now);
 
-  const [summary, cohorts] = await Promise.all([
-    loadRevenueSummary({
+  // Stage 21 (ADR-0036): the summary and the cohort grid are read from the
+  // finance marts - the daily job paid for the source-table scans once. The
+  // plan breakdown and the top failure codes are not in the wide row, so the
+  // sections that need them say so rather than reading a transactional table.
+  const [summary, cohorts, freshness] = await Promise.all([
+    loadRevenueSummaryFromMarts({
       range: window,
       granularity: config.granularity,
       currency,
     }),
     loadCohortGrid(currency, now, MAX_COHORT_MONTHS),
+    martFreshness(['DailyRevenueRollup', 'SubscriptionCohortMart']),
   ]);
+  const stale = freshness.filter((f) => f.stale);
 
   const href = (next: { period?: string; currency?: string }) => {
     const search = new URLSearchParams();
@@ -144,6 +151,11 @@ export default async function ConsoleRevenuePage({ searchParams }: { searchParam
                 href: href({ period: key }),
               }))}
             />
+      <p className={`mb-4 text-xs ${stale.length ? 'text-danger' : 'text-muted'}`}>
+        {freshness.map(describeFreshness).join(' · ')}
+        {stale.length ? ' - a stale mart shows the last rebuilt numbers; run npm run analytics:rollup.' : ''}
+        {cohorts.asOf ? ` · cohorts as of ${cohorts.asOf.toISOString().slice(0, 10)}` : ''}
+      </p>
             <LinkTabs
               label="Currency"
               current={currency}

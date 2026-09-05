@@ -2,12 +2,12 @@
   "$comment": "Machine-readable controller for the autonomous build programme. Authoritative over any chat transcript: if this file and a conversation disagree, this file wins. Updated at every stage checkpoint.",
   "schema_version": 1,
   "updated_at": "2026-09-05",
-  "current_stage": "20",
-  "last_completed_stage": "19",
-  "current_branch": "claude/stage-20-enterprise-controls",
+  "current_stage": 21,
+  "last_completed_stage": 20,
+  "current_branch": "claude/stage-21-reporting-warehouse",
   "current_head": "4941af50a2c8c82c9ff302b42853a361b50e0229",
   "current_head_meaning": "SHA of the last commit whose full gate set was verified locally (lint, typecheck, tests, build). Set by the status-sync commit that immediately follows it, so it names a real, verified commit rather than the one it is written in.",
-  "current_pr": "https://github.com/Emerxingx/Job-Application-Automation/pull/32",
+  "current_pr": "pending (draft PR on base claude/stage-20-enterprise-controls; recorded in the status-sync commit)",
   "main_head": "d6ae8b3a9180b529abe06f23417515432c0a7f0e",
   "run_complete": false,
   "stage_status": {
@@ -31,8 +31,8 @@
     "17": "PASS_ENGINEERING_EXIT_BLOCKED_L1",
     "18": "PASS_ENGINEERING_EXIT_BLOCKED_L5",
     "19": "PASS_ENGINEERING_EXIT_BLOCKED_L4_L5",
-    "20": "PASS (engineering) — exit gate PARTIAL; SSO/SCIM IMPLEMENTED-NOT-VALIDATED",
-    "21": "NOT_STARTED",
+    "20": "PASS (engineering) — exit gate PARTIAL; SSO/SCIM IMPLEMENTED-NOT-VALIDATED; independent review processed",
+    "21": "PASS (engineering) — exit gate PARTIAL (no event stream, scheduler or warehouse; throughput NOT VERIFIED); independent review pending",
     "22": "BLOCKED_BY_DESIGN",
     "23": "NOT_STARTED",
     "24": "NOT_STARTED"
@@ -83,7 +83,7 @@
     ],
     "verdict": "Stage 01 is PARTIAL, not PASS. Every unmet item traces to the staging project being unreachable from the build environment, except tenant-path adoption, which is engineering and continues in Stage 02 alongside the schema work that touches those handlers."
   },
-  "next_requirement": "Stage 20 independent adversarial review (fix HIGH/MEDIUM), then Stage 21 (advanced reporting and warehouse readiness) on a stacked branch from the Stage 20 head.",
+  "next_requirement": "Stage 21 independent adversarial review (fix HIGH/MEDIUM), then Stage 22 (controlled autonomous application - BLOCKED BY DESIGN, ADR-0016: record the gate and the founder decision it waits on, build nothing that submits), then Stage 23 hardening on a stacked branch from the Stage 21 head.",
   "blockers": [
     {
       "id": "ATS-SANDBOX-CREDENTIAL",
@@ -773,5 +773,32 @@
       "Staging rehearsal (NOT VERIFIED — R-34)"
     ],
     "verdict": "Stage 20 engineering PASS for the controls built; the plan's exit gate PARTIAL; SSO and SCIM IMPLEMENTED-NOT-VALIDATED. Independent review pending."
+  },
+  "stage_21_progress": {
+    "dictionary": "DONE — src/lib/analytics/platform/dictionary.ts: PLATFORM_METRIC_DICTIONARY (53 metrics across platform, financial, ai, connectors, career, employer, staffing, cases), MART_REGISTRY (7 marts: scope, partition, jobs, 26h SLA), MIN_ORG_COHORT; docs/governance/METRIC_DICTIONARY.md mirrors it (generated, parity test)",
+    "marts": "DONE — migrations 20260905210000_reporting_marts (OrganizationDailyMart org-scoped, SubscriptionCohortMart system, DailyRevenueRollup payment outcomes), 20260905210100_rls_reporting_marts (generated), 20260905210200_revenue_invoice_count (invoicesBilled, failedPaymentCents); rls-tables STAGE_21_TABLES",
+    "rollups": "DONE — rollupPlatform (activity for the window, snapshots for the as-of day only; disjoint from the Stage 13 job), rollupOrganizations (pure builders in organization/marts.ts; members-only stage moves; people = distinct clients), rollupCohorts (grid ↔ rows round-trip), rollupRevenue extended; rollupAll runs all seven jobs; npm run analytics:rollup",
+    "reads": "DONE — console overview and revenue pages (loadRevenueSummaryFromMarts, readDailyMetric, readLatestSnapshot, readCohortGrid), employer reporting → readEmployerReport (MEAN days, stated), staffing recruiterProductivity → readStaffingProductivity + readStaffingInvoices, cases caseloadSummary → readCaseloadSummary (suppressed under five) + /api/cases/summary + dashboard card; operational queues allow-listed in console/queues.ts",
+    "freshness": "DONE — src/lib/analytics/freshness.ts (oldest latest-success across a mart's jobs; STALE past the SLA), MartFreshnessNote on the employer and cases dashboards, describeFreshness on the console pages",
+    "warehouse": "DONE (boundary) / NOT ADOPTED (warehouse) — src/lib/analytics/warehouse/export.ts (MART_COLUMNS contract, martCsv, exportMarts to the storage provider under warehouse/<mart>/<day>.csv; user-scoped marts opt-in), npm run analytics:export, docs/architecture/WAREHOUSE_EXTRACTION.md",
+    "tests": "DONE — tests/reporting-static.test.ts (22: dictionary parity, registry truth, transactional refusal on every reporting surface, queues may not count, pure builders, platform rollup scopes, freshness, CSV, cohort round-trip), tests/reporting-marts.test.ts (10: fixture truth on the tenant path, idempotence, RLS scoping and the cohort mart invisible to tenants, small-cohort suppression, snapshot scope, revenue parity mart vs live, freshness across two jobs, extraction, EXPLAIN index use); Stage 17/18 boundary tests allow-list the one rollup file",
+    "not_built": "STATED — no event stream (ADR-0011), no scheduler, no warehouse, no load or throughput measurement (NOT VERIFIED), no industry dimension; the plan breakdown and top failure codes are not in the revenue mart and come back empty"
+  },
+  "stage_21_exit_gate": {
+    "met": [
+      "Every staff and organisation dashboard metric is defined once and read from a mart; a static test refuses a transactional metric on every reporting surface and a count in the operational queues",
+      "Marts rebuilt by replacement with a RollupRun per run; parity of the mart revenue summary with the live computation proven over the same rows; idempotence, RLS scoping, snapshot scope and index use proven against the database",
+      "Refresh SLA published per mart and shown on every page; small cohorts withheld",
+      "Warehouse extraction boundary built and tested; recipe documented",
+      "Full gate set green locally: lint 0/7, typecheck 0, tests 1276/1276 (0 skipped), build (main tree); rehearsal 55 migrations, drift clean"
+    ],
+    "not_met": [
+      "Event stream feeding the marts (ADR-0011) NOT BUILT",
+      "Scheduler NOT BUILT (operator command and stale line instead)",
+      "Warehouse NOT ADOPTED (by design until volume justifies it)",
+      "Extraction and rollup throughput at production volume NOT VERIFIED",
+      "Staging rehearsal NOT VERIFIED (R-34)"
+    ],
+    "verdict": "Stage 21 engineering PASS; the plan's exit gate PARTIAL on the stated items. Independent review pending."
   }
 }

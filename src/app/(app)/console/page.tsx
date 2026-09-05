@@ -8,9 +8,11 @@ import {
   UserPlus,
   Users,
 } from 'lucide-react';
-import { db } from '@/lib/db';
-import { loadRevenueSummary } from '@/lib/analytics/revenue';
+import { loadRevenueSummaryFromMarts } from '@/lib/analytics/finance/summary';
+import { readDailyMetric, readLatestSnapshot } from '@/lib/analytics/platform/rollup';
+import { describeFreshness, martFreshness } from '@/lib/analytics/freshness';
 import { addUtcDays, foldIntoBuckets, rangeOfDays, seriesBase } from '@/lib/analytics/time';
+import { loadFailedPaymentsQueue, loadRecentSignups } from './queues';
 import { STAFF_RANK } from '@/lib/crm/auth';
 import { Card, PageHeader } from '@/components/ui';
 import { consoleGate } from './guard';
@@ -43,86 +45,37 @@ export default async function ConsoleOverviewPage() {
   const window = rangeOfDays(WINDOW_DAYS, now);
   const previous = { start: addUtcDays(window.start, -WINDOW_DAYS), end: window.start };
 
-  const [summary, signupRows, previousSignups, failedPayments, recentSignups, tickets, overdue] =
-    await Promise.all([
-      loadRevenueSummary({ range: window, granularity: 'day', currency: 'CAD' }),
-      db.user.findMany({
-        where: { createdAt: { gte: window.start, lt: window.end } },
-        select: { createdAt: true },
-      }),
-      db.user.count({ where: { createdAt: { gte: previous.start, lt: previous.end } } }),
-      db.payment.findMany({
-        where: { status: 'failed', createdAt: { gte: window.start } },
-        orderBy: { createdAt: 'desc' },
-        take: LIST_SIZE,
-        select: {
-          id: true,
-          amountCents: true,
-          currency: true,
-          failureCode: true,
-          failureMessage: true,
-          createdAt: true,
-          failedAt: true,
-          user: { select: { id: true, fullName: true, email: true } },
-        },
-      }),
-      db.user.findMany({
-        orderBy: { createdAt: 'desc' },
-        take: LIST_SIZE,
-        select: {
-          id: true,
-          fullName: true,
-          email: true,
-          city: true,
-          country: true,
-          createdAt: true,
-          onboardedAt: true,
-          subscription: {
-            select: { status: true, plan: { select: { name: true } } },
-          },
-        },
-      }),
-      db.supportTicket.groupBy({
-        by: ['status'],
-        _count: { _all: true },
-      }),
-      db.invoice.aggregate({
-        where: { status: 'open', dueAt: { lt: now } },
-        _count: { _all: true },
-        _sum: { amountDueCents: true },
-      }),
-    ]);
+  // Stage 21 (ADR-0036): every NUMBER on this page is a mart row - the
+  // revenue summary from DailyRevenueRollup, the counts from DailyMetric, the
+  // point-in-time figures from the last snapshot the rollup wrote. The two
+  // lists at the bottom are operational queues, read live and bounded, from
+  // the one module allowed to do that (queues.ts). A static test holds the line.
+  const [summary, signupsNowSeries, signupsPrevSeries, failedSeries, overdueSnap, overdueCentsSnap, ticketsSnap, breachedSnap, failedPayments, recentSignups, freshness] = await Promise.all([
+    loadRevenueSummaryFromMarts({ range: window, granularity: 'day', currency: 'CAD' }),
+    readDailyMetric('signups', window),
+    readDailyMetric('signups', previous),
+    readDailyMetric('failed_payments', window),
+    readLatestSnapshot('overdue_invoices'),
+    readLatestSnapshot('overdue_invoice_cents'),
+    readLatestSnapshot('open_tickets'),
+    readLatestSnapshot('breached_tickets'),
+    loadFailedPaymentsQueue(window, LIST_SIZE),
+    loadRecentSignups(LIST_SIZE),
+    martFreshness(['DailyMetric', 'DailyRevenueRollup']),
+  ]);
 
-  // --- Failed payments: which of them still leave money on the table --------
-  // A declined card that the customer then paid another way is history, not a
-  // queue. Joining the outstanding balance is what separates the two, and one
-  // grouped query does it for the whole list rather than one per row.
-  const failedUserIds = [...new Set(failedPayments.map((payment) => payment.user.id))];
-  const balances = failedUserIds.length
-    ? await db.invoice.groupBy({
-        by: ['userId'],
-        where: { userId: { in: failedUserIds }, status: 'open' },
-        _sum: { amountDueCents: true },
-      })
-    : [];
-  const balanceByUser = new Map(balances.map((row) => [row.userId, row._sum.amountDueCents ?? 0]));
-
-  const failedInWindow = await db.payment.count({
-    where: { status: 'failed', createdAt: { gte: window.start } },
-  });
+  const balanceByUser = new Map(failedPayments.map((payment) => [payment.user.id, payment.outstandingCents]));
+  const failedInWindow = failedSeries.reduce((n, d) => n + d.valueInt, 0);
 
   // --- Series ---------------------------------------------------------------
-  const signupSeries: SignupPoint[] = foldIntoBuckets<
-    { createdAt: Date },
-    SignupPoint & { bucket: string }
-  >(
-    signupRows,
+  const signupSeries: SignupPoint[] = foldIntoBuckets<{ day: string; valueInt: number }, SignupPoint & { bucket: string }>(
+    signupsNowSeries,
     window,
     'day',
-    (row) => row.createdAt,
+    (row) => new Date(`${row.day}T00:00:00.000Z`),
     (bucket) => ({ ...seriesBase(bucket), signups: 0 }),
-    (point) => {
-      point.signups += 1;
+    (point, row) => {
+      point.signups += row.valueInt;
     },
   ).map((point) => ({ label: point.label, signups: point.signups }));
 
@@ -134,18 +87,15 @@ export default async function ConsoleOverviewPage() {
 
   // --- Headline numbers -----------------------------------------------------
   const mrrDelta = summary.mrr.mrrCents - summary.openingMrrCents;
-  const signupsNow = signupRows.length;
+  const signupsNow = signupsNowSeries.reduce((n, d) => n + d.valueInt, 0);
+  const previousSignups = signupsPrevSeries.reduce((n, d) => n + d.valueInt, 0);
   const signupDelta = signupsNow - previousSignups;
 
-  const openTickets = tickets
-    .filter((row) => ['open', 'pending', 'on_hold'].includes(row.status))
-    .reduce((sum, row) => sum + row._count._all, 0);
-  const breachedTickets = await db.supportTicket.count({
-    where: { status: { in: ['open', 'pending', 'on_hold'] }, breachedSla: true },
-  });
-
-  const overdueCount = overdue._count._all;
-  const overdueCents = overdue._sum.amountDueCents ?? 0;
+  const openTickets = ticketsSnap?.valueInt ?? 0;
+  const breachedTickets = breachedSnap?.valueInt ?? 0;
+  const overdueCount = overdueSnap?.valueInt ?? 0;
+  const overdueCents = overdueCentsSnap?.valueCents ?? 0;
+  const stale = freshness.filter((f) => f.stale);
 
   const churnParts = summary.churn.logoChurn.parts;
   const netNew = summary.movement.netNewMrrCents;
@@ -164,6 +114,11 @@ export default async function ConsoleOverviewPage() {
           ) : undefined
         }
       />
+
+      <p className={`mb-4 text-xs ${stale.length ? 'text-danger' : 'text-muted'}`}>
+        {freshness.map(describeFreshness).join(' · ')}
+        {stale.length ? ' - a stale mart shows the last rebuilt numbers; run npm run analytics:rollup.' : ''}
+      </p>
 
       {/* Money first: the numbers a weekly review opens with. */}
       <div className="mb-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -290,7 +245,7 @@ export default async function ConsoleOverviewPage() {
               </Blank>
             ) : (
               failedPayments.map((payment) => {
-                const outstanding = balanceByUser.get(payment.user.id) ?? 0;
+                const outstanding = balanceByUser.get(payment.user.id) ?? payment.outstandingCents;
                 return (
                   <div key={payment.id} className="flex items-start gap-3 p-4">
                     <span

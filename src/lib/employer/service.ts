@@ -22,6 +22,7 @@ import { upsertPosting } from '@/lib/connectors/pipeline';
 import { EMPLOYER_SOURCE_KEY, requisitionToPosting } from '@/lib/connectors/employer';
 import { recordSecurityEvent, type RequestMeta, type SecurityEvent } from '@/lib/security-audit';
 import { findActiveMembership } from '@/lib/tenancy/organizations';
+import { readEmployerReport } from '@/lib/analytics/organization/read';
 import { canCreateRequisition, canDecideOffer, canMovePipeline, canReadReporting, canReadSourcing, canSource, canWriteInterview, canWriteRequisition, employerRoleOf, isEmployerRole, type EmployerRole, type EmployerServiceRole } from './roles';
 import { canTransition, isSubmissionStage, requiresDisclosure, type SubmissionStage } from './stage-machine';
 
@@ -586,44 +587,10 @@ export async function decideOffer(tx: Client, actor: EmployerActor, offerId: str
  */
 export async function reporting(tx: Client, actor: EmployerActor, range: { from: Date; to: Date }) {
   if (!canReadReporting(actor.role)) throw new EmployerError('Reporting is not available to an interviewer.', 403);
-  const subs = await tx.submission.findMany({ where: { organizationId: actor.organizationId, createdAt: { gte: range.from, lte: range.to } }, select: { id: true, source: true, stage: true, createdAt: true, requisitionId: true } });
-  const events = await tx.submissionEvent.findMany({ where: { organizationId: actor.organizationId, submissionId: { in: subs.map((s) => s.id) } }, orderBy: { at: 'asc' }, select: { submissionId: true, toStage: true, actorId: true, at: true } });
-  const firstInto = new Map<string, Map<string, Date>>();
-  const byActor = new Map<string, number>();
-  for (const e of events) {
-    if (!firstInto.has(e.submissionId)) firstInto.set(e.submissionId, new Map());
-    const m = firstInto.get(e.submissionId)!;
-    if (!m.has(e.toStage)) m.set(e.toStage, e.at);
-    byActor.set(e.actorId, (byActor.get(e.actorId) ?? 0) + 1);
-  }
-  // Recruiter activity names organisation MEMBERS only: candidate-driven
-  // events (an application, a grant, a revocation) carry the candidate's id
-  // as actor and must not surface here.
-  const members = new Set((await tx.membership.findMany({ where: { organizationId: actor.organizationId, acceptedAt: { not: null }, removedAt: null }, select: { userId: true } })).map((m) => m.userId));
-  for (const id of [...byActor.keys()]) if (!members.has(id)) byActor.delete(id);
-  const reached = (stage: string) => subs.filter((s) => firstInto.get(s.id)?.has(stage)).length;
-  const median = (stage: string): number | null => {
-    const days: number[] = [];
-    for (const s of subs) {
-      const at = firstInto.get(s.id)?.get(stage);
-      if (at) days.push((at.getTime() - s.createdAt.getTime()) / 86_400_000);
-    }
-    days.sort((a, b) => a - b);
-    if (days.length === 0) return null;
-    const mid = Math.floor(days.length / 2);
-    return Math.round((days.length % 2 ? days[mid]! : (days[mid - 1]! + days[mid]!) / 2) * 10) / 10;
-  };
-  const sources: Record<string, { submissions: number; hires: number }> = {};
-  for (const s of subs) {
-    sources[s.source] = sources[s.source] ?? { submissions: 0, hires: 0 };
-    sources[s.source]!.submissions += 1;
-    if (s.stage === 'hired') sources[s.source]!.hires += 1;
-  }
-  return {
-    range,
-    funnel: { submissions: subs.length, consented: reached('consented'), screening: reached('screening'), interviewing: reached('interviewing'), offered: reached('offered'), hired: reached('hired'), rejected: reached('rejected'), withdrawn: reached('withdrawn') },
-    daysTo: { shortlist: median('screening'), interview: median('interviewing'), hire: median('hired') },
-    sources,
-    recruiterActivity: [...byActor.entries()].map(([actorId, moves]) => ({ actorId, moves })).sort((a, b) => b.moves - a.moves),
-  };
+  // Stage 21 (ADR-0036): the funnel, time-to-stage, source performance and
+  // recruiter activity are MART rows (OrganizationDailyMart, product
+  // employer) rebuilt by the organisation rollup - the one reader of the
+  // submission and event tables for a metric. Days-to-stage is a MEAN over the
+  // range (a median is not a mart quantity); the page says so.
+  return readEmployerReport(tx, actor.organizationId, range);
 }

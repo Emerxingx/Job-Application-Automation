@@ -2027,6 +2027,13 @@ model DailyRevenueRollup {
   netRevenueRetentionParts Int @default(0)
   dunningRecoveryParts     Int @default(0)
 
+  // Stage 21 (ADR-0036): payment counts, so payment health reads the mart too.
+  invoicesBilled    Int @default(0) // Stage 21: billed invoices that day (parity with the live totals' invoice count)
+  paymentsSucceeded Int @default(0)
+  paymentsFailed    Int @default(0)
+  paymentsPending   Int @default(0)
+  failedPaymentCents Int @default(0) // Stage 21: the amount of that day's failed payments (payment health reads the mart)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -2484,6 +2491,7 @@ model Organization {
 
   plan              Plan?                   @relation(fields: [planId], references: [id], onDelete: SetNull)
   ssoConnection     SsoConnection?
+  dailyMarts        OrganizationDailyMart[]
   scimTokens        ScimToken[]
   memberships       Membership[]
   invoices          Invoice[]
@@ -4642,3 +4650,54 @@ model ScimToken {
 
   @@index([organizationId, revokedAt])
 }
+
+// ---------------------------------------------------------------------------
+// Reporting marts (Stage 21, ADR-0036). A dashboard reads a mart, never a
+// transactional table; the rollup jobs are the only readers of transactional
+// rows for a metric and REPLACE whole (days x organisation) scopes. Every
+// mart carries `day` (UTC) as its partition key so an extraction to a
+// warehouse is a change of destination, not a rewrite.
+// ---------------------------------------------------------------------------
+
+// Per-organisation product reporting: employer funnel, staffing productivity,
+// case outcomes. ORG-scoped under RLS - a row belongs to the organisation and
+// only its members read it. `dimension`/`key` name a cut ("source" x
+// "employer", "recruiter" x <user id>) or `all`/`all`. Counts in `valueInt`,
+// money in `valueCents`, distinct people in `people` for suppression.
+model OrganizationDailyMart {
+  id             String   @id @default(cuid())
+  organizationId String
+  day            String // YYYY-MM-DD, UTC - the fact's attribution day
+  product        String // employer | staffing | cases
+  metric         String
+  dimension      String   @default("all")
+  key            String   @default("all")
+  valueInt       Int      @default(0)
+  valueCents     Int      @default(0)
+  people         Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, day, product, metric, dimension, key])
+  @@index([organizationId, product, metric, day])
+}
+
+// Subscription retention by start month: the cohort grid the revenue page
+// draws, rebuilt from subscriptions per currency. SYSTEM-only.
+model SubscriptionCohortMart {
+  id          String   @id @default(cuid())
+  currency    String
+  cohortMonth String // YYYY-MM, UTC
+  monthOffset Int
+  subscribers Int      @default(0)
+  retained    Int      @default(0)
+  day         String // the day the row was computed for (the as-of day)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([currency, cohortMonth, monthOffset])
+  @@index([currency, cohortMonth])
+}
+

@@ -26,7 +26,7 @@ remediation has begun.**
 npm ci                # install from the lockfile
 npm run dev           # http://localhost:3000
 npx tsc --noEmit      # typecheck  — PASSES
-npm test              # 1243 tests  — PASSES with the two database URLs below set; the
+npm test              # 1276 tests  — PASSES with the two database URLs below set; the
                       #   database suites skip WITH A REASON without them and THROW
                       #   when CI=true, so CI cannot pass by skipping them
 npm run build         # production — PASSES
@@ -57,7 +57,7 @@ npm run cms:types          # regenerate payload-types.ts
 ## Things that will surprise you
 
 1. **The database is PostgreSQL with a versioned migration history** since
-   Stage 01 (`ADR-0002`). Fifty-two migrations under `prisma/migrations/`; CI applies
+   Stage 01 (`ADR-0002`). Fifty-five migrations under `prisma/migrations/`; CI applies
    them to an empty database and fails on drift. `DATABASE_URL` is the
    transaction pooler, `DIRECT_URL` the session endpoint for migrations. The RLS
    migration is **generated** from `src/lib/tenancy/rls-tables.ts` — regenerate
@@ -499,6 +499,30 @@ npm run cms:types          # regenerate payload-types.ts
     account; reinstatement is as a member. `/api/auth/sso` and `/api/scim` are
     public prefixes. **No real identity provider or SCIM client has been
     validated** - the register says so; do not claim otherwise.
+
+32. **Every staff and organisation dashboard reads a mart through one
+    platform dictionary, and a page may not count** (Stage 21, ADR-0036).
+    `src/lib/analytics/platform/dictionary.ts` defines every non-candidate
+    metric once and `MART_REGISTRY` names the seven marts with their RLS
+    scope, the JOBS that write them and a 26-hour SLA (mirrored in
+    `docs/governance/METRIC_DICTIONARY.md`; a test fails if they differ).
+    `OrganizationDailyMart` is `org`-scoped (a member reads only the
+    organisations they belong to); `SubscriptionCohortMart` is system-only.
+    The rollups (`platform/rollup.ts`, `organization/rollup.ts`,
+    `finance/cohorts.ts`, `rollups.ts`) are the ONLY readers of the source
+    tables for a metric and REPLACE whole scopes; snapshot metrics are
+    written for the as-of day only, never backfilled. The console overview
+    and revenue pages, the employer report, staffing productivity and the
+    supervisor's caseload summary read marts; `tests/reporting-static.test.ts`
+    refuses a `count`/`findMany`/`aggregate` on a source table there — add a
+    metric to the dictionary, the mart and the rollup, never a `count()` to
+    a page. `console/queues.ts` is the one allow-listed module and may LIST
+    but never count. Every mart page shows `martFreshness` and says STALE
+    past the SLA; there is no scheduler (`npm run analytics:rollup`). The
+    employer `days_to_*` are MEANS, stated. The warehouse boundary is
+    `warehouse/export.ts` (`npm run analytics:export`, CSV per mart per
+    day, user-scoped marts opt-in); no warehouse, event stream or load test
+    exists — say so.
 
 ## Conventions worth preserving
 

@@ -318,6 +318,10 @@ describe('employer - roles, requisitions, sourcing, disclosure, pipeline, pools,
   });
 
   it('reporting counts the organisation\'s own funnel, sources and activity, with no identity', async () => {
+    // Stage 21 (ADR-0036): reporting reads the organisation mart; the rollup is the one reader of the pipeline tables.
+    const { rollupOrganizations } = await import('../src/lib/analytics/organization/rollup');
+    await rollupOrganizations({ start: new Date(Date.now() - 2 * 86_400_000), end: new Date(Date.now() + 2 * 86_400_000) }, { organizationId: orgE });
+    await rollupOrganizations({ start: new Date(Date.now() - 2 * 86_400_000), end: new Date(Date.now() + 2 * 86_400_000) }, { organizationId: orgF });
     const r = await tenant(REC.id, orgE, (tx) => svc.reporting(tx, rec(), { from: new Date(Date.now() - 86_400_000), to: new Date(Date.now() + 86_400_000) }));
     assert.equal(r.funnel.submissions, 3, 'ANON on two requisitions, VIS on one');
     assert.equal(r.funnel.consented, 3);

@@ -24,6 +24,7 @@ import { LIMITS, rateLimit } from '@/lib/rate-limit';
 import { allocateDocumentNumber, prismaSequenceStore } from '@/lib/billing/numbering';
 import { hashEmail, recordSecurityEvent, type RequestMeta, type SecurityEvent } from '@/lib/security-audit';
 import { findActiveMembership } from '@/lib/tenancy/organizations';
+import { readStaffingInvoices, readStaffingProductivity } from '@/lib/analytics/organization/read';
 import type { StaffContext } from '@/lib/crm/auth';
 import { canCreateEngagement, canInvoice, canReadContract, canReadEngagement, canReadFee, canReadInvoice, canReadProductivity, canReadRepresentation, canRequestRepresentation, canWriteContract, canWriteEngagement, canWriteFee, canWritePlacement, isStaffingRole, staffingRoleOf, type StaffingRole, type StaffingServiceRole } from './roles';
 import { JURISDICTION_ENGINE_VERSION, SEEDED_JURISDICTIONS, computeFee, evaluateJurisdiction, isJurisdictionCode, type JurisdictionRuleRow } from './jurisdiction';
@@ -529,30 +530,10 @@ export async function listPlacementInvoices(tx: Client, actor: StaffingActor) {
 /** Per recruiter: engagements owned, representations requested and granted, placements, fall-offs inside guarantee, fees (finance and admin; a recruiter sees their own row only). */
 export async function recruiterProductivity(tx: Client, actor: StaffingActor, range: { from: Date; to: Date }) {
   if (!canReadProductivity(actor.role)) throw new StaffingError('You may not read productivity.', 403);
-  const where = { organizationId: actor.organizationId, createdAt: { gte: range.from, lte: range.to } };
-  const [engagements, reps, placements] = await Promise.all([
-    tx.engagement.findMany({ where, select: { ownerRecruiterId: true } }),
-    tx.representationConsent.findMany({ where: { organizationId: actor.organizationId, requestedAt: { gte: range.from, lte: range.to } }, select: { requestedById: true, status: true } }),
-    tx.placement.findMany({ where, select: { recruiterId: true, feeCents: true, status: true, fellOffAt: true, guaranteeEndsAt: true } }),
-  ]);
-  const rows = new Map<string, { recruiterId: string; engagements: number; requested: number; granted: number; placements: number; fellOffInGuarantee: number; feeCents: number | null }>();
-  const row = (id: string | null) => {
-    const key = id ?? 'unassigned';
-    if (!rows.has(key)) rows.set(key, { recruiterId: key, engagements: 0, requested: 0, granted: 0, placements: 0, fellOffInGuarantee: 0, feeCents: canReadFee(actor.role) ? 0 : null });
-    return rows.get(key)!;
-  };
-  for (const e of engagements) row(e.ownerRecruiterId).engagements += 1;
-  for (const r of reps) {
-    const x = row(r.requestedById);
-    x.requested += 1;
-    if (r.status === 'granted') x.granted += 1;
-  }
-  for (const p of placements) {
-    const x = row(p.recruiterId);
-    x.placements += 1;
-    if (withinGuarantee(p)) x.fellOffInGuarantee += 1;
-    if (x.feeCents !== null) x.feeCents += p.feeCents;
-  }
-  const all = [...rows.values()].sort((a, b) => b.placements - a.placements || a.recruiterId.localeCompare(b.recruiterId));
-  return { range, recruiters: actor.role === 'recruiter' ? all.filter((r) => r.recruiterId === actor.user.id) : all };
+  // Stage 21 (ADR-0036): mart rows (OrganizationDailyMart, product staffing),
+  // never the engagement, representation or placement tables. Fees only for
+  // the roles that read fees; a recruiter sees their own row only.
+  const recruiters = await readStaffingProductivity(tx, actor.organizationId, range, { fees: canReadFee(actor.role), onlyRecruiterId: actor.role === 'recruiter' ? actor.user.id : undefined });
+  const invoices = canReadInvoice(actor.role) ? await readStaffingInvoices(tx, actor.organizationId, range) : null;
+  return { range, recruiters, invoices };
 }

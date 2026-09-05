@@ -683,3 +683,51 @@ never occurred.
   (none is reachable); the browser; the cookie-setting routes themselves
   beyond compile (the services they call are what is tested); MFA claims.
 
+## Stage 21 — advanced reporting and warehouse readiness
+
+- **Pure and static (`tests/reporting-static.test.ts`):** the platform
+  dictionary names every metric once, sourced from a registered mart, and
+  covers every metric a rollup writes or a read module reads; the governance
+  document mirrors every key, definition, mart and SLA; every mart is a Prisma
+  model, classified under RLS as the registry says, extracted with real
+  columns partitioned by `day`, and rebuilt by every job the sweep runs; the
+  default extraction excludes user-scoped marts. The transactional refusal:
+  twelve reporting files (console overview, revenue page and cohorts, employer
+  and cases dashboards, the summary and productivity routes, the read modules,
+  freshness, the exporter, the note) may not `count`/`findMany`/`aggregate`/
+  `groupBy` a source table nor count a status in memory; the queues module is
+  the one that may list and may not count; the overview imports no database
+  client; the three services report through the mart reads; the organisation
+  rollup reads the source tables and never a restricted field; every mart
+  page shows freshness. The pure builders: funnel attribution, source cuts,
+  whole-day sums with the people behind them, member stage moves, fall-off
+  inside the guarantee only, credits on the issue day, distinct clients per
+  outcome; determinism; the organisation rollup's replace scope, window
+  filter and failed-run record; the platform rollup's ownership (never the
+  Stage 13 three), zero-filling, snapshot for the as-of day only, separate
+  replace scopes; freshness thresholds and wording; the CSV contract (order,
+  CRLF, quoting, formula neutralisation, ISO dates, nulls); the recipe names
+  every mart; the cohort mart round-trips the grid.
+- **Database (`tests/reporting-marts.test.ts`):** a fixture in a window no
+  other suite writes into (January 2025): two submissions with histories and
+  a candidate-driven event, an engagement, two representations, a placement
+  and its paid invoice, three cases with outcomes and follow-ups, a
+  subscriber with a plan change, a paid invoice, a succeeded and a failed
+  payment, a breached ticket. The organisation rollup writes what the fixture
+  makes true and the employer report reads it on the tenant path (funnel,
+  MEAN days, sources, member-only recruiter activity); a second run changes
+  nothing and each run is recorded; a member of another organisation sees
+  none of it under RLS and the cohort mart is invisible to tenants; staffing
+  productivity with and without fees and the invoice summary; the caseload
+  summary withholds outcomes under five clients and shows the total at five
+  while a four-client kind stays withheld; the platform rollup zero-fills the
+  window, writes the snapshot on the as-of day only and is idempotent; the
+  mart revenue summary agrees with the live computation on totals, series,
+  movement, opening figures, churn, subscribers and payment health; freshness
+  is the older of two jobs' successes; the extraction writes the documented
+  CSV per mart per day and refuses an unknown mart; EXPLAIN shows the mart
+  reads use their indexes.
+- **NOT covered, by honesty:** any warehouse loader (none adopted); rollup or
+  extraction throughput at production volume; the browser rendering of the
+  freshness line; a scheduler (none exists).
+

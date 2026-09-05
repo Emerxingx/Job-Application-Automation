@@ -14,7 +14,14 @@ lines of rollups, metric definitions, time handling, CSV and PDF export builders
 and rollup models (`DailyMetric`, `DailyUsageRollup`, `DailyRevenueRollup`,
 `RollupRun`).
 
-The flaw is structural: dashboards read the transactional store directly.
+The flaw was structural: dashboards read the transactional store directly.
+**Closed on the engineering side** — Stage 13 (ADR-0027) for the candidate's
+dashboards, Stage 21 (ADR-0036) for every staff and organisation dashboard: one
+platform metric dictionary, `OrganizationDailyMart` and `SubscriptionCohortMart`
+beside the reused marts, replace-semantics rollups, a static test that refuses a
+transactional metric on a reporting page, freshness shown with a 26-hour SLA, and
+the extraction boundary in `WAREHOUSE_EXTRACTION.md`. Not built: the event stream
+(ADR-0011), a scheduler, a warehouse.
 
 ## Staged approach
 1. **Now** — stay on PostgreSQL. Move dashboard reads onto materialized views and
