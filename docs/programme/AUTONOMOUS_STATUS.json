@@ -1,11 +1,11 @@
 {
   "$comment": "Machine-readable controller for the autonomous build programme. Authoritative over any chat transcript: if this file and a conversation disagree, this file wins. Updated at every stage checkpoint.",
   "schema_version": 1,
-  "updated_at": "2026-09-05T15:45:00Z",
+  "updated_at": "2026-09-05T15:50:00Z",
   "current_stage": "17",
   "last_completed_stage": "16",
   "current_branch": "claude/stage-17-employment-services",
-  "current_head": "c33cffbab6b73d5a41f30685f3154197e5bc396f",
+  "current_head": "4809620c7802c923a6d9dd199ee362f1ddcbff21",
   "current_head_meaning": "SHA of the last commit whose full gate set was verified locally (lint, typecheck, tests, build). Set by the status-sync commit that immediately follows it, so it names a real, verified commit rather than the one it is written in.",
   "current_pr": "https://github.com/Emerxingx/Job-Application-Automation/pull/29",
   "main_head": "d6ae8b3a9180b529abe06f23417515432c0a7f0e",
