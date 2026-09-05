@@ -1,6 +1,6 @@
 # Stage 23 - Security, performance, accessibility and operational hardening - evidence
 
-Recorded 2026-09-05 on branch `claude/stage-23-hardening` (draft PR, stacked
+Recorded 2026-09-05 on branch `claude/stage-23-hardening` (PR #35, stacked
 on Stage 22 (PR #34) - 21 (#33) - 20 (#32) - 19 (#31) - 18 (#30) - 17 (#29) -
 16 (#28) - 15 (#27) - 14 (#26) - 13 (#25) - 12 (#24) - 11 (#23) - 10 (#22) -
 09 (#21) - 08 (#20) - 07 (#19) - 06 (#18) - 05 (#17) - 04 (#16) - 03 (#15) -
