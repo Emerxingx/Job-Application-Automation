@@ -22,6 +22,7 @@ import {
   ShieldCheck,
   X,
   Compass,
+  Briefcase,
 } from 'lucide-react';
 import { Logo } from '@/components/site-header';
 import { Meter, cn } from '@/components/ui';
@@ -56,10 +57,13 @@ interface QuotaView {
 export function DashboardShell({
   user,
   quota,
+  showCases = false,
   children,
 }: {
   user: { fullName: string; email: string };
   quota: QuotaView | null | undefined;
+  /** Stage 17: the case-management entry, only for a member of a service-provider organisation. */
+  showCases?: boolean;
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
@@ -82,7 +86,7 @@ export function DashboardShell({
   const nav = (
     <>
       <nav className="flex-1 space-y-1 px-3">
-        {NAV.map((item) => {
+        {[...NAV.slice(0, 4), ...(showCases ? [{ href: '/dashboard/cases', label: 'Case management', icon: Briefcase }] : []), ...NAV.slice(4)].map((item) => {
           // Only the exact path is "active" for the overview root.
           const active =
             item.href === '/dashboard'

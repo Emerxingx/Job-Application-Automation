@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { CONSENT_PURPOSES } from '@/lib/consent';
+import { SELF_SERVICE_PURPOSES } from '@/lib/consent';
 import { DEVICE_PLATFORMS, issueDeviceSession, listDeviceSessions } from '@/lib/integrations/device-sessions';
 import { loadMe } from '@/lib/integrations/candidate-api';
 import { listEnvelope, notFound, parsePagination, v1Ok, v1PublicRoute, v1Route } from '@/lib/integrations/http';
@@ -16,7 +16,7 @@ const signInSchema = z.discriminatedUnion('method', [
     method: z.literal('supabase'),
     accessToken: z.string().min(20).max(8192),
     fullName: z.string().trim().min(2).max(120).optional(),
-    consents: z.array(z.enum(CONSENT_PURPOSES)).optional(),
+    consents: z.array(z.enum(SELF_SERVICE_PURPOSES)).optional(),
     device,
   }),
 ]);

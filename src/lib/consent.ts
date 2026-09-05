@@ -23,8 +23,25 @@ export const CONSENT_PURPOSES = [
   // Stage 11: one grant per connection kind; recorded before an OAuth flow starts.
   'mailbox_sync',
   'calendar_sync',
+  // Stage 17: a service provider's case manager may read this person's job-search data (never the sensitive schema); one record per accepted case.
+  'employment_services_case',
 ] as const;
 export type ConsentPurpose = (typeof CONSENT_PURPOSES)[number];
+
+/**
+ * The purposes a person grants and withdraws THEMSELVES, as a setting and on
+ * the candidate API (`/v1/consents`, whose contract enumerates exactly these).
+ * A purpose bound to a specific counterparty - the Stage 17 case consent, one
+ * record per accepted case - is granted and revoked only through that flow
+ * (Settings → invitations), never as a generic toggle: withdrawing it means
+ * closing that case, which the flow does and a toggle could not.
+ */
+export const SELF_SERVICE_PURPOSES = ['terms_of_service', 'privacy_policy', 'marketing_email', 'cross_border_ai_processing', 'mailbox_sync', 'calendar_sync'] as const satisfies readonly ConsentPurpose[];
+export type SelfServicePurpose = (typeof SELF_SERVICE_PURPOSES)[number];
+
+export function isSelfServicePurpose(value: unknown): value is SelfServicePurpose {
+  return typeof value === 'string' && (SELF_SERVICE_PURPOSES as readonly string[]).includes(value);
+}
 
 /** Purposes an account cannot be created without. */
 export const REQUIRED_AT_SIGNUP: readonly ConsentPurpose[] = ['terms_of_service', 'privacy_policy'];
@@ -39,6 +56,7 @@ export const CONSENT_VERSIONS: Record<ConsentPurpose, string> = {
   cross_border_ai_processing: 'PENDING-L-3',
   mailbox_sync: '2026-09-03',
   calendar_sync: '2026-09-03',
+  employment_services_case: '2026-09-05',
 };
 
 export function isConsentPurpose(value: unknown): value is ConsentPurpose {

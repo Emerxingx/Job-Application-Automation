@@ -61,6 +61,9 @@ export const LIMITS = {
   authAccount: { limit: 30, windowSeconds: 60 * 15 },
   /** Stage 16: the credential what-if, an audited read of the person's eligibility facts per call. */
   careerWhatIf: { limit: 20, windowSeconds: 60 * 10 },
+  /** Stage 17 review: case invitations per supervisor and per organisation - an invitation is a row a person sees under Settings; volume is bounded so a roster cannot be sprayed. */
+  caseInvite: { limit: 30, windowSeconds: 60 * 60 },
+  caseInviteOrganization: { limit: 200, windowSeconds: 60 * 60 * 24 },
 } as const satisfies Record<string, RateLimitRule>;
 
 /**

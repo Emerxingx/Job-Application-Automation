@@ -19,7 +19,7 @@ import { folderCompleteness } from '@/lib/applications/folder';
 import { serialiseApplication, serialiseJobMatch, type PublicApplication, type PublicJob } from './public-api';
 import { ApiRequestError, notFound, type Pagination } from './http';
 import { parseApplicationMode, type ApplicationMode } from '@/lib/apply/modes';
-import { CONSENT_PURPOSES, CONSENT_VERSIONS, REQUIRED_AT_SIGNUP, grantConsent, hasCurrentConsent, revokeConsent, type ConsentPurpose } from '@/lib/consent';
+import { CONSENT_VERSIONS, REQUIRED_AT_SIGNUP, SELF_SERVICE_PURPOSES, grantConsent, hasCurrentConsent, isSelfServicePurpose, revokeConsent, type ConsentPurpose } from '@/lib/consent';
 import { documentLinkPath, signDocumentLink } from '@/lib/documents/sign';
 import type { RequestMeta } from '@/lib/security-audit';
 
@@ -335,7 +335,8 @@ export interface PublicConsent {
 
 export async function listConsents(userId: string): Promise<PublicConsent[]> {
   const rows = await db.consentRecord.findMany({ where: { userId, revokedAt: null }, orderBy: { grantedAt: 'desc' } });
-  return CONSENT_PURPOSES.map((purpose) => {
+  // The self-service purposes only: the contract enumerates them, and a per-case consent (Stage 17) is not a toggle.
+  return SELF_SERVICE_PURPOSES.map((purpose) => {
     const latest = rows.find((r) => r.purpose === purpose);
     return {
       object: 'consent' as const,
@@ -359,6 +360,10 @@ export async function listConsents(userId: string): Promise<PublicConsent[]> {
 export async function setConsent(userId: string, purpose: ConsentPurpose, granted: boolean, meta: RequestMeta): Promise<PublicConsent> {
   const user = await db.user.findUnique({ where: { id: userId }, select: { id: true, email: true } });
   if (!user) throw notFound('No profile for this key.');
+  if (!isSelfServicePurpose(purpose)) {
+    // A consent bound to a counterparty (a case) is given and withdrawn in its own flow, never here.
+    throw new ApiRequestError('invalid_request', `Consent for ${purpose} is managed with the case it belongs to, not here.`, 409, 'purpose');
+  }
   if (CONSENT_VERSIONS[purpose].startsWith('PENDING')) {
     throw new ApiRequestError('invalid_request', `Consent for ${purpose} cannot be recorded yet.`, 409, 'purpose');
   }

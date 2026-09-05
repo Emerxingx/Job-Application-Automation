@@ -449,3 +449,57 @@ never occurred.
   recorded), the UI beyond compile and lint, and any claim about what an
   employer accepts.
 
+## Stage 17 — employment services / case management (Level 0)
+
+- **Pure (`tests/cases-copilot.test.ts`):** a healthy search draws no
+  recommendation; each of the nine patterns fires on its threshold with the
+  numbers that triggered it, in a fixed order, deterministically, and not
+  below the sample sizes; no suggested action claims to have changed
+  anything; the case roles resolve as a named set over the ladder (owner and
+  admin are admin; null or unknown is viewer; an unknown rung is not admin)
+  and gate open / write / manage as the matrix says. Static: the copilot,
+  the client view and the runner never name a case note, an assessment or a
+  barrier and never import a provider or the sensitive path; nothing under
+  matching, eligibility, analytics, career or the AI gateway names a case
+  table; the gateway's RESTRICTED keys include the case vocabulary.
+- **Database (`tests/cases.test.ts`):** the actor resolves only from an
+  accepted membership of a service-provider organisation (another type, a
+  non-member: 404); a service-provider organisation is refused without the
+  staff verification flag; a supervisor invites by email (audited with a
+  digest, never the address; an address with no account is recorded all
+  the same; a duplicate is refused), a case manager cannot, and before
+  consent the summary, the copilot and a note are refused; the client sees
+  an invitation addressed to their account email and a stranger and another
+  provider do not; only the client answers, accepting links them and
+  writes a versioned consent record in one transaction, and the linked row
+  is SELECT-only for them under RLS (UPDATE refused, `deleteMany` removes
+  nothing); a person invited before signing up sees the invitation once
+  their account exists, declines with nothing recorded about them, and is
+  not re-invited; consent is per case across two providers (withdrawing
+  from one leaves the other readable); assignment gates the case manager, a supervisor
+  reads all and writes none, a viewer sees counts, another provider's admin
+  gets 404, the viewer cannot be assigned; a note and an assessment are
+  audited before the write and before the read with no text in the trail,
+  the client and another provider see none, the viewer is kept out by the
+  service; a referral needs a licensed offering, tasks move, an employed
+  outcome creates the 4 / 12 / 24-week follow-ups and `not_employed` none;
+  the copilot writes recommendations and nothing else (a snapshot of the
+  client's and the case's other tables is byte-identical after a run), is
+  audited along with the delegated read, refreshes without duplicates,
+  supersedes a vanished pattern, keeps a decision, and the signals carry no
+  note or barrier; accepting with a task cites the recommendation,
+  dismissing creates nothing, deciding twice is refused, another
+  provider's admin is refused on a task, a follow-up and a recommendation
+  by id; withdrawal closes the case, revokes that case's consent, refuses
+  further reads and shows the snapshotted name; a close reason outside the
+  named set is refused; re-inviting after closure is a NEW case with no
+  access to the old one's notes; only an admin sets a retention policy
+  within bounds, the purge leaves an open case's old note alone, thins a
+  closed case from its closure, removes an old closed case with everything
+  under it (the cascade counted in the audit row), and an organisation
+  without a policy is untouched; invitations are rate-limited per
+  supervisor.
+- **NOT covered, by honesty:** any WorkBC system (none exists), the UI
+  beyond compile and lint, route-level status codes, and any public-sector
+  regime (L-1).
+

@@ -211,11 +211,17 @@ apt: candidate-paid consulting and employer-paid placement must not share a
 commercial model. The existing billing layer models **candidate subscriptions
 only**.
 
-### G-19 — Employment Services / WorkBC OS · NOT IMPLEMENTED
+### G-19 — Employment Services / WorkBC OS · RESOLVED in engineering at Level 0 (Stage 17, ADR-0032); public-sector deployment BLOCKED on L-1
 No service provider, centre, case manager, caseload, assessment, action plan,
 intervention, case note, training referral, outcome or retention model.
 **Positive finding:** no fabricated WorkBC integration exists. The integration
 boundary can be built honestly from a clean start. See `ADR-0020`.
+**Stage 17 outcome:** service-provider organisations with supervisor /
+case-manager / viewer roles, consent-gated cases, RESTRICTED notes and
+assessments under organisation RLS with every access audited, action plans,
+training referrals to licensed offerings, outcomes with retention follow-up,
+a copilot that only recommends, and per-organisation retention. Integration
+level stays 0 and every page says so; L-1 remains open.
 
 ### G-20 — Career Change / Learning OS · RESOLVED in engineering (Stage 16, ADR-0031); the graph is EMPTY until a licence is recorded
 `LearningPaths`, `Certifications`, `CareerGuides` exist as **Payload CMS

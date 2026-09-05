@@ -32,7 +32,7 @@ import {
 
 const q = (ident: string) => `"${ident.replace(/"/g, '""')}"`;
 
-function usingFor(table: string, rule: RlsKind): { using: string; check: string } | null {
+function usingFor(table: string, rule: RlsKind): { using: string; check: string; readUsing?: string } | null {
   switch (rule.kind) {
     case 'user':
       return {
@@ -58,7 +58,7 @@ function usingFor(table: string, rule: RlsKind): { using: string; check: string 
       return { using: expr, check: expr };
     }
     case 'custom':
-      return { using: rule.using, check: rule.check ?? rule.using };
+      return { using: rule.using, check: rule.check ?? rule.using, readUsing: rule.readUsing };
     case 'reference':
       // SELECT only; the tenant role gets no write policy, so INSERT/UPDATE/
       // DELETE are refused outright (SQLSTATE 42501).
@@ -195,6 +195,9 @@ export function render(manifest: RlsManifest): string {
       emit(`GRANT UPDATE (${rule.updatableColumns.map(q).join(', ')}) ON ${t} TO ${TENANT_ROLE};`);
     } else {
       emit(`CREATE POLICY tenant_access ON ${t} TO ${TENANT_ROLE} USING (${p.using}) WITH CHECK (${p.check});`);
+      // Permissive policies are OR-ed per command: the SELECT-only policy widens
+      // reading, and INSERT/UPDATE/DELETE still answer to tenant_access alone.
+      if (p.readUsing) emit(`CREATE POLICY tenant_read ON ${t} FOR SELECT TO ${TENANT_ROLE} USING (${p.readUsing});`);
     }
     emit();
   }
