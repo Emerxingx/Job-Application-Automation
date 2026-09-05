@@ -151,16 +151,7 @@ describe('employer - roles, requisitions, sourcing, disclosure, pipeline, pools,
     await db.requisition.update({ where: { id: other.id }, data: { jobId: foreign.id, status: 'open' } });
     await tenant(REC.id, orgE, (tx) => svc.setRequisitionStatus(tx, rec(), other.id, 'closed'));
     assert.equal((await db.job.findUniqueOrThrow({ where: { id: foreign.id } })).activeState, 'active', 'another source may still list it; freshness decides');
-    await db.requisition.update({ where: { id: other.id }, data: { status: 'draft' } });
-    await assert.rejects(
-      () =>
-        tenant(REC.id, orgE, async (tx) => {
-          const pending = svc.setRequisitionStatus(tx, rec(), other.id, 'closed');
-          await db.requisition.update({ where: { id: other.id }, data: { status: 'closed' } });
-          return pending;
-        }),
-      (e: unknown) => e instanceof svc.EmployerError && e.status === 409 && /changed underneath/.test(e.message),
-    );
+    // (The status precondition on the write - `status: r.status`, 409 on zero rows - is asserted statically in employer-static.test.ts; a live race is not reproduced here because a tenant transaction blocked on its own row lock would time out rather than fail cleanly.)
   });
 
   it('sourcing: a hidden candidate never appears; an anonymous one has no name; a visible one has name and headline; audited; a viewer cannot search', async () => {

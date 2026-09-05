@@ -100,6 +100,11 @@ describe('employer code - static boundaries', () => {
     assert.match(text, /scoreCompatibility\(\{[^}]*mode: 'deterministic'/);
     assert.ok(!/lib\/sensitive|selfIdentification/.test(text));
   });
+  it('a requisition status write carries the status it was read at as a precondition and refuses on zero rows (the Stage 18 review race)', () => {
+    const text = readFileSync(path.join(root, 'src/lib/employer/service.ts'), 'utf8');
+    assert.match(text, /tx\.requisition\.updateMany\(\{ where: \{ id: r\.id, organizationId: actor\.organizationId, status: r\.status \}/);
+    assert.match(text, /if \(moved\.count === 0\) throw new EmployerError\('The requisition changed underneath you/);
+  });
   it('nothing under matching, eligibility, analytics or the AI gateway names an employer table', () => {
     const offenders: string[] = [];
     for (const dir of ['src/lib/matching', 'src/lib/eligibility', 'src/lib/analytics', 'src/lib/ai']) {
