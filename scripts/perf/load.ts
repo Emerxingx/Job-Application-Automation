@@ -16,6 +16,7 @@
  *   PERF_BASE_URL=http://127.0.0.1:3000 PERF_CONCURRENCY=8 PERF_SECONDS=10 npm run perf:load
  */
 import { performance } from 'node:perf_hooks';
+import { redactError } from '@/lib/log';
 
 interface Route {
   path: string;
@@ -118,6 +119,6 @@ async function main() {
 }
 
 main().catch((error) => {
-  console.error(error);
+  console.error(redactError(error).message);
   process.exit(1);
 });

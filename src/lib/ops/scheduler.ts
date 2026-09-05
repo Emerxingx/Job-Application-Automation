@@ -16,28 +16,43 @@ import { redactError } from '@/lib/log';
  * epoch, so every worker computes the same boundaries). A run is claimed
  * by INSERTING a `WorkerRun` row for (job, windowStart); the unique index
  * makes the insert the lease. Two workers, or a worker restarted mid-run,
- * cannot both run the same window: the second insert fails with P2002 and
- * that worker moves on. A run that crashed without finishing is left
- * `running`; a later tick marks it `failed` ("abandoned") once it is older
- * than the job's timeout, and the NEXT window runs normally - one window
- * is lost, never doubled. No `pg_advisory_lock`, because the application's
- * runtime connection is the transaction pooler, on which a session lock is
- * exactly the leak `DEPLOYMENT_ARCHITECTURE.md` warns about.
+ * cannot both claim the same window: the second insert fails with P2002
+ * and that worker moves on. No `pg_advisory_lock`, because the
+ * application's runtime connection is the transaction pooler, on which a
+ * session lock is exactly the leak `DEPLOYMENT_ARCHITECTURE.md` warns
+ * about.
+ *
+ * TIMEOUTS (Stage 24 review, H1)
+ * ------------------------------
+ * `job.run` is raced against the job's `timeoutMinutes`: a job that has
+ * not returned by then is recorded `failed: timed out` and the tick moves
+ * on, so one hung job (a dead pooled connection, a provider that never
+ * answers) cannot stop every other job or hold the worker's shutdown. The
+ * timed-out promise itself is not cancelled - JavaScript cannot - and may
+ * still hold a connection until it settles; when it does, its late result
+ * is DISCARDED: a run is finished with a conditional update on
+ * `status = 'running'`, so a row already marked failed (by the timeout or
+ * by `abandonStaleRuns` on another worker) is never overwritten with
+ * `succeeded`. A run that outlives its window can therefore overlap the
+ * next window's run; the jobs here are idempotent replace-sweeps, so the
+ * overlap costs work, not correctness, and the rows record it.
  *
  * WHAT IT IS NOT
  * --------------
- * Not a queue: there is no per-item work, no retry policy beyond "the next
- * window runs", no dead-letter queue. Readiness gate G4 "Background
+ * Not a queue: there is no per-item work, no retry inside a window (a
+ * failed window is retried at the NEXT window, or by the operator's
+ * command), no dead-letter queue. Readiness gate G4 "Background
  * processing: queue + workers + DLQ" is PARTIAL with this, not PASS, and
  * the evidence says so. Nothing here applies to a job on anyone's behalf
  * (ADR-0016): the jobs are the sweeps that already existed as commands.
+ * Daily windows start at 00:00 UTC (20:00 Eastern the evening before).
  */
 
 export interface ScheduledJob {
   name: string;
   /** How often the job is due. Windows are aligned to the epoch. */
   intervalMinutes: number;
-  /** A run older than this and still `running` is abandoned. */
+  /** A run older than this and still `running` is abandoned; a run still executing at this age is recorded as timed out. */
   timeoutMinutes: number;
   /** Runs the job for the window and returns a one-line summary of counts - never a value about a person. */
   run(now: Date): Promise<string>;
@@ -76,16 +91,18 @@ export const JOBS: ScheduledJob[] = [
     timeoutMinutes: 120,
     async run(now) {
       const { rollupAll } = await import('@/lib/analytics/rollups');
-      const { rollupCandidateOutcomes } = await import('@/lib/analytics/candidate/rollup');
       const { rangeOfDays } = await import('@/lib/analytics/time');
       // Thirty days: the replace scopes converge, so a daily thirty-day window
       // keeps every mart current and repairs a late-arriving event; the
-      // operator's 400-day command is for a rebuild.
+      // operator's 400-day command is for a rebuild. The snapshot metrics
+      // ("at the end of the as-of day") are labelled with the day that just
+      // ENDED - the window starts at midnight, and a snapshot taken then
+      // describes the previous day's close, not this day's (review M6).
       const range = rangeOfDays(30, now);
-      const platform = await rollupAll(range);
-      const candidates = await rollupCandidateOutcomes(range);
+      const asOf = new Date(windowStartFor(now, 24 * 60).getTime() - 1);
+      const platform = await rollupAll(range, { asOf });
       const failed = platform.filter((r) => r.status === 'failed');
-      const summary = `${platform.length} platform jobs (${platform.reduce((n, r) => n + r.rowsWritten, 0)} rows), candidates: ${candidates.outcomeRows + candidates.matchRows + candidates.benchmarkRows} rows`;
+      const summary = `${platform.length} jobs, ${platform.reduce((n, r) => n + r.rowsWritten, 0)} rows written, snapshot day ${asOf.toISOString().slice(0, 10)}`;
       if (failed.length > 0) throw new Error(`${failed.map((r) => `${r.job}: ${r.error ?? 'failed'}`).join('; ')} - ${summary}`);
       return summary;
     },
@@ -97,7 +114,7 @@ export const JOBS: ScheduledJob[] = [
     async run(now) {
       const { sweepRetention } = await import('@/lib/privacy/retention');
       const r = await sweepRetention(now);
-      const summary = `sessions ${r.sessions}, ai runs ${r.aiRuns}, rollup runs ${r.rollupRuns}, mailbox refs ${r.mailboxReferences}, mart rows ${r.martRows}, erasures ${r.erasures}, file purges retried ${r.filePurgesRetried}`;
+      const summary = `sessions ${r.sessions}, ai runs ${r.aiRuns}, rollup runs ${r.rollupRuns}, worker runs ${r.workerRuns}, mailbox refs ${r.mailboxReferences}, mart rows ${r.martRows}, erasures ${r.erasures} of ${r.erasuresDue} due (${r.erasuresResumed} resumed), file purges retried ${r.filePurgesRetried}`;
       if (r.erasureErrors > 0) throw new Error(`${r.erasureErrors} erasure(s) failed - ${summary}`);
       return summary;
     },
@@ -150,11 +167,37 @@ export async function abandonStaleRuns(now: Date, jobs: readonly ScheduledJob[] 
   return abandoned;
 }
 
+class JobTimeout extends Error {
+  constructor(minutes: number) {
+    super(`timed out after ${minutes} minute(s); the job's promise was left to settle and its late result is discarded`);
+    this.name = 'JobTimeout';
+  }
+}
+
+/** Race the job against its timeout. The timer is cleared either way so a finished job never keeps the process alive. */
+function runWithTimeout(job: ScheduledJob, now: Date): Promise<string> {
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new JobTimeout(job.timeoutMinutes)), Math.max(1, job.timeoutMinutes * 60_000));
+  });
+  return Promise.race([job.run(now), timeout]).finally(() => clearTimeout(timer));
+}
+
+/**
+ * Finish a run ONLY if it is still `running`: a row the timeout or another
+ * worker's abandon rule already marked failed keeps that verdict, and a late
+ * success can never erase it (review H1). Returns whether the row took it.
+ */
+async function finishRun(runId: string, data: { status: 'succeeded' | 'failed'; summary?: string; error?: string }): Promise<boolean> {
+  const r = await db.workerRun.updateMany({ where: { id: runId, status: 'running' }, data: { ...data, finishedAt: new Date() } });
+  return r.count === 1;
+}
+
 /**
  * One tick: for every job whose current window has no run, claim it and run
  * it. Sequential on purpose (the worker is one process; two heavy sweeps at
- * once compete for the same database). Never throws for a job's failure -
- * the failure is a row and a result.
+ * once compete for the same database) and bounded per job by its timeout.
+ * Never throws for a job's failure - the failure is a row and a result.
  */
 export async function tick(now: Date, workerId: string, jobs: readonly ScheduledJob[] = JOBS): Promise<TickResult[]> {
   await abandonStaleRuns(now, jobs);
@@ -173,12 +216,12 @@ export async function tick(now: Date, workerId: string, jobs: readonly Scheduled
       throw error;
     }
     try {
-      const summary = await job.run(now);
-      await db.workerRun.update({ where: { id: runId }, data: { status: 'succeeded', finishedAt: new Date(), summary: summary.slice(0, 1000) } });
-      results.push({ job: job.name, windowStart, outcome: 'succeeded', detail: summary });
+      const summary = (await runWithTimeout(job, now)).slice(0, 1000);
+      const taken = await finishRun(runId, { status: 'succeeded', summary });
+      results.push({ job: job.name, windowStart, outcome: taken ? 'succeeded' : 'failed', detail: taken ? summary : 'finished after being abandoned; the result was discarded' });
     } catch (error) {
       const message = redactError(error).message.slice(0, 1000);
-      await db.workerRun.update({ where: { id: runId }, data: { status: 'failed', finishedAt: new Date(), error: message } });
+      await finishRun(runId, { status: 'failed', error: message });
       results.push({ job: job.name, windowStart, outcome: 'failed', detail: message });
     }
   }
@@ -206,6 +249,6 @@ export async function workerHealth(now: Date = new Date(), jobs: readonly Schedu
   const latest = await db.workerRun.groupBy({ by: ['job'], where: { status: 'succeeded', job: { in: jobs.map((j) => j.name) } }, _max: { startedAt: true } });
   const lastSuccess = new Map<string, Date | null>(latest.map((row) => [row.job, row._max.startedAt]));
   const overdue = overdueJobs(lastSuccess, now, jobs);
-  const everRan = (await db.workerRun.count()) > 0;
+  const everRan = (await db.workerRun.findFirst({ select: { id: true } })) !== null;
   return { ok: overdue.length === 0, overdue, everRan };
 }

@@ -202,8 +202,8 @@ npm run ops:break-glass    # records a direct production session in AuditLog bef
     unparseable region, no vocabulary skills) never merges. `JobSource` is
     system-only: never include it on the tenant path — resolve names with
     `sourceNamesFor()`. Dedup is measured on a labelled fixture set, not on
-    real traffic (no credentialed source). There is **no scheduler**:
-    freshness runs from `/console/sources` or `npm run jobs:freshness`.
+    real traffic (no credentialed source). Freshness runs from the worker
+    every six hours (Stage 24), from `/console/sources` or `npm run jobs:freshness`.
 
 18. **Eligibility is evaluated before fit, and never as a number** (Stage 07,
     ADR-0021). `src/lib/eligibility/engine.ts` is pure: six rules, each with
@@ -311,7 +311,7 @@ npm run ops:break-glass    # records a direct production session in AuditLog bef
     refuses a transactional query for a metric in the read module, the
     analytics page or the overview — add a metric to the dictionary and the
     mart, never a `count()` to a page. Counts are reach from the status
-    HISTORY. There is no scheduler: `npm run analytics:rollup`, the
+    HISTORY. The worker rebuilds the marts nightly (Stage 24); also `npm run analytics:rollup`, the
     candidate's refresh, or the first-visit rebuild. No industry dimension
     exists; do not fake one.
 
@@ -533,8 +533,8 @@ npm run ops:break-glass    # records a direct production session in AuditLog bef
     but never count. Every mart page shows `martFreshness` (the OLDEST
     latest success across a mart's jobs; null while any never ran; a
     single-organisation run is `organization_reporting:scoped` and never
-    counts) and says STALE past the SLA; there is no scheduler
-    (`npm run analytics:rollup`). The employer `days_to_*` are MEANS,
+    counts) and says STALE past the SLA; the worker runs the rollups
+    nightly since Stage 24 (`npm run analytics:rollup` by hand). The employer `days_to_*` are MEANS,
     stated. Case outcomes are withheld PER DAY under five clients -
     `people` is a day's distinct clients and is never summed across days.
     The revenue mart's MRR block is base-currency only, its opening row must

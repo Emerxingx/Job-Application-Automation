@@ -192,7 +192,7 @@ export function SourcesAdmin({ sources, runs }: { sources: SourceView[]; runs: S
             <button type="button" className="btn-secondary px-3 py-1.5 text-xs" disabled={busy !== null} aria-label={`Run health check for ${s.name}`} onClick={() => health(s.key)}>
               {busy === `health:${s.key}` && <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />} Health check
             </button>
-            {/* Stage 06: a freshness sweep on demand (no scheduler exists yet); refused for a source the gate refuses. */}
+            {/* Stage 06: a freshness sweep on demand (the worker also runs one every six hours since Stage 24); refused for a source the gate refuses. */}
             <button type="button" className="btn-secondary px-3 py-1.5 text-xs" disabled={busy !== null || s.status === 'disabled'} aria-label={`Run freshness sweep for ${s.name}`} onClick={() => refresh(s.key)}>
               {busy === `refresh:${s.key}` && <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />} Freshness sweep
             </button>

@@ -59,6 +59,7 @@ export async function runSmoke(origin: string, fetchImpl: Fetch = fetch): Promis
     const html = await login.text();
     add('login page', login.status === 200 && /<main\b/.test(html), `HTTP ${login.status}${/<main\b/.test(html) ? ', has a main landmark' : ', no main landmark'}`);
     for (const h of SECURITY_HEADERS as { key: string; value: string }[]) {
+      if (h.key.toLowerCase() === 'content-security-policy') continue; // checked below: the static floor plus the gate's nonce policy arrive as one joined header
       const got = login.headers.get(h.key);
       add(`header ${h.key}`, got === h.value, got === h.value ? 'present' : got ? 'present with a different value' : 'absent');
     }
@@ -85,9 +86,10 @@ export async function runSmoke(origin: string, fetchImpl: Fetch = fetch): Promis
   const csrf = await get(fetchImpl, `${base}/api/auth/logout`, { method: 'POST', headers: { cookie: 'jobpilot_session=smoke', origin: 'https://evil.example', 'sec-fetch-site': 'cross-site' } });
   add('cross-site write refused', !!csrf && csrf.status === 403, csrf ? `HTTP ${csrf.status}` : 'no answer');
 
-  // 6. The CMS is up (its own auth; a redirect to its sign-in is fine).
+  // 6. The CMS is up: its page, or a redirect to its own sign-in - never a 404 (review L7: a build with the CMS unmounted must fail here).
   const admin = await get(fetchImpl, `${base}/admin`);
-  add('CMS admin reachable', !!admin && admin.status < 500, admin ? `HTTP ${admin.status}` : 'no answer');
+  const adminUp = !!admin && (admin.status === 200 || (admin.status >= 300 && admin.status < 400 && /\/admin/.test(admin.headers.get('location') ?? '')));
+  add('CMS admin reachable', adminUp, admin ? `HTTP ${admin.status}${admin.headers.get('location') ? ` → ${admin.headers.get('location')}` : ''}` : 'no answer');
 
   // 7. An unknown page is gated like every other non-public path (a
   //    redirect to sign-in - deny by default runs before routing), never a

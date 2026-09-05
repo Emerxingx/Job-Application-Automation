@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { beforeEach, describe, it } from 'node:test';
-import { LIMITS, clientAddress, rateLimit, resetRateLimits } from '../src/lib/rate-limit';
+import { LIMITS, bucketId, clientAddress, looksLikeAddress, rateLimit, resetRateLimits } from '../src/lib/rate-limit';
 
 const rule = { limit: 3, windowSeconds: 60 };
 
@@ -101,5 +101,24 @@ describe('clientAddress', () => {
       '198.51.100.4',
     );
     assert.equal(clientAddress(new Request('https://example.com')), 'unknown');
+  });
+});
+
+describe('Stage 24 review - keys and addresses', () => {
+  it('a bucket and a key can never collide on a colon, and an oversized key becomes its digest (M1, H2)', () => {
+    assert.notEqual(bucketId('auth', 'scim:x'), bucketId('auth:scim', 'x'));
+    assert.equal(bucketId('auth', '2001:db8::1'), 'auth:11:2001:db8::1');
+    const long = bucketId('auth', 'x'.repeat(5000));
+    assert.ok(long.length < 200 && /^auth:\d+:sha256:[0-9a-f]{64}$/.test(long));
+  });
+
+  it('only an address-shaped forwarded value is a key; forged text shares the anonymous bucket (H2)', () => {
+    assert.equal(looksLikeAddress('203.0.113.7'), true);
+    assert.equal(looksLikeAddress('2001:db8::1'), true);
+    assert.equal(looksLikeAddress('999.1.1.1'), false);
+    assert.equal(looksLikeAddress('x'.repeat(3000)), false);
+    assert.equal(looksLikeAddress('evil; DROP TABLE'), false);
+    const forged = new Request('https://example.com', { headers: { 'x-forwarded-for': 'not-an-address-' + 'a'.repeat(100) } });
+    assert.equal(clientAddress(forged, 1), 'unknown');
   });
 });

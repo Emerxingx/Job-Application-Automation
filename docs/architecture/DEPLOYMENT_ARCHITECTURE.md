@@ -104,7 +104,7 @@ transactional store at any tier.
 | --- | --- | --- |
 | SQLite | No RLS, no concurrent writes | 01 |
 | No migrations | No reproducible schema | 01 |
-| In-process rate limiting | Ceiling × instance count | **Removed in 24** (`RATE_LIMIT_STORE=postgres`, opt-in) |
+| In-process rate limiting | Ceiling × instance count | **Reduced in 24** (`RATE_LIMIT_STORE=postgres`, opt-in; never run with two instances) |
 | In-process cache | Invalidation does not propagate | 01 (Redis, optional; not shared until `REDIS_URL` is set) |
 | Local filesystem storage | Artefacts lost on restart | 05 (S3 provider; `env:check` warns on `local`) |
 | No workers | Everything on the request path | **Reduced in 24** (`npm run worker`: the sweeps on leased windows; scans are still synchronous) |

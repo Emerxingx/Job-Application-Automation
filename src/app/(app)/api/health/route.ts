@@ -2,10 +2,10 @@ import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getCache } from '@/lib/cache';
 import { getStorageProvider } from '@/lib/storage';
-import { clientAddress, rateLimit } from '@/lib/rate-limit';
+import { clientAddress, rateLimitLocal } from '@/lib/rate-limit';
 import { MART_REGISTRY } from '@/lib/analytics/platform/dictionary';
 import { martFreshness } from '@/lib/analytics/freshness';
-import { rateLimitStoreName } from '@/lib/rate-limit';
+import { rateLimitStoreStatus } from '@/lib/rate-limit';
 import { workerHealth } from '@/lib/ops/scheduler';
 
 /**
@@ -111,10 +111,14 @@ export async function healthBody(now = Date.now()): Promise<HealthBody> {
   if (memo && now >= memo.at && now - memo.at < MEMO_MS) return memo.body;
   const [database, migrations, storage, jobSources, marts, worker] = await Promise.all([checkDatabase(), checkMigrations(), checkStorage(), checkJobSources(), checkMarts(), checkWorker()]);
   const cache: Check = { ok: true, detail: getCache().backend === 'redis' ? 'shared' : 'local' };
-  // Stage 24: which limiter store is configured - `local` is correct for one instance and wrong for two (R-16).
-  const rateLimitStore: Check = { ok: true, detail: rateLimitStoreName() === 'postgres' ? 'shared' : 'local' };
+  // Stage 24: the limiter store actually serving requests - `local` is correct
+  // for one instance and wrong for two (R-16); `degraded` means the shared
+  // store failed inside the last minute and requests are limited per instance
+  // (review M2), which is not ok.
+  const storeStatus = rateLimitStoreStatus();
+  const rateLimitStore: Check = { ok: storeStatus !== 'degraded', detail: storeStatus };
   const serving = database.ok && migrations.ok;
-  const operational = serving && storage.ok && jobSources.ok && marts.ok && worker.ok;
+  const operational = serving && storage.ok && jobSources.ok && marts.ok && worker.ok && rateLimitStore.ok;
   const body: HealthBody = { status: !serving ? 'unavailable' : operational ? 'ok' : 'degraded', checks: { database, migrations, cache, rateLimitStore, storage, jobSources, marts, worker }, checkedAt: new Date(now).toISOString() };
   memo = { at: now, body };
   return body;
@@ -127,9 +131,12 @@ export function resetHealthMemo(): void {
 
 export async function GET(request: Request) {
   const noStore = { 'Cache-Control': 'no-store' };
-  const perAddress = await rateLimit('health', clientAddress(request), { limit: 60, windowSeconds: 60 });
+  // Both budgets are per instance ON PURPOSE (review H2): they bound this
+  // process's cost, and a shared counter would add a database write per
+  // anonymous request to the one route a monitor polls.
+  const perAddress = await rateLimitLocal('health', clientAddress(request), { limit: 60, windowSeconds: 60 });
   if (!perAddress.ok) return NextResponse.json({ status: 'rate_limited' }, { status: 429, headers: { 'Retry-After': String(perAddress.retryAfterSeconds), ...noStore } });
-  const perInstance = await rateLimit('health:all', 'all', GLOBAL_LIMIT);
+  const perInstance = await rateLimitLocal('health:all', 'all', GLOBAL_LIMIT);
   if (!perInstance.ok) return NextResponse.json({ status: 'rate_limited' }, { status: 429, headers: { 'Retry-After': String(perInstance.retryAfterSeconds), ...noStore } });
 
   const body = await healthBody();

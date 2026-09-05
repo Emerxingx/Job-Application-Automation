@@ -52,13 +52,13 @@ describe('Stage 24 - the shared rate-limit store, the scheduler and the health c
     const results = await Promise.all(Array.from({ length: 20 }, () => rl.rateLimit(`ops${S}:shared`, 'actor', rule)));
     assert.equal(results.filter((r) => r.ok).length, 5, 'twenty concurrent requests: five pass, whatever their order');
     assert.equal(results.filter((r) => !r.ok).length, 15);
-    const row = await db.rateLimitBucket.findUniqueOrThrow({ where: { id: `ops${S}:shared:actor` } });
+    const row = await db.rateLimitBucket.findUniqueOrThrow({ where: { id: rl.bucketId(`ops${S}:shared`, 'actor') } });
     assert.equal(row.count, 20, 'every request charged the one row');
     const refused = await rl.rateLimit(`ops${S}:shared`, 'actor', rule);
     assert.equal(refused.ok, false);
     assert.ok(refused.retryAfterSeconds >= 1 && refused.retryAfterSeconds <= 60);
     // A fresh window starts when the old one has ended.
-    await db.rateLimitBucket.update({ where: { id: `ops${S}:shared:actor` }, data: { resetAt: new Date(Date.now() - 1000) } });
+    await db.rateLimitBucket.update({ where: { id: rl.bucketId(`ops${S}:shared`, 'actor') }, data: { resetAt: new Date(Date.now() - 1000) } });
     const again = await rl.rateLimit(`ops${S}:shared`, 'actor', rule);
     assert.equal(again.ok, true);
     assert.equal(again.remaining, 4);
@@ -94,6 +94,22 @@ describe('Stage 24 - the shared rate-limit store, the scheduler and the health c
     assert.equal(runs, 2);
     const rows = await db.workerRun.findMany({ where: { job: job.name }, orderBy: { windowStart: 'asc' } });
     assert.deepEqual(rows.map((r) => [r.windowStart.toISOString(), r.status, r.summary]), [['2026-09-05T13:00:00.000Z', 'succeeded', 'ran 1'], ['2026-09-05T14:00:00.000Z', 'succeeded', 'ran 2']]);
+  });
+
+  it('a job that outlives its timeout is recorded as timed out, the tick moves on, and its late success is discarded (review H1)', async () => {
+    let release: (() => void) | undefined;
+    const slow = { name: `ops_${S}_slow`, intervalMinutes: 60, timeoutMinutes: 1 / 600, run: () => new Promise<string>((resolve) => { release = () => resolve('late'); }) }; // 100 ms timeout
+    const after = { name: `ops_${S}_after`, intervalMinutes: 60, timeoutMinutes: 5, run: async () => 'ran after the slow one' };
+    const now = new Date('2026-09-05T16:10:00Z');
+    const results = await scheduler.tick(now, 'w1', [slow, after]);
+    assert.equal(results[0]!.outcome, 'failed');
+    assert.match(results[0]!.detail, /timed out after/);
+    assert.equal(results[1]!.outcome, 'succeeded', 'the next job still ran');
+    release!();
+    await new Promise((r) => setTimeout(r, 50));
+    const row = await db.workerRun.findFirstOrThrow({ where: { job: slow.name } });
+    assert.equal(row.status, 'failed', 'the late success did not overwrite the timeout');
+    assert.match(row.error ?? '', /timed out/);
   });
 
   it('a failing job is a failed row with the redacted error, never a thrown tick; an abandoned run is marked failed after its timeout', async () => {
@@ -135,18 +151,26 @@ describe('Stage 24 - the shared rate-limit store, the scheduler and the health c
     const res = await health.GET(new Request('http://localhost/api/health', { headers: { 'x-forwarded-for': '203.0.113.24' } }));
     const body = (await res.json()) as { checks: Record<string, { ok: boolean; detail: string }> };
     assert.ok(['current', 'overdue', 'never ran'].includes(body.checks.worker!.detail), body.checks.worker!.detail);
-    assert.ok(['shared', 'local'].includes(body.checks.rateLimitStore!.detail));
+    assert.ok(['shared', 'local', 'degraded'].includes(body.checks.rateLimitStore!.detail));
     assert.ok(!JSON.stringify(body).includes(`ops_${S}`), 'no job name leaks');
   });
 
-  it('a break-glass session is recorded before it opens and when it closes, with the ticket and the reason, never a credential', async () => {
-    const { recordSecurityEvent } = await import('../src/lib/security-audit');
-    await recordSecurityEvent({ event: 'ops.break_glass.opened', actor: { type: 'staff', email: 'ops@example.ca' }, entityType: 'BreakGlass', entityId: `INC-${S}`, summary: `Break-glass session opened for INC-${S}: database recovery`, reason: 'database recovery', detail: { ticket: `INC-${S}` } });
-    const opened = await db.auditLog.findFirstOrThrow({ where: { action: 'ops.break_glass.opened', entityId: `INC-${S}` } });
+  it('a break-glass session is recorded before it opens and when it closes, by a staff address only, with the ticket on both rows and never a credential (review M5)', async () => {
+    const { openBreakGlass, closeBreakGlass, BreakGlassError } = await import('../src/lib/ops/break-glass');
+    const env: NodeJS.ProcessEnv = { NODE_ENV: 'test', STAFF_EMAILS: 'ops@example.ca' };
+    await assert.rejects(openBreakGlass({ actor: 'someone@else.example', reason: 'x', ticket: `INC-${S}` }, env), BreakGlassError);
+    await assert.rejects(openBreakGlass({ actor: 'ops@example.ca', reason: '', ticket: `INC-${S}` }, env), /required BEFORE/);
+    const { id } = await openBreakGlass({ actor: 'OPS@example.ca', reason: 'database recovery\nsecond line', ticket: `INC-${S}` }, env);
+    const opened = await db.auditLog.findUniqueOrThrow({ where: { id } });
     assert.equal(opened.actorType, 'staff');
     assert.equal(opened.actorEmail, 'ops@example.ca');
-    assert.equal(opened.reason, 'database recovery');
-    await recordSecurityEvent({ event: 'ops.break_glass.closed', actor: { type: 'staff', email: opened.actorEmail }, entityType: 'BreakGlass', entityId: `INC-${S}`, summary: 'Break-glass session closed: Invoice restored from dump; 0 rows changed', reason: opened.reason });
-    assert.equal(await db.auditLog.count({ where: { entityType: 'BreakGlass', entityId: `INC-${S}` } }), 2);
+    assert.equal(opened.entityId, `INC-${S}`);
+    assert.equal(opened.reason, 'database recovery second line', 'newlines cannot forge a second line');
+    await assert.rejects(closeBreakGlass({ openedId: id, summary: '' }), /--summary is required/);
+    const closed = await closeBreakGlass({ openedId: id, summary: 'Invoice restored from dump; 0 rows changed' });
+    assert.equal(closed.ticket, `INC-${S}`);
+    const rows = await db.auditLog.findMany({ where: { entityType: 'BreakGlass', entityId: `INC-${S}` }, orderBy: { createdAt: 'asc' } });
+    assert.deepEqual(rows.map((r) => r.action), ['ops.break_glass.opened', 'ops.break_glass.closed'], 'one query by ticket returns the pair');
+    assert.ok(rows.every((r) => !/postgres|DATABASE_URL/.test(r.after)));
   });
 });

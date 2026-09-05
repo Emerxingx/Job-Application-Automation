@@ -4,6 +4,7 @@
  * Anonymous, credential-free; exits 1 when any check fails. `SMOKE_JSON`
  * writes the checks to a file for the deploy record.
  */
+import { redactError } from '@/lib/log';
 import { runSmoke } from '@/lib/ops/smoke';
 
 async function main() {
@@ -25,6 +26,6 @@ async function main() {
 }
 
 main().catch((error) => {
-  console.error(`[smoke] ${error instanceof Error ? error.message : 'failed'}`);
+  console.error(`[smoke] ${redactError(error).message}`);
   process.exit(1);
 });

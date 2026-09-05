@@ -54,7 +54,7 @@ describe('Stage 24 - the configuration check', () => {
 
   it('fails the shapes that would break or expose production, each with a reason in words', () => {
     const cases: [string, Partial<NodeJS.ProcessEnv>, RegExp][] = [
-      ['NODE_ENV', { NODE_ENV: 'development' }, /guards/],
+
       ['AUTH_SECRET', { AUTH_SECRET: 'dev-only-secret-change-me-in-production-0123456789' }, /placeholder/],
       ['AUTH_SECRET ≠ PAYLOAD_SECRET', { PAYLOAD_SECRET: PRODUCTION.AUTH_SECRET }, /same value/],
       ['NEXT_PUBLIC_APP_URL', { NEXT_PUBLIC_APP_URL: 'http://app.example.ca' }, /https/],
@@ -81,10 +81,16 @@ describe('Stage 24 - the configuration check', () => {
     }
   });
 
-  it('warns, never fails, on the single-instance shapes', () => {
-    const report = checkEnvironment({ ...PRODUCTION, RATE_LIMIT_STORE: '', REDIS_URL: '', STORAGE_PROVIDER: 'local', JOB_PROVIDER: 'mock' });
+  it('warns, never fails, on the single-instance shapes, on a shell without NODE_ENV and on an unrecognised session port', () => {
+    const report = checkEnvironment({ ...PRODUCTION, NODE_ENV: 'development', RATE_LIMIT_STORE: '', REDIS_URL: '', STORAGE_PROVIDER: 'local', JOB_PROVIDER: 'mock', DIRECT_URL: PRODUCTION.DIRECT_URL!.replace(':5432/', ':5433/') });
     assert.equal(report.ok, true);
-    for (const name of ['RATE_LIMIT_STORE', 'REDIS_URL', 'STORAGE_PROVIDER', 'JOB_PROVIDER']) assert.equal(report.findings.find((f) => f.name === name)?.status, 'WARN', name);
+    for (const name of ['NODE_ENV', 'RATE_LIMIT_STORE', 'REDIS_URL', 'STORAGE_PROVIDER', 'JOB_PROVIDER', 'DIRECT_URL']) assert.equal(report.findings.find((f) => f.name === name)?.status, 'WARN', name);
+    assert.match(report.findings.find((f) => f.name === 'NODE_ENV')!.detail, /injects it at runtime/);
+    // Review L2: the CMS on the session endpoint with the operational database's name is the same database.
+    const sameOnSession = checkEnvironment({ ...PRODUCTION, PAYLOAD_DATABASE_URI: PRODUCTION.DIRECT_URL });
+    assert.equal(sameOnSession.findings.find((f) => f.name === 'PAYLOAD_DATABASE_URI')?.status, 'FAIL');
+    // Review L5: the runtime's own key parser decides - a base64url key the runtime refuses fails here too, a hex key passes.
+    assert.equal(checkEnvironment({ ...PRODUCTION, MAILBOX_ENCRYPTION_KEY: 'a'.repeat(64) }).findings.find((f) => f.name === 'MAILBOX_ENCRYPTION_KEY')?.status, 'PASS');
     assert.equal(rateLimitStoreName({ NODE_ENV: 'test', RATE_LIMIT_STORE: 'Postgres ' }), 'postgres');
     assert.equal(rateLimitStoreName({ NODE_ENV: 'test' }), 'memory');
   });
@@ -92,7 +98,8 @@ describe('Stage 24 - the configuration check', () => {
 
 describe('Stage 24 - the smoke suite', () => {
   const csp = contentSecurityPolicy('AbCdEfGhIjKlMnOpQrStUv==', false);
-  const headers = () => ({ 'content-security-policy': csp, 'cache-control': 'no-store', ...Object.fromEntries(SECURITY_HEADERS.map((h) => [h.key.toLowerCase(), h.value])) });
+  // A real server sends the static base policy AND the gate's nonce policy; fetch joins two same-named headers with a comma.
+  const headers = () => ({ ...Object.fromEntries(SECURITY_HEADERS.map((h) => [h.key.toLowerCase(), h.value])), 'content-security-policy': `${CSP_BASE_DIRECTIVES.join('; ')}, ${csp}`, 'cache-control': 'no-store' });
   const good = (async (input: string, init?: RequestInit) => {
     const url = new URL(input);
     const h = headers();
@@ -111,7 +118,8 @@ describe('Stage 24 - the smoke suite', () => {
     const checks = await runSmoke('https://app.example.ca/', good);
     const failed = checks.filter((c) => !c.ok);
     assert.deepEqual(failed, [], JSON.stringify(failed));
-    assert.equal(checks.length, 9 + SECURITY_HEADERS.length + 2);
+    const NON_HEADER_CHECKS = 11; // health, not cached, login, page redirect, API 401, unknown API, v1 envelope, CSRF, CMS, unknown page, CSP
+    assert.equal(checks.length, NON_HEADER_CHECKS + (SECURITY_HEADERS.length - 1));
     assert.match(checks.find((c) => c.name === 'health')!.detail, /degraded \(marts: stale\)/);
   });
 
@@ -129,6 +137,9 @@ describe('Stage 24 - the smoke suite', () => {
     assert.ok(failed.includes('cross-site write refused'));
     assert.ok(failed.includes('header Content-Security-Policy'));
     assert.ok(failed.includes('header Strict-Transport-Security'));
+    // Review L7: a build with the CMS unmounted (a 404 at /admin) must fail the CMS check.
+    const noCms = (async (input: string, init?: RequestInit) => (new URL(input).pathname === '/admin' ? new Response('nope', { status: 404 }) : good(input, init))) as unknown as typeof fetch;
+    assert.ok((await runSmoke('https://app.example.ca', noCms)).find((c) => c.name === 'CMS admin reachable')!.ok === false);
     const down = (async () => {
       throw new Error('ECONNREFUSED');
     }) as unknown as typeof fetch;
@@ -202,8 +213,9 @@ describe('Stage 24 - wiring', () => {
     const pkg = read('package.json');
     for (const script of ['"worker"', '"env:check"', '"smoke"', '"ops:break-glass"']) assert.match(pkg, new RegExp(script));
     assert.match(read('scripts', 'ops', 'worker.ts'), /tick\(new Date\(\), workerId\)/);
-    assert.match(read('scripts', 'ops', 'break-glass.ts'), /ops\.break_glass\.opened/);
-    assert.ok(!/DATABASE_URL|DIRECT_URL/.test(read('scripts', 'ops', 'break-glass.ts')), 'the command holds no credential');
+    assert.match(read('src', 'lib', 'ops', 'break-glass.ts'), /ops\.break_glass\.opened/);
+    assert.match(read('src', 'lib', 'ops', 'break-glass.ts'), /isAllowlistedStaffEmail\(/, 'a break-glass actor is staff (review M5)');
+    assert.ok(!/DATABASE_URL|DIRECT_URL/.test(read('scripts', 'ops', 'break-glass.ts') + read('src', 'lib', 'ops', 'break-glass.ts')), 'the command holds no credential');
   });
 
   it('the two operations tables are system-only under RLS and in a manifest', () => {

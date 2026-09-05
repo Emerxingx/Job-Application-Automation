@@ -27,7 +27,12 @@ rehearsed (no production environment exists). Readiness gate G4
    3. Redeploy the previous pinned commit against the restored database
       (`DATABASE_URL` / `DIRECT_URL` in the secrets manager).
    4. `npm run smoke -- <origin>`; `GET /api/health` is `ok` or `degraded`.
-   5. Restart the worker on the previous commit.
+   5. Restart the worker on the previous commit. Its first daily tick will
+      RE-EXECUTE every account erasure whose request row is `completed` but
+      whose person the restored copy still holds (Stage 23 review M4:
+      `unfinishedErasures()`); that is the design, and the incident note
+      should say how many (the `retention.swept` row carries
+      `erasuresResumed`).
    6. **Data written between the migration and the rollback is lost** unless
       recovered by hand from the abandoned database; say so in the incident
       note (`INCIDENT_RESPONSE.md`). A migration that is additive (every

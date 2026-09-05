@@ -31,10 +31,14 @@ finding.
    npm run ops:break-glass -- --actor <staff email> --reason "<incident id or recovery scenario>" --ticket <reference>
    ```
 
-   writes one `ops.break_glass` row to `AuditLog` (the actor's email, the
-   reason, the ticket, the time; never a credential, never what was read)
-   and prints the row id. The row exists before the session; a session
-   without a row is itself a Sev 2 finding.
+   writes one `ops.break_glass.opened` row to `AuditLog` (the actor's
+   email - which must be on `STAFF_EMAILS` - and its digest, the reason,
+   the ticket, the time; never a credential, never what was read) and
+   prints the row id. The row exists before the session; a session without
+   a row is itself a Sev 2 finding - and the only thing that can DETECT
+   such a session is the provider's connection log (rule 8), because the
+   row is a declaration the person makes, not something the credential
+   enforces.
 2. **Two people.** The person with the credential and a second person who
    knows the session is open (the founder, until there is a team). One
    person alone never opens a production session outside an outage where
@@ -54,6 +58,11 @@ finding.
    counts, never a value).
 7. **Rotate after.** If the credential was pasted anywhere other than the
    terminal that used it (a chat, a ticket), rotate it the same day.
+8. **The provider's log is the enforcement.** Turn on connection logging
+   (`log_connections`) permanently and statement logging (`log_statement`)
+   for the duration of the session where the provider allows it; reconcile
+   the provider's connection log against the `ops.break_glass` rows weekly.
+   A connection with no row is the finding rule 1 describes.
 
 ## Who holds the credential
 
@@ -62,10 +71,15 @@ Until the founder names a team: the founder, in the secrets manager
 NOT hold a usable one (`CLAUDE.md` item 8) and this programme never
 printed one.
 
-## What the audit row proves
+## What the audit row proves, and what it does not
 
-That a session was opened, by whom, why and when - and, on closure, what
-changed in words. It does not prove what was read: PostgreSQL's own
-`log_statement` on the provider is the only record of that, and turning
-it on for the duration of a break-glass session is part of the procedure
-where the provider allows it.
+That a member of staff DECLARED a session: who they say they are (checked
+against the staff allow-list, recorded in clear and as a digest), why,
+under which ticket, when - and, on closure, what they say changed. It
+does not prove the session happened, that it was that person, or what was
+read or written: anyone holding the credential can skip the row or name
+someone else. The provider's connection and statement logs are the only
+record of what a session actually did (rule 8); this command narrows the
+claim, it does not enforce it (Stage 24 review, M5). The opened and
+closed rows share the ticket as their entity, so one query by ticket
+returns the pair.

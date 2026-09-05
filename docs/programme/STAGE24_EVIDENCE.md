@@ -156,4 +156,42 @@ left. The overall bar is not met**, and every reason is named.
 
 ## 11. Independent review
 
-Pending; recorded here and in `AUTONOMOUS_STATUS.json` when processed.
+An independent adversarial review of `5799fc7..HEAD` (read-only, the same
+brief as Stages 19-23) returned 2 HIGH, 10 MEDIUM, 14 LOW and 7 INFO
+findings. Every HIGH and MEDIUM is fixed; every LOW is fixed or stated.
+Two findings corrected this stage's own claims: "rate limiting → PASS"
+(a mechanism never run with two instances is PARTIAL) and a health signal
+that reported the configured store rather than the one serving requests.
+
+| Id | Sev | Finding | Resolution |
+| --- | --- | --- | --- |
+| H1 | HIGH | No per-job timeout: a hung job stopped every other job and the worker's shutdown; a late success overwrote an abandoned row; overlap was possible | Fixed: `job.run` raced against its timeout (recorded `failed: timed out`, the tick moves on); a run is finished only while still `running` (a late result is discarded); the worker drains for 30 s then exits non-zero; documented overlap; tested (slow-but-alive job) |
+| H2 | HIGH | With the shared store the public health check wrote to the database per anonymous request, a forged forwarded header minted unbounded row ids, and the global budget became platform-wide | Fixed: the health budgets use `rateLimitLocal` (always per instance); a forwarded value that is not address-shaped shares the anonymous bucket; a key over 128 characters is replaced by its digest; tested |
+| M1 | MED | Bucket and key joined with a colon could collide | Fixed: the key's length sits between them (`bucketId`); tested |
+| M2 | MED | Health reported the CONFIGURED store, not the serving one | Fixed: `rateLimitStoreStatus()` reports `degraded` for a minute after a shared-store failure, `ok: false` |
+| M3 | MED | `DEPLOYMENT.md` said a second worker is idle and a failed run retries next tick | Fixed: workers share windows; a failed window waits for the next window |
+| M4 | MED | The erasure SLO named audit fields that do not exist | Fixed: `erasuresDue` recorded; the SLO rewritten against the real fields, at 48 h with the reason |
+| M5 | MED | The break-glass row was a self-declaration described as proof | Fixed: the actor must be on `STAFF_EMAILS`, the digest is recorded, the ticket is the entity on both rows, newlines stripped; the logic lives in `src/lib/ops/break-glass.ts` and is tested; the runbook says the provider's log is the enforcement |
+| M6 | MED | The nightly rollup labelled day D's "end-of-day" snapshot with the state at 00:00 D | Fixed: the scheduler passes `asOf` = the end of the day that just closed (`rollupAll` accepts it) |
+| M7 | MED | The sweep and a candidate's refresh took different advisory locks and could collide nightly | Fixed: the sweep holds the lock exclusively, a single candidate's refresh shared |
+| M8 | MED | Nine "no scheduler" statements and the unsupervised-erasure consequences were not updated | Fixed in code comments, `CLAUDE.md`, the matrix, `SLOS.md` (deferral and lost-window semantics), `ROLLBACK.md` (re-execution note) |
+| M9 | MED | Operator scripts logged raw errors; the scan covered only `src` | Fixed: every script through `redactError`; the scan covers `scripts/` |
+| M10 | MED | "Rate limiting → PASS" and "Removed in 24" overstated an opt-in mechanism | Fixed: PARTIAL in both gate rows, "Reduced in 24"; the ADR's "closed as a mechanism" wording kept |
+| L1 | LOW | Window boundaries used each instance's clock | Fixed: `clock_timestamp()` in the upsert |
+| L2 | LOW | CMS database compared against the pooler host only | Fixed: against both endpoints; tested |
+| L3 | LOW | An unrecognised session port failed with the wrong reason | Fixed: WARN with the reason; tested |
+| L4 | LOW | "No value was printed" while non-secret shape words were echoed | Fixed: "no secret and no connection string"; the module says which words are echoed |
+| L5 | LOW | A parallel key decoder disagreed with the runtime's | Fixed: the runtime parsers are reused; tested |
+| L6 | LOW | `NODE_ENV` FAIL trained the wrong habit | Fixed: WARN with the reason; tested |
+| L7 | LOW | "CMS admin reachable" passed on a 404 | Fixed: 200 or a redirect to `/admin`; tested |
+| L8 | LOW | `WORKER_ONCE=1` exited 0 on a failed job | Fixed: exit 1 |
+| L9 | LOW | `WorkerRun` grew unboundedly and was counted whole per health call | Fixed: swept at 90 days (matrix row added); `findFirst` |
+| L10 | LOW | The nonce policy depends on every page being dynamic, unstated | Stated in `security-headers.mjs` and the ADR; the browser spec is the guard |
+| L11 | LOW | The static CSP floor was removed for responses outside the gate's matcher | Fixed: the base directives are back in the static list; two headers compose |
+| L12 | LOW | The CSP spec's hydration claim was a wait | Stated: the spec proves no violation on load; interactions and lazy routes are NOT covered |
+| L13 | LOW | Test-count drift across three documents | Fixed: 1322 everywhere |
+| L14 | LOW | The `withCsp` count included the definition | Fixed: every `return` in `proxy()` is checked |
+| INFO | - | `'self' https:` fallback semantics; script-src only; opaque arithmetic; pool-serialised concurrency; UTC windows; tick minimum; "two commands" | Each stated in the module, the gate row, the test, the evidence, `DEPLOYMENT.md`, `.env.example` and the ADR |
+
+After the fixes: lint 0 / 8, typecheck 0, `npm test` TESTS_AFTER_REVIEW,
+build exit 0, smoke 18 / 18 on the rebuilt app.

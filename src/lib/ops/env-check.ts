@@ -3,17 +3,23 @@ import { isUsablePayloadSecret } from '@/lib/cms-secret';
 import { describeDatabaseUrl, normalizeDatabaseUrl } from '@/lib/db-url';
 import { RESIDENCY_REGIONS } from '@/lib/storage/s3';
 import { rateLimitStoreName } from '@/lib/rate-limit';
+import { mailboxKey } from '@/lib/mailbox/crypto';
+import { ssoKey } from '@/lib/sso/crypto';
 
 /**
  * Stage 24 (ADR-0038) - the production configuration check:
  * `npm run env:check`, the first step of every deploy.
  *
- * It answers "is this environment shaped like production?" and prints
- * NOTHING that is a value: not a URL, not a key, not an address. Every
- * finding is a name, a status and a sentence. The rules are the production
- * rules whatever NODE_ENV says, because the point is to run it against the
- * production configuration before that configuration serves anyone; a
- * NODE_ENV that is not `production` is itself a finding.
+ * It answers "is this environment shaped like production?" and prints no
+ * secret and no connection string: not a URL, not a key, not an address.
+ * (A non-secret shape word is echoed where it helps - the proxy hop count,
+ * the storage region, the job provider's name - and the summary line says
+ * exactly that.) Every finding is a name, a status and a sentence. The
+ * rules are the production rules whatever NODE_ENV says, because the point
+ * is to run it against the production configuration before that
+ * configuration serves anyone; most hosts inject NODE_ENV at runtime, so
+ * its absence in the shell running this check is a WARN with the reason,
+ * not a FAIL (review L6).
  *
  * Pure over an env object so the test can feed it shapes without setting
  * anything on the process.
@@ -46,22 +52,12 @@ function roleAndDatabase(raw: string | undefined): { user: string; database: str
   }
 }
 
-function keyBytes(value: string): number | null {
-  const v = value.trim();
-  if (/^[0-9a-fA-F]+$/.test(v) && v.length % 2 === 0) return v.length / 2;
-  try {
-    const buf = Buffer.from(v, 'base64');
-    return buf.length > 0 && buf.toString('base64').replace(/=+$/, '') === v.replace(/=+$/, '') ? buf.length : null;
-  } catch {
-    return null;
-  }
-}
 
 export function checkEnvironment(env: NodeJS.ProcessEnv): EnvReport {
   const f: EnvFinding[] = [];
   const add = (name: string, status: EnvStatus, detail: string) => f.push({ name, status, detail });
 
-  add('NODE_ENV', env.NODE_ENV === 'production' ? 'PASS' : 'FAIL', env.NODE_ENV === 'production' ? 'production' : 'not "production": the server-start guards for the secrets and the app URL do not fire');
+  add('NODE_ENV', env.NODE_ENV === 'production' ? 'PASS' : 'WARN', env.NODE_ENV === 'production' ? 'production' : 'not "production" in THIS shell: the host usually injects it at runtime; the server-start guards for the secrets and the app URL fire only when it is');
 
   // --- secrets -------------------------------------------------------------
   const auth = isUsableSecret(env.AUTH_SECRET);
@@ -69,14 +65,14 @@ export function checkEnvironment(env: NodeJS.ProcessEnv): EnvReport {
   const payload = isUsablePayloadSecret(env.PAYLOAD_SECRET);
   add('PAYLOAD_SECRET', payload ? 'PASS' : 'FAIL', payload ? 'generated value of 32+ characters' : 'missing, short, or the published placeholder');
   if (auth && payload) add('AUTH_SECRET ≠ PAYLOAD_SECRET', env.AUTH_SECRET !== env.PAYLOAD_SECRET ? 'PASS' : 'FAIL', env.AUTH_SECRET !== env.PAYLOAD_SECRET ? 'distinct' : 'the same value signs both editor and job-seeker sessions');
-  for (const name of ['MAILBOX_ENCRYPTION_KEY', 'SSO_ENCRYPTION_KEY'] as const) {
-    const v = env[name];
-    if (!present(v)) {
+  // The same parsers the runtime uses (review L5): a key the check accepts is a key the feature accepts, and vice versa.
+  for (const [name, parse] of [['MAILBOX_ENCRYPTION_KEY', mailboxKey], ['SSO_ENCRYPTION_KEY', ssoKey]] as const) {
+    if (!present(env[name])) {
       add(name, 'WARN', 'absent: the feature that needs it (mailbox connections / SSO) refuses to save a secret until it is set');
       continue;
     }
-    const bytes = keyBytes(v);
-    add(name, bytes === 32 ? 'PASS' : 'FAIL', bytes === 32 ? '32 bytes' : 'not 32 random bytes in base64 or hex');
+    const ok = parse(env)?.length === 32;
+    add(name, ok ? 'PASS' : 'FAIL', ok ? '32 bytes' : 'not 32 random bytes in base64 or hex (the runtime would refuse to encrypt)');
   }
   if (present(env.MAILBOX_ENCRYPTION_KEY) && present(env.SSO_ENCRYPTION_KEY)) {
     add('MAILBOX_ENCRYPTION_KEY ≠ SSO_ENCRYPTION_KEY', env.MAILBOX_ENCRYPTION_KEY !== env.SSO_ENCRYPTION_KEY ? 'PASS' : 'FAIL', env.MAILBOX_ENCRYPTION_KEY !== env.SSO_ENCRYPTION_KEY ? 'distinct' : 'one key, one blast radius: they must differ');
@@ -108,8 +104,10 @@ export function checkEnvironment(env: NodeJS.ProcessEnv): EnvReport {
   const direct = describeDatabaseUrl(env.DIRECT_URL);
   if (!runtime) add('DATABASE_URL', 'FAIL', 'missing or not a connection URL');
   else add('DATABASE_URL', runtime.mode === 'transaction-pooler' ? 'PASS' : 'WARN', runtime.mode === 'transaction-pooler' ? 'transaction-mode pooler (port and pgbouncer parameter)' : `mode "${runtime.mode}": the application expects the transaction pooler`);
-  if (!direct) add('DIRECT_URL', 'FAIL', 'missing or not a connection URL: migrations, backups and the worker need the session endpoint');
-  else add('DIRECT_URL', direct.mode === 'session-pooler-or-direct' ? 'PASS' : 'FAIL', direct.mode === 'session-pooler-or-direct' ? 'session endpoint' : `mode "${direct.mode}": migrations cannot run through the transaction pooler`);
+  if (!direct) add('DIRECT_URL', 'FAIL', 'missing or not a connection URL: migrations and backups need the session endpoint');
+  else if (direct.mode === 'transaction-pooler') add('DIRECT_URL', 'FAIL', 'the transaction pooler: migrations cannot run through it');
+  else if (direct.mode === 'unknown') add('DIRECT_URL', 'WARN', 'port not recognised as the session endpoint (5432) or the pooler (6543); confirm it is a session-mode connection (review L3)');
+  else add('DIRECT_URL', 'PASS', 'session endpoint');
   const r = roleAndDatabase(env.DATABASE_URL);
   const d = roleAndDatabase(env.DIRECT_URL);
   if (r && d) {
@@ -122,7 +120,9 @@ export function checkEnvironment(env: NodeJS.ProcessEnv): EnvReport {
   else if (!/^postgres(ql)?:\/\//.test(cms)) add('PAYLOAD_DATABASE_URI', 'FAIL', 'not a PostgreSQL URL');
   else {
     const c = roleAndDatabase(cms);
-    if (c && r && c.database === r.database && c.host === r.host) add('PAYLOAD_DATABASE_URI', 'FAIL', 'the same database as DATABASE_URL: the CMS must have its own logical database');
+    // Review L2: the same database name on EITHER endpoint (the pooler or the session host) is the same database.
+    const same = c && [r, d].some((x) => x && x.database === c.database);
+    if (same) add('PAYLOAD_DATABASE_URI', 'FAIL', 'the same database as DATABASE_URL / DIRECT_URL: the CMS must have its own logical database');
     else add('PAYLOAD_DATABASE_URI', 'PASS', 'a separate PostgreSQL database');
   }
 

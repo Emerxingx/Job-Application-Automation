@@ -19,7 +19,7 @@ document and the signals the application now exposes - not to PASS.
 | `checks.jobSources.ok` | same | at least one job source is enabled |
 | `checks.marts.ok` | same | every mart is inside its refresh SLA (`MART_REGISTRY`) |
 | `checks.worker.ok` | same | every scheduled job has succeeded inside twice its interval (Stage 24); `detail` is `current`, `overdue` or `never ran` - never a name or a count |
-| `checks.rateLimitStore.detail` | same | `local` (per instance) or `shared` (the PostgreSQL store) |
+| `checks.rateLimitStore.detail` | same | `local` (per instance), `shared` (the PostgreSQL store is serving), or `degraded` (the shared store failed inside the last minute and requests are limited per instance; `ok: false`) |
 | Response headers | every route | the security header list (`security-headers.mjs`) plus the per-request `script-src` nonce policy |
 | `npm run smoke` | operator, after a deploy | the production smoke suite (below) |
 
@@ -35,7 +35,7 @@ Stage 24+ item with a cost (an APM agent) and is not installed.
 | Latency of the candidate pages | p95 under 1.5 s at the origin (`PERFORMANCE_BUDGETS.md`) | the same budgets measured on the deployed origin by `npm run perf:load` after each deploy | The local measurement is within budget; production is NOT measured until the first deploy. |
 | Freshness of every dashboard | every mart inside its SLA (`MART_REGISTRY`: 26 h for daily marts) | `checks.marts.ok` | A stale dashboard says so (Stage 21); the SLO is that it rarely has to. |
 | Scheduled work | every job succeeds inside twice its interval | `checks.worker.ok` | The worker (Stage 24) runs freshness, rollups and retention on a lease; one missed run is tolerated, two are an alert. |
-| Erasure | every due erasure executed within 24 h of its due date | `retention.swept` audit rows carry `erasuresDue` and `erasuresExecuted` | A statutory expectation, not a preference. |
+| Erasure | every due erasure executed within 48 h of its due date | `retention.swept` audit rows carry `erasuresDue`, `erasures` (executed), `erasuresResumed` and `erasureErrors`; the objective is met on a day when `erasures + erasureErrors = erasuresDue` and `erasureErrors = 0` | A statutory expectation, not a preference. 48 h, not 24: the sweep runs once a day and a lost window (a worker crash mid-run) is retried only at the next window, so 24 h cannot be met by construction; a request whose blocker reappeared is deferred and audited (`privacy.erasure.deferred`) and counts as an error until it is resolved. |
 | Backups | one successful logical backup per day, restore rehearsed quarterly | the backup job's exit status and `BACKUP_RESTORE.md`'s record | The RPO in `DISASTER_RECOVERY.md` depends on it. |
 
 Error budget: 0.5 % per month. When it is spent, feature deploys stop
@@ -53,7 +53,8 @@ the founder's inbox and the SLO above is unenforced - stated.
 | A1 | `/api/health` returns 503 or does not answer | 3 consecutive minutes | Sev 1 - page | `INCIDENT_RESPONSE.md` first fifteen minutes; scenario 1 or 2 of `DISASTER_RECOVERY.md` if the database is gone |
 | A2 | `checks.migrations.ok` is false | 1 minute | Sev 1 - page | a deploy applied a migration that failed half-way; `DATABASE_MIGRATIONS.md` recovery |
 | A3 | `status` is `degraded` | 60 minutes | Sev 3 - ticket | read the failing check; a stale mart means the worker did not run (A4) |
-| A4 | `checks.worker.ok` is false | 30 minutes | Sev 2 - notify | the worker process is down or a job is failing; `WorkerRun` rows carry the error; restart the worker |
+| A4 | `checks.worker.ok` is false | 30 minutes | Sev 2 - notify | the worker process is down, a job is failing or timing out; `WorkerRun` rows carry the redacted error; restart the worker. Note the signal's latency: a daily job is `overdue` only after two missed windows (48 h) |
+| A4b | `checks.rateLimitStore.detail` is `degraded` | 5 minutes | Sev 2 - notify | the shared limiter store is unreachable or its table is missing; limits are per instance meanwhile |
 | A5 | `checks.storage.ok` is false | 5 minutes | Sev 2 - notify | credentials rotated without the deployment following; documents are refused, never served wrong |
 | A6 | HTTP 5xx rate over 1 % of requests | 5 minutes | Sev 2 - notify | the platform's request log; every unhandled error is logged redacted with its request id |
 | A7 | p95 latency over twice the route's budget at the origin | 15 minutes | Sev 3 - ticket | `PERFORMANCE_BUDGETS.md`; the database is the usual suspect |

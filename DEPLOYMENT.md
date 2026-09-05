@@ -113,10 +113,17 @@ denies everyone.
 freshness (every 6 h), the analytics rollups (daily), the retention sweep
 and due erasures (daily) and case retention (daily) on **leased runs**
 (`WorkerRun` rows: a second worker, or a restart, can never run the same
-window twice). Run exactly one; a second is harmless but idle.
-`/api/health` reports `checks.worker` and `SLOS.md` A4 fires when a job is
-overdue. There is no queue and no dead-letter queue; a failed run is a row
-with the error and is retried at the next tick.
+window twice). One is enough; a second worker is not idle - the two share
+the windows between them, and each marks the other's run abandoned if it
+outlives its job's timeout. Every job is bounded by its timeout; a job
+that overruns it is recorded `failed: timed out` and its late result is
+discarded. Daily windows start at 00:00 UTC (20:00 Eastern the evening
+before). `/api/health` reports `checks.worker` and `SLOS.md` A4 fires when
+a job is overdue. There is no queue and no dead-letter queue; **a failed
+window is not retried until the NEXT window** (six to twenty-four hours)
+or the operator's command - a failed row holds the lease. Every due
+erasure executes on the worker's first daily tick after its date, without
+an operator watching (`DATA_RETENTION_MATRIX.md`).
 
 **Rate limiting and cache across instances.** One instance needs nothing.
 Before a second instance: `RATE_LIMIT_STORE=postgres` (the shared counter

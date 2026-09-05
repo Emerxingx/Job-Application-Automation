@@ -8,17 +8,24 @@
  * other silently.
  *
  * What is and is not here, honestly:
- * - `Content-Security-Policy` is built PER REQUEST by the edge gate (Stage
- *   24, ADR-0038): the directives below that protect without a nonce (no
- *   framing by anyone, no plugins, no base-tag hijack, forms only to
- *   ourselves) plus a `script-src` that allows only scripts carrying that
- *   request's nonce (`'strict-dynamic'`, so the scripts they load are
- *   trusted too). Next.js reads the nonce from the request's own CSP header
- *   and stamps it on every script it emits. The policy is therefore NOT in
- *   the static list `next.config.mjs` ships - a static header cannot carry a
- *   per-request nonce - and lives in `contentSecurityPolicy()` below. In
- *   development Next needs `'unsafe-eval'` for its source maps; production
- *   never gets it.
+ * - `Content-Security-Policy` comes twice, on purpose. The static list
+ *   carries the BASE directives (no framing by anyone, no plugins, no
+ *   base-tag hijack, forms only to ourselves) on every response, including
+ *   the static assets outside the edge gate's matcher (Stage 24 review,
+ *   L11). The edge gate (`src/proxy.ts`, ADR-0038) adds a second policy per
+ *   request: the same base directives plus a `script-src` that allows only
+ *   scripts carrying that request's nonce (`'strict-dynamic'`, so the
+ *   scripts they load are trusted too). A browser enforces every CSP header
+ *   it receives, so the two compose. Next.js reads the nonce from the
+ *   request's own CSP header and stamps it on every script it emits - which
+ *   requires every page to be rendered PER REQUEST: a prerendered page
+ *   would carry one build-time nonce that no later response's header
+ *   matches. Today every page is dynamic because the root layout reads the
+ *   request's cookies (the impersonation banner); `a11y/csp.spec.ts` fails
+ *   in CI if a page ever prerenders out of that (review L10). The policy is
+ *   script-src only: no `default-src`, `style-src`, `connect-src` or
+ *   `img-src` yet, stated in the readiness gate. In development Next needs
+ *   `'unsafe-eval'` for its source maps; production never gets it.
  * - `Strict-Transport-Security` is inert over plain HTTP (a browser ignores
  *   it) and correct behind TLS; it is set unconditionally so a deployment
  *   cannot forget it. `includeSubDomains` means every subdomain of the
@@ -29,7 +36,11 @@
  *   OAuth or payment SDK flow; none exists (the mailbox and SSO flows are
  *   redirects). Revisit if one is added.
  */
+/** The directives that need no nonce: present on every response, whatever the request. */
+export const CSP_BASE_DIRECTIVES = ["frame-ancestors 'none'", "base-uri 'self'", "form-action 'self'", "object-src 'none'"];
+
 export const SECURITY_HEADERS = [
+  { key: 'Content-Security-Policy', value: CSP_BASE_DIRECTIVES.join('; ') },
   { key: 'X-Frame-Options', value: 'DENY' },
   { key: 'X-Content-Type-Options', value: 'nosniff' },
   { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
@@ -38,9 +49,6 @@ export const SECURITY_HEADERS = [
   { key: 'Cross-Origin-Opener-Policy', value: 'same-origin' },
   { key: 'X-DNS-Prefetch-Control', value: 'off' },
 ];
-
-/** The directives that need no nonce: present on every response, whatever the request. */
-export const CSP_BASE_DIRECTIVES = ["frame-ancestors 'none'", "base-uri 'self'", "form-action 'self'", "object-src 'none'"];
 
 /**
  * The full policy for one request. `nonce` is 128 bits of randomness,

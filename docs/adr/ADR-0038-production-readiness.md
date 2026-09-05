@@ -49,12 +49,16 @@ not go live, and the consolidated verdict says so.
    `src/proxy.ts` draws 128 random bits per request, puts the full policy
    (the Stage 23 base directives plus `script-src 'nonce-…' 'strict-dynamic'`)
    on the REQUEST so Next stamps the nonce on every script it emits, and on
-   every RESPONSE the gate returns (page, redirect, 401, 403). The policy
-   left the static header list because a static header cannot carry a
-   per-request value; `security-headers.mjs` now exports the base
-   directives and the builder, and the static test, the smoke suite and
-   the proxy read the same module. Production never gets `'unsafe-eval'`
-   or `'unsafe-inline'`. A Playwright spec loads the public, candidate,
+   every RESPONSE the gate returns (page, redirect, 401, 403). The base
+   directives stay in the static header list as a floor on every response
+   (a browser enforces every CSP header it receives); the nonce policy is
+   the gate's second header, because a static header cannot carry a
+   per-request value; `security-headers.mjs` exports both, and the static
+   test, the smoke suite and the proxy read the same module. Production
+   never gets `'unsafe-eval'` or `'unsafe-inline'`. The policy is
+   script-src only, and it rests on every page being rendered per request
+   (the root layout reads cookies); the browser spec fails if a page ever
+   prerenders (Stage 24 review, L10, L11). A Playwright spec loads the public, candidate,
    console AND CMS-admin pages with the browser console watched and fails
    on any policy report — that is the only proof a script policy can have.
 
@@ -74,8 +78,9 @@ not go live, and the consolidated verdict says so.
    reads the health words, every security header and the nonce policy, the
    deny-by-default gate (a page redirects, an API answers 401, an unknown
    API path is 401 not 404), the two error envelopes, the CSRF refusal, the
-   CMS being up, and that an unknown page is a 404 without a stack trace.
-   CI runs it against the built app on every push.
+   CMS being up (its page or its own sign-in, never a 404), and that an
+   unknown page is gated to sign-in or a 404, never an error. CI runs it
+   against the built app on every push.
 
 6. **Runbooks are written and rehearsed where they can be.**
    `docs/operations/RUNBOOKS.md` indexes them; `ROLLBACK.md` records a
@@ -97,16 +102,20 @@ not go live, and the consolidated verdict says so.
 
 ## Consequences
 
-- Two operator commands become scheduled work; the operator commands stay
-  for a worker that is down.
+- Four operator commands (freshness, the rollups, the retention sweep, case
+  retention) plus the limiter's bucket sweep become five scheduled jobs; the
+  operator commands stay for a worker that is down. Every job is bounded by
+  its timeout and a late result never overwrites a recorded failure (Stage
+  24 review, H1).
 - Every `rateLimit` caller awaits; a new route that forgets is a red build.
-- `security-headers.mjs` no longer ships a CSP header statically;
-  the proxy is the one place the policy exists. A page that adds an inline
+- `security-headers.mjs` ships the CSP base directives statically and the
+  proxy adds the script policy per request; a page that adds an inline
   script must read the nonce from the `x-nonce` request header.
 - Two system-only tables (`RateLimitBucket`, `WorkerRun`) and two
   migrations (57, 58).
-- Readiness gates: G2 response headers PARTIAL → PASS (nonce policy,
-  browser-verified); G2/G4 rate limiting PARTIAL → PASS (mechanism; opt-in);
+- Readiness gates: G2 response headers → PASS for the script policy
+  (browser-verified), PARTIAL for the other directives; G2/G4 rate limiting
+  stays PARTIAL (a mechanism, opt-in, never run with two instances);
   G4 background processing FAIL → PARTIAL; monitoring and SLOs FAIL →
   PARTIAL (defined, not connected); rollback FAIL → PARTIAL (local); G7
   runbooks PARTIAL (on-call still absent). Nothing moves to PASS on the

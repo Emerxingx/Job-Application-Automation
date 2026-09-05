@@ -26,6 +26,7 @@
  * TypeScript types refuse.
  */
 
+import { createHash } from 'node:crypto';
 import { redactError } from './log';
 
 export interface RateLimitResult {
@@ -107,15 +108,16 @@ class MemoryStore implements RateLimitStore {
 class PostgresStore implements RateLimitStore {
   readonly backend = 'postgres' as const;
 
-  async consume(id: string, rule: RateLimitRule, now: number): Promise<Charge> {
+  async consume(id: string, rule: RateLimitRule, _now: number): Promise<Charge> {
     const { db } = await import('./db');
-    const nowDate = new Date(now);
-    const fresh = new Date(now + rule.windowSeconds * 1000);
+    // The DATABASE's clock decides the window (review L1): instances with
+    // drifting clocks would otherwise reset or extend each other's windows.
+    const seconds = rule.windowSeconds;
     const rows = await db.$queryRaw<{ count: number; resetAt: Date }[]>`
-      INSERT INTO "RateLimitBucket" ("id", "count", "resetAt") VALUES (${id}, 1, ${fresh})
+      INSERT INTO "RateLimitBucket" ("id", "count", "resetAt") VALUES (${id}, 1, clock_timestamp() + make_interval(secs => ${seconds}::float8))
       ON CONFLICT ("id") DO UPDATE SET
-        "count" = CASE WHEN "RateLimitBucket"."resetAt" <= ${nowDate} THEN 1 ELSE "RateLimitBucket"."count" + 1 END,
-        "resetAt" = CASE WHEN "RateLimitBucket"."resetAt" <= ${nowDate} THEN ${fresh} ELSE "RateLimitBucket"."resetAt" END
+        "count" = CASE WHEN "RateLimitBucket"."resetAt" <= clock_timestamp() THEN 1 ELSE "RateLimitBucket"."count" + 1 END,
+        "resetAt" = CASE WHEN "RateLimitBucket"."resetAt" <= clock_timestamp() THEN clock_timestamp() + make_interval(secs => ${seconds}::float8) ELSE "RateLimitBucket"."resetAt" END
       RETURNING "count", "resetAt"`;
     const row = rows[0];
     if (!row) throw new Error('rate-limit store returned no row');
@@ -135,6 +137,14 @@ export async function sweepRateLimitBuckets(now = new Date()): Promise<number> {
 const memory = new MemoryStore();
 let shared: RateLimitStore | null = null;
 let degradedLogged = false;
+/** When the shared store last failed a consume; the health check reports `degraded` for a minute after (review M2). */
+let lastSharedFailureAt = 0;
+
+/** What the health check says about the limiter: the store actually serving requests, not only the one configured. */
+export function rateLimitStoreStatus(now = Date.now()): 'local' | 'shared' | 'degraded' {
+  if (rateLimitStoreName() !== 'postgres') return 'local';
+  return now - lastSharedFailureAt < 60_000 ? 'degraded' : 'shared';
+}
 
 /** Which store `RATE_LIMIT_STORE` selects: `postgres` for the shared table, anything else (or unset) for the in-process map. */
 export function rateLimitStoreName(env: NodeJS.ProcessEnv = process.env): 'memory' | 'postgres' {
@@ -177,6 +187,21 @@ export const LIMITS = {
   scim: { limit: 120, windowSeconds: 60 },
 } as const satisfies Record<string, RateLimitRule>;
 
+/** At most this many characters of a key are kept in clear; a longer key is replaced by its digest (review H2/M1). */
+const MAX_KEY_CHARS = 128;
+
+/**
+ * The store id for a bucket and a key. The two parts are joined with the
+ * key's LENGTH between them, so `('auth', 'scim:x')` and `('auth:scim', 'x')`
+ * can never name the same row (review M1); a key longer than
+ * MAX_KEY_CHARS (an oversized forwarded header) becomes its SHA-256 so the
+ * row id is bounded and an attacker cannot force an insert failure.
+ */
+export function bucketId(bucketName: string, key: string): string {
+  const k = key.length > MAX_KEY_CHARS ? `sha256:${createHash('sha256').update(key).digest('hex')}` : key;
+  return `${bucketName}:${k.length}:${k}`;
+}
+
 function resultOf(charge: Charge, rule: RateLimitRule, now: number): RateLimitResult {
   const ok = charge.count <= rule.limit;
   return {
@@ -195,7 +220,7 @@ function resultOf(charge: Charge, rule: RateLimitRule, now: number): RateLimitRe
  */
 export async function rateLimit(bucketName: string, key: string, rule: RateLimitRule): Promise<RateLimitResult> {
   const now = Date.now();
-  const id = `${bucketName}:${key}`;
+  const id = bucketId(bucketName, key);
   const chosen = store();
   try {
     return resultOf(await chosen.consume(id, rule, now), rule, now);
@@ -203,14 +228,37 @@ export async function rateLimit(bucketName: string, key: string, rule: RateLimit
     if (chosen.backend === 'memory') throw error;
     // The shared store is unreachable: limit per instance for this request
     // rather than fail open (no limit) or closed (refuse everyone). Logged
-    // once per process; the health check reports the configured store, and
-    // the request log shows this line when it degrades.
+    // once per process; the health check reports `degraded` for a minute
+    // after (`rateLimitStoreStatus`), and the request log shows this line.
+    lastSharedFailureAt = now;
     if (!degradedLogged) {
       degradedLogged = true;
       console.error('[rate-limit] shared store unavailable; limiting per instance until it returns:', redactError(error).message);
     }
     return resultOf(await memory.consume(id, rule, now), rule, now);
   }
+}
+
+/**
+ * A limit that is ALWAYS per instance, whatever store is configured: for a
+ * cost bound on this process (the public health check - review H2), where
+ * a shared counter would add a database write per anonymous request to the
+ * one route a monitor polls, and where the budget protects this instance's
+ * CPU, not fairness across the platform.
+ */
+export async function rateLimitLocal(bucketName: string, key: string, rule: RateLimitRule): Promise<RateLimitResult> {
+  const now = Date.now();
+  return resultOf(await memory.consume(bucketId(bucketName, key), rule, now), rule, now);
+}
+
+const IPV4 = /^(\d{1,3})(\.\d{1,3}){3}$/;
+const IPV6 = /^[0-9A-Fa-f:.]{2,45}$/;
+
+/** Whether a forwarded value is shaped like an address at all; anything else is a header an attacker wrote, and shares one bucket. */
+export function looksLikeAddress(value: string): boolean {
+  const v = value.trim();
+  if (IPV4.test(v)) return v.split('.').every((o) => Number(o) <= 255);
+  return IPV6.test(v) && v.includes(':');
 }
 
 /**
@@ -242,10 +290,12 @@ export function clientAddress(request: Request, hops: number = trustedProxyHops(
     if (forwarded) {
       const parts = forwarded.split(',').map((p) => p.trim()).filter(Boolean);
       const candidate = parts[parts.length - hops];
-      if (candidate) return candidate;
+      // Only an address-shaped value is a key (review H2): a forged header
+      // carrying arbitrary text would otherwise mint a row per request.
+      if (candidate) return looksLikeAddress(candidate) ? candidate : 'unknown';
     }
     const real = request.headers.get('x-real-ip');
-    if (real) return real.trim();
+    if (real) return looksLikeAddress(real) ? real.trim() : 'unknown';
   }
   return 'unknown';
 }
@@ -255,4 +305,5 @@ export function resetRateLimits(): void {
   memory.clear();
   shared = null;
   degradedLogged = false;
+  lastSharedFailureAt = 0;
 }

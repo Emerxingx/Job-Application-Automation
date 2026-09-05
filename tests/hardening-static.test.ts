@@ -28,7 +28,7 @@ describe('Stage 23 - security headers', () => {
     const byKey = new Map(SECURITY_HEADERS.map((h) => [h.key, h.value]));
     // Stage 24 (ADR-0038): the policy is per request (a nonce), built by the
     // edge gate from the base directives; it is no longer a static header.
-    assert.equal(byKey.get('Content-Security-Policy'), undefined, 'a static header cannot carry a per-request nonce');
+    assert.equal(byKey.get('Content-Security-Policy'), CSP_BASE_DIRECTIVES.join('; '), 'the base directives stay as a static floor on every response (review L11); the nonce policy is the gate\'s second header');
     const csp = contentSecurityPolicy('n0nce', false);
     for (const d of ["frame-ancestors 'none'", "object-src 'none'", "base-uri 'self'", "form-action 'self'"]) assert.ok(CSP_BASE_DIRECTIVES.includes(d) && csp.includes(d), d);
     assert.match(csp, /script-src 'nonce-n0nce' 'strict-dynamic'/);
@@ -36,7 +36,9 @@ describe('Stage 23 - security headers', () => {
     assert.match(contentSecurityPolicy('n0nce', true), /'unsafe-eval'/, 'development needs eval for source maps');
     const proxy = read('src', 'proxy.ts');
     assert.match(proxy, /requestHeaders\.set\('Content-Security-Policy', csp\)/, 'the policy reaches Next on the request so it stamps the nonce');
-    assert.equal((proxy.match(/withCsp\(/g) ?? []).length, 5, 'every response the gate returns (next, 403, 401, redirect) carries the policy');
+    const body = proxy.slice(proxy.indexOf('export async function proxy(')).replace(/\/\/[^\n]*/g, '');
+    const returns = body.match(/\breturn [^\n;]+/g) ?? [];
+    assert.ok(returns.length >= 4 && returns.every((r) => /withCsp\(|return next\(\)/.test(r)), `every return in proxy() carries the policy: ${returns.join(' | ')}`);
     assert.equal(byKey.get('X-Frame-Options'), 'DENY');
     assert.equal(byKey.get('X-Content-Type-Options'), 'nosniff');
     assert.match(byKey.get('Strict-Transport-Security') ?? '', /max-age=\d{7,}; includeSubDomains/);
@@ -86,8 +88,9 @@ describe('Stage 23 - the edge gate: CSRF and the health check', () => {
     assert.equal(isPublicPath('/api/health'), true);
     assert.equal(isPublicPath('/api/healthz'), false);
     const route = read('src', 'app', '(app)', 'api', 'health', 'route.ts');
-    assert.match(route, /rateLimit\('health', clientAddress\(request\)/);
-    assert.match(route, /rateLimit\('health:all', 'all', GLOBAL_LIMIT\)/, 'a per-instance budget across every address (review M3)');
+    assert.match(route, /rateLimitLocal\('health', clientAddress\(request\)/, 'per instance on purpose (Stage 24 review H2)');
+    assert.match(route, /rateLimitLocal\('health:all', 'all', GLOBAL_LIMIT\)/, 'a per-instance budget across every address (review M3)');
+    assert.ok(!/[^L]rateLimit\(/.test(route), 'the health check never charges the shared store');
     assert.match(route, /MEMO_MS/, 'the answer is memoised');
     assert.ok(!/DATABASE_URL|hostname|process\.env|describeDatabaseUrl/.test(route), 'the health body names no host or environment');
     assert.ok(!/detail: `\$\{/.test(route), 'no detail carries a number or a name; fixed words only');
@@ -144,7 +147,8 @@ describe('Stage 23 - log redaction', () => {
     // caught error itself, or its `.message`, must go through the redactor.
     // Client components (`'use client'`) log to the browser's console and
     // are outside a server log store; they are the only exemption.
-    const files = execFileSync('git', ['ls-files', 'src'], { cwd: root, encoding: 'utf8' }).split('\n').filter((f) => /\.tsx?$/.test(f));
+    // Stage 24 review (M9): the operator scripts log to the same store, so the scan covers scripts/ too.
+    const files = execFileSync('git', ['ls-files', 'src', 'scripts'], { cwd: root, encoding: 'utf8' }).split('\n').filter((f) => /\.tsx?$/.test(f));
     const offenders: string[] = [];
     for (const f of files) {
       const text = read(f);

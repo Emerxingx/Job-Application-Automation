@@ -12,6 +12,7 @@
 import { db } from '../../src/lib/db';
 import { runRefresh } from '../../src/lib/connectors/pipeline';
 import { ensureSourceRegistry } from '../../src/lib/connectors/registry';
+import { redactError } from '../../src/lib/log';
 
 async function main() {
   const [only, hours] = process.argv.slice(2);
@@ -31,7 +32,7 @@ async function main() {
       if (run.status !== 'ok') failed += 1;
     } catch (error) {
       failed += 1;
-      console.error(`[freshness] ${source.key}: refused — ${error instanceof Error ? error.message : String(error)}`);
+      console.error(`[freshness] ${source.key}: refused — ${redactError(error).message}`);
     }
   }
   await db.$disconnect();
@@ -39,6 +40,6 @@ async function main() {
 }
 
 main().catch((error) => {
-  console.error(error);
+  console.error(redactError(error).message);
   process.exit(1);
 });

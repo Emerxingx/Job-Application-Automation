@@ -16,7 +16,7 @@ Stage 00 baseline this table replaced is in git history.
 | --- | --- | --- | --- |
 | Install from lockfile | exit 0 | exit 0 (`npm ci`, retried once for ETXTBSY, R-32) | PASS |
 | Typecheck | exit 0 | exit 0 | PASS |
-| Unit + integration tests | all pass | 1302 / 1302 with `CI=true` against migrated PostgreSQL; database suites THROW when the URLs are unset in CI | PASS |
+| Unit + integration tests | all pass | 1322 / 1322 with `CI=true` against migrated PostgreSQL; database suites THROW when the URLs are unset in CI | PASS |
 | Production build | exit 0 | exit 0, 102 routes | PASS |
 | Lint | configured, non-interactive, clean | flat config, `eslint` directly; 0 errors, 8 warnings locked by `--max-warnings=8` (`LINT_BASELINE.md`) | PASS |
 | CI enforcing all of the above | required on `main` | `ci.yml` verify · mobile · generated-files · line-endings · accessibility (with the smoke suite and the CSP browser proof, Stage 24) · sbom, all green on the stacked branches; **branch protection is an EXTERNAL ACTION** (`AUTONOMOUS_STATUS.json`) | PARTIAL |
@@ -39,11 +39,11 @@ Stage 00 baseline this table replaced is in git history.
 | Path traversal | defended | basename + resolve + containment; signed ten-minute links (Stage 09) | PASS |
 | SSRF on outbound | defended | blocked ranges + no redirects; DNS-rebinding gap documented (R-24) | PARTIAL |
 | CSRF | tokens on state-changing routes | `sameSite: lax` AND an explicit cross-site refusal on every write carrying the session or the CMS cookie (`Sec-Fetch-Site` same-origin only; `Origin` against `Host`, Stage 23); no token, stated | PASS |
-| Response headers | CSP, HSTS, framing, sniffing | one header list on every route plus a per-request CSP with a script nonce and `'strict-dynamic'` set by the edge gate on every response (Stage 24, ADR-0038), proven in a real browser over public, candidate, console and CMS pages with no violation; HSTS `includeSubDomains` requires TLS on every subdomain, stated | PASS |
+| Response headers | CSP, HSTS, framing, sniffing | one header list on every route (the CSP base directives as a static floor) plus a per-request `script-src` nonce policy with `'strict-dynamic'` set by the edge gate on every response (Stage 24, ADR-0038), proven in a real browser over public, candidate, console and CMS pages with no violation; **script-src only** (no `default-src`, `style-src`, `connect-src`, `img-src`); HSTS `includeSubDomains` requires TLS on every subdomain, stated | PASS (script policy) / PARTIAL (the other directives) |
 | Penetration test | independent, remediated | none; four independent adversarial code reviews (Stages 19-21) are not one; **EXTERNAL ACTION** | NOT VERIFIED |
 | Upload malware scanning | present | structural scan only (`scan.ts`); **no antivirus engine, never claimed** | PARTIAL |
 | Log PII redaction | enforced | every server-side error log goes through `redactError`, enforced by a static scan of every `console.error`/`warn` under `src` (review M2); client components excluded | PASS |
-| Rate limiting | shared store | a shared PostgreSQL store (`RATE_LIMIT_STORE=postgres`, one atomic upsert, exact under concurrency - database test), opt-in before a second instance; in-process by default (Stage 24, R-16 closed as a mechanism) | PASS |
+| Rate limiting | shared store | a shared PostgreSQL store exists (`RATE_LIMIT_STORE=postgres`, one atomic upsert on the database's clock, exact under twenty concurrent callers - database test), OPT-IN before a second instance; in-process by default; degrades to per instance and says so in the health check; **never run with two instances** (Stage 24, R-16 closed as a mechanism, not as an operation) | PARTIAL |
 | Impersonation | read-only, time-boxed, audited | `route()` refuses every write; 60 minutes; reason; both cookies bound; sensitive reads refused (Stage 20) | PASS |
 
 ## G3 — Data
@@ -66,7 +66,7 @@ Stage 00 baseline this table replaced is in git history.
 | Gate | Required | Current | Status |
 | --- | --- | --- | --- |
 | Background processing | queue + workers + DLQ | a scheduler with leased runs (`WorkerRun`, one window once however many workers) and `npm run worker` running freshness, rollups, retention, case retention hourly to daily (Stage 24); the health check reports overdue work; NO queue, no retries beyond the next window, no dead-letter queue | PARTIAL |
-| Rate limiting | shared store | shared PostgreSQL store, opt-in (Stage 24) | PASS |
+| Rate limiting | shared store | shared PostgreSQL store, opt-in, never run with two instances (Stage 24) | PARTIAL |
 | Caching | shared, invalidating | abstraction with memory and Redis backends; Redis optional | PARTIAL |
 | Durable artefact storage | object storage | S3-compatible provider with residency check, local by default; never run against a real bucket | PARTIAL |
 | Health checks | app, DB, cache, queue, connectors | `/api/health`: database, migrations, cache, limiter store, storage, job sources, marts, worker (Stages 23-24); fixed words only, memoised, budgeted per address AND per instance; no queue exists | PARTIAL |
@@ -119,8 +119,8 @@ restore** PASS · G4 background processing and durable storage PASS · G5 all
 PASS · G6 payment validated · G7 admin sufficient for routine operation.
 
 **Where it stands after Stage 24:** G1 two PARTIAL (branch protection,
-browser journeys); G2 no FAIL, four PARTIAL (advisories, MFA, secret store,
-SSRF, upload scanning) and one NOT VERIFIED (the penetration test); G3
+browser journeys); G2 no FAIL, PARTIAL on advisories, MFA, secret store,
+SSRF, upload scanning, rate limiting and the non-script CSP directives, and one NOT VERIFIED (the penetration test); G3
 backups PARTIAL until the provider's PITR is exercised; G4 no FAIL any
 more - background processing, monitoring, SLOs, DR and rollback are
 PARTIAL because each has code or a rehearsal and none has a production

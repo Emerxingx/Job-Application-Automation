@@ -462,7 +462,7 @@ export async function setRetentionPolicy(actor: CaseActor, input: { caseNoteDays
  * everything under it; the children the cascade removes are counted so
  * the audit row states what was destroyed. An organisation WITHOUT a
  * policy is untouched - a public-body contract may require records kept,
- * and nothing is destroyed on a platform default. No scheduler runs this;
+ * and nothing is destroyed on a platform default. The worker runs this daily (Stage 24) and the operator's command remains;
  * `npm run cases:retention` does.
  */
 export async function purgeExpiredCaseRecords(now = new Date()): Promise<{ organizations: number; notes: number; assessments: number; cases: number; children: number }> {

@@ -759,7 +759,8 @@ export async function rollupPlatformMetrics(
  * the others unrun — a nightly cron should write what it can and report the
  * rest.
  */
-export async function rollupAll(range: DateRange): Promise<RollupResult[]> {
+/** `asOf` labels the platform snapshot metrics (Stage 24: the scheduler passes the end of the day that just closed). */
+export async function rollupAll(range: DateRange, options: { asOf?: Date } = {}): Promise<RollupResult[]> {
   // Stage 21 (ADR-0036): the platform, organisation, cohort and candidate
   // marts join the sweep, so one operator command rebuilds every mart a
   // dashboard reads. Lazy imports keep this module's pure half importable
@@ -769,7 +770,7 @@ export async function rollupAll(range: DateRange): Promise<RollupResult[]> {
     ['daily_usage', () => rollupUsage(range)],
     ['daily_revenue', () => rollupRevenue(range)],
     ['daily_metrics', () => rollupPlatformMetrics(range)],
-    ['platform_metrics', () => rollupPlatform(range)],
+    ['platform_metrics', () => rollupPlatform(range, { asOf: options.asOf })],
     ['organization_reporting', () => rollupOrganizations(range)],
     ['subscription_cohorts', () => rollupCohorts()],
     ['candidate_outcomes', async () => {
