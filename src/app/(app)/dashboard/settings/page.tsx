@@ -7,6 +7,8 @@ import { SettingsForm } from '@/components/settings-form';
 import { JobPreferencesForm, WorkAuthorizationForm } from '@/components/job-preferences-form';
 import { MailboxConnections, type ConnectionView, type ScopeView } from '@/components/mailbox-connections';
 import { listConnections } from '@/lib/mailbox/service';
+import { listClientCases } from '@/lib/cases/service';
+import { CaseInvitations } from '@/components/case-invitations';
 import { SCOPE_INVENTORY } from '@/lib/mailbox/providers/types';
 
 export const metadata = { title: 'Settings' };
@@ -14,8 +16,8 @@ export const dynamic = 'force-dynamic';
 
 export default async function SettingsPage({ searchParams }: { searchParams: Promise<{ mailbox?: string }> }) {
   const { user, run } = await requireTenant();
-  const [preferences, workAuthorization, connections] = await run((tx) =>
-    Promise.all([loadPreferences(tx, user.id), loadWorkAuthorization(tx, user.id), listConnections(tx, user.id)]),
+  const [preferences, workAuthorization, connections, clientCases] = await run((tx) =>
+    Promise.all([loadPreferences(tx, user.id), loadWorkAuthorization(tx, user.id), listConnections(tx, user.id), listClientCases(tx, user.id)]),
   );
   const { mailbox: mailboxNotice } = await searchParams;
   // Stage 11: connections (never a token) and the scope inventory, so what is asked for is what is shown.
@@ -93,6 +95,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
       </Card>
 
       <MailboxConnections connections={connectionViews} scopes={scopeViews} notice={mailboxNotice ?? null} />
+      <CaseInvitations cases={clientCases.map((c) => ({ id: c.id, organization: c.organization.name, status: c.status, consentedAt: c.consentedAt?.toISOString() ?? null, createdAt: c.createdAt.toISOString() }))} />
 
       <Card className="mt-6 max-w-2xl p-6">
         <h2 className="font-semibold text-ink">Your data</h2>

@@ -20,6 +20,7 @@
     "db:seed": "tsx prisma/seed.ts",
     "jobs:freshness": "node scripts/db/with-encoded-env.mjs tsx scripts/jobs/freshness.ts",
     "taxonomy:load-learning": "node scripts/db/with-encoded-env.mjs tsx scripts/taxonomy/load-learning.ts",
+    "cases:retention": "node scripts/db/with-encoded-env.mjs tsx scripts/cases/retention.ts",
     "jobs:canonicalize": "node scripts/db/with-encoded-env.mjs tsx scripts/jobs/canonicalize.ts",
     "mailbox:sync": "tsx scripts/mailbox/sync.ts",
     "analytics:rollup": "tsx scripts/analytics/rollup-candidates.ts",

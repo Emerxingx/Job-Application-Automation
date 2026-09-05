@@ -449,3 +449,44 @@ never occurred.
   recorded), the UI beyond compile and lint, and any claim about what an
   employer accepts.
 
+## Stage 17 — employment services / case management (Level 0)
+
+- **Pure (`tests/cases-copilot.test.ts`):** a healthy search draws no
+  recommendation; each of the nine patterns fires on its threshold with the
+  numbers that triggered it, in a fixed order, deterministically, and not
+  below the sample sizes; no suggested action claims to have changed
+  anything; the case roles resolve as a named set over the ladder (owner and
+  admin are admin; null or unknown is viewer; an unknown rung is not admin)
+  and gate open / write / manage as the matrix says. Static: the copilot,
+  the client view and the runner never name a case note, an assessment or a
+  barrier and never import a provider or the sensitive path; nothing under
+  matching, eligibility, analytics, career or the AI gateway names a case
+  table; the gateway's RESTRICTED keys include the case vocabulary.
+- **Database (`tests/cases.test.ts`):** the actor resolves only from an
+  accepted membership of a service-provider organisation (another type, a
+  non-member: 404); a supervisor invites (audited), a case manager cannot,
+  no account and a duplicate are refused, and before consent the summary,
+  the copilot and a note are refused; the client sees the invitation on
+  their own tenant path and a stranger, another provider and the client's
+  own UPDATE are refused; only the client answers and accepting writes a
+  versioned consent record; assignment gates the case manager, a supervisor
+  reads all and writes none, a viewer sees counts, another provider's admin
+  gets 404, the viewer cannot be assigned; a note and an assessment are
+  audited before the write and before the read with no text in the trail,
+  the client and another provider see none, the viewer is kept out by the
+  service; a referral needs a licensed offering, tasks move, an employed
+  outcome creates the 4 / 12 / 24-week follow-ups and `not_employed` none;
+  the copilot writes recommendations and nothing else (a snapshot of the
+  client's and the case's other tables is byte-identical after a run), is
+  audited along with the delegated read, refreshes without duplicates,
+  supersedes a vanished pattern, keeps a decision, and the signals carry no
+  note or barrier; accepting with a task cites the recommendation,
+  dismissing creates nothing, deciding twice is refused; withdrawal closes
+  the case, revokes the consent and refuses further reads; only an admin
+  sets a retention policy within bounds, the purge removes expired notes
+  and old closed cases with everything under them, and an organisation
+  without a policy is untouched.
+- **NOT covered, by honesty:** any WorkBC system (none exists), the UI
+  beyond compile and lint, route-level status codes, and any public-sector
+  regime (L-1).
+

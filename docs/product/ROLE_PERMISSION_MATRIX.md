@@ -91,6 +91,8 @@ security-critical implementation.** A Tier 1 control may never widen a Tier 2
 boundary.
 
 ## Enforcement rules
+**Stage 17 (ADR-0032):** the service-provider table above is enforced by `src/lib/cases/roles.ts` (`caseRoleOf`: owner/admin → admin; `Membership.serviceRole` → supervisor / case_manager / viewer, null or unknown → viewer) and the service (`canOpenCase`, `canWriteCase`, `canManageCaseload`); assignment gating is tested; case notes are audited on every read and write.
+
 1. UI hiding is **never** an authorization mechanism.
 2. Every permission is checked server-side and again by RLS.
 3. Consent gates (**C**) and assignment gates (**A**) are ABAC checks, not roles.

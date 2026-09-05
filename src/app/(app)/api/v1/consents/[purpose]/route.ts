@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { isConsentPurpose } from '@/lib/consent';
+import { isSelfServicePurpose } from '@/lib/consent';
 import { setConsent } from '@/lib/integrations/candidate-api';
 import { notFound, v1Ok, v1Route } from '@/lib/integrations/http';
 import { requestMeta } from '@/lib/security-audit';
@@ -13,7 +13,8 @@ const schema = z.object({ granted: z.boolean() }).strict();
  */
 export const PUT = v1Route('write', async (context) => {
   const purpose = context.params.purpose ?? '';
-  if (!isConsentPurpose(purpose)) throw notFound('No such consent purpose.');
+  // The contract enumerates the self-service purposes; a per-case consent (Stage 17) is not one of them.
+  if (!isSelfServicePurpose(purpose)) throw notFound('No such consent purpose.');
   const body = schema.parse(await context.request.json());
   return v1Ok(context, await setConsent(context.key.userId, purpose, body.granted, requestMeta(context.request)));
 });

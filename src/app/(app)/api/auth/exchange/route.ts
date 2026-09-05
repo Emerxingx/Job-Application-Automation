@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { createSession } from '@/lib/auth';
 import { describeWait, fail, ok, route, tooMany } from '@/lib/api';
 import { LIMITS, clientAddress, rateLimit } from '@/lib/rate-limit';
-import { CONSENT_PURPOSES } from '@/lib/consent';
+import { SELF_SERVICE_PURPOSES } from '@/lib/consent';
 import { activatePlan } from '@/lib/subscription';
 import { IdentityLinkError, linkSupabaseIdentity } from '@/lib/identity/link';
 import {
@@ -17,7 +17,7 @@ import { recordSecurityEvent, requestMeta } from '@/lib/security-audit';
 const schema = z.object({
   accessToken: z.string().min(20).max(8192),
   fullName: z.string().min(2).max(120).optional(),
-  consents: z.array(z.enum(CONSENT_PURPOSES)).optional(),
+  consents: z.array(z.enum(SELF_SERVICE_PURPOSES)).optional(),
 });
 
 /**

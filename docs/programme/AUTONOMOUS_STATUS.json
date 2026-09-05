@@ -1,13 +1,13 @@
 {
   "$comment": "Machine-readable controller for the autonomous build programme. Authoritative over any chat transcript: if this file and a conversation disagree, this file wins. Updated at every stage checkpoint.",
   "schema_version": 1,
-  "updated_at": "2026-09-05T16:50:00Z",
-  "current_stage": "16",
-  "last_completed_stage": "15",
-  "current_branch": "claude/stage-16-career-transition",
+  "updated_at": "2026-09-05T18:10:00Z",
+  "current_stage": "17",
+  "last_completed_stage": "16",
+  "current_branch": "claude/stage-17-employment-services",
   "current_head": "35a7fdab1bb9dac3aa98b672de5073cd27e16cc5",
   "current_head_meaning": "SHA of the last commit whose full gate set was verified locally (lint, typecheck, tests, build). Set by the status-sync commit that immediately follows it, so it names a real, verified commit rather than the one it is written in.",
-  "current_pr": "https://github.com/Emerxingx/Job-Application-Automation/pull/28",
+  "current_pr": "__PR__",
   "main_head": "d6ae8b3a9180b529abe06f23417515432c0a7f0e",
   "run_complete": false,
   "stage_status": {
@@ -28,7 +28,7 @@
     "14": "PASS_ENGINEERING_EXIT_PARTIAL",
     "15": "PASS_ENGINEERING_EXIT_BLOCKED_CREDENTIALS",
     "16": "PASS_ENGINEERING_EXIT_BLOCKED_LEGAL",
-    "17": "NOT_STARTED",
+    "17": "PASS_ENGINEERING_EXIT_BLOCKED_LEGAL",
     "18": "NOT_STARTED",
     "19": "NOT_STARTED",
     "20": "NOT_STARTED",
@@ -83,7 +83,7 @@
     ],
     "verdict": "Stage 01 is PARTIAL, not PASS. Every unmet item traces to the staging project being unreachable from the build environment, except tenant-path adoption, which is engineering and continues in Stage 02 alongside the schema work that touches those handlers."
   },
-  "next_requirement": "Stage 16 independent adversarial review, then Stage 17 (WorkBC companion: organisations, cases, copilot recommends only; no fake WorkBC integration, ADR-0020) on a stacked branch from the Stage 16 head.",
+  "next_requirement": "Stage 17 independent adversarial review, then Stage 18 (Corporate / Talent Acquisition OS: requisitions, sourcing, consent-gated candidate disclosure, pipeline, offers; L-5 consent wording open) on a stacked branch from the Stage 17 head.",
   "blockers": [
     {
       "id": "ATS-SANDBOX-CREDENTIAL",
@@ -639,5 +639,32 @@
       "Staging rehearsal (NOT VERIFIED — R-34)"
     ],
     "verdict": "Stage 16 engineering is complete and proven on the fixture; the product is empty until a licence is recorded and says so. Merge posture inherited from the stack."
+  },
+  "stage_17_progress": {
+    "organisations_roles": "DONE — service_provider organisations; Membership.serviceRole as a named set over the ladder (supervisor | case_manager | viewer; owner/admin → admin; unknown → viewer); assignment gating",
+    "consent": "DONE — a supervisor invites by email (audited); the client accepts under Settings (ConsentRecord employment_services_case), declines, or withdraws (consent revoked, case closed); nothing about the client is read before consent or after withdrawal",
+    "isolation_restricted": "DONE — migration 20260905160000_case_management (8 tables) + RLS 20260905160100_rls_case_management: notes, assessments, tasks, outcomes, follow-ups, recommendations org-scoped; Case visible to the client (read) and members; every note/assessment read and write audited first with ids and kinds only; RESTRICTED gateway keys; static guard on matching/analytics/career/gateway",
+    "client_view_copilot": "DONE — delegated audited read after four checks; pure copilot with nine patterns; runCopilot writes CaseRecommendation only (snapshot-proven); the case manager decides; no AI provider",
+    "record": "DONE — assessments, action plan (task | intervention | referral to a licensed offering), outcomes with 4/12/24-week follow-ups, close; pages /dashboard/cases and /dashboard/cases/[caseId]; Settings section for the client; routes under /api/cases",
+    "retention": "DONE — RetentionPolicy per organisation (admin, audited); npm run cases:retention; no policy = no purge; no scheduler",
+    "workbc_integration": "LEVEL 0 BY DESIGN (ADR-0020) — none exists, none is claimed; every page says so",
+    "public_sector_deployment": "BLOCKED (LEGAL, L-1)",
+    "independent_review": "PENDING"
+  },
+  "stage_17_exit_gate": {
+    "met": [
+      "Product usable: a case manager runs a full caseload (tested end to end)",
+      "Cross-organisation isolation (RLS org policies + service assignment gating, tested)",
+      "Copilot recommendation-only (snapshot-proven; the case manager decides)",
+      "Retention behaviour per organisation (tested; no policy no purge)",
+      "WorkBC integration at Level 0 (none exists, none is claimed)",
+      "Full gate set green: lint 0/7, typecheck 0, tests 1148 / 1148 (0 skipped), build 0; rehearsal 43 migrations, drift clean, 137 forced tables"
+    ],
+    "not_met": [
+      "Public-sector deployment — BLOCKED (LEGAL, L-1)",
+      "Aggregate cross-organisation reporting with small-cohort suppression — NOT IMPLEMENTED (Stage 20)",
+      "Staging rehearsal (NOT VERIFIED — R-34)"
+    ],
+    "verdict": "Stage 17 engineering is complete at Level 0; public-sector deployment is blocked on L-1. Merge posture inherited from the stack."
   }
 }

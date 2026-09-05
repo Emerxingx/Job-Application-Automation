@@ -26,7 +26,7 @@ remediation has begun.**
 npm ci                # install from the lockfile
 npm run dev           # http://localhost:3000
 npx tsc --noEmit      # typecheck  — PASSES
-npm test              # 1130 tests  — PASSES with the two database URLs below set; the
+npm test              # 1148 tests  — PASSES with the two database URLs below set; the
                       #   database suites skip WITH A REASON without them and THROW
                       #   when CI=true, so CI cannot pass by skipping them
 npm run build         # production — PASSES
@@ -57,7 +57,7 @@ npm run cms:types          # regenerate payload-types.ts
 ## Things that will surprise you
 
 1. **The database is PostgreSQL with a versioned migration history** since
-   Stage 01 (`ADR-0002`). Forty-one migrations under `prisma/migrations/`; CI applies
+   Stage 01 (`ADR-0002`). Forty-three migrations under `prisma/migrations/`; CI applies
    them to an empty database and fails on drift. `DATABASE_URL` is the
    transaction pooler, `DIRECT_URL` the session endpoint for migrations. The RLS
    migration is **generated** from `src/lib/tenancy/rls-tables.ts` — regenerate
@@ -372,6 +372,25 @@ npm run cms:types          # regenerate payload-types.ts
     reads dataset facts through `datasetFacts()` on the system client -
     the one documented system-client read in that path; never add a
     `dataset` relation include on the tenant path (it returns null).
+
+28. **A case exists only with the client's consent, and its notes are
+    RESTRICTED** (Stage 17, ADR-0032; ADR-0020 Level 0 - there is NO WorkBC
+    integration and no page may suggest one). `src/lib/cases/`: the case
+    roles are a named set over the organisation ladder (`roles.ts`;
+    unknown → viewer); a supervisor invites by email, the CLIENT accepts
+    under Settings (`ConsentRecord` `employment_services_case`) and may
+    withdraw; nothing about the client is read before consent or after
+    withdrawal. `CaseNote` / `CaseAssessment` are `org`-scoped under RLS
+    and every read and write is audited FIRST on the system client with ids
+    and kinds only. What a case manager sees of the client is the delegated,
+    audited read in `client-view.ts` (four checks, then the system client
+    with `where: { userId: client }`) - never the sensitive schema. The
+    copilot (`copilot.ts`) is pure and `runCopilot` writes
+    `CaseRecommendation` rows and nothing else; the case manager decides.
+    `caseNote`, `assessment`, `barriers` are RESTRICTED gateway keys and a
+    static test keeps case rows out of matching, analytics, career and the
+    gateway. Retention is per organisation and NO policy means NO purge
+    (`npm run cases:retention`). Never add a WorkBC client, mock or screen.
 
 ## Conventions worth preserving
 

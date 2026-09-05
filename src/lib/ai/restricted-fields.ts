@@ -18,6 +18,13 @@ export const RESTRICTED_KEYS = [
   'self_identification',
   'caseNotes',
   'case_notes',
+  // Stage 17: a case note, an assessment and its barriers are RESTRICTED
+  // (DATA_CLASSIFICATION.md); none may reach a provider or a matching path.
+  'caseNote',
+  'case_note',
+  'assessment',
+  'assessments',
+  'barriers',
   'mailbox',
 ] as const;
 

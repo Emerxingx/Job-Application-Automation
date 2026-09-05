@@ -205,6 +205,27 @@ export const RLS_TABLES: Record<string, RlsKind> = {
   OfferingSkill: { kind: 'reference' },
   CareerPlan: { kind: 'user', column: 'userId' },
   CareerPlanMilestone: { kind: 'user', column: 'userId' },
+  // Stage 17 (ADR-0032): case management. A case is visible to the provider
+  // organisation's members AND to the client it concerns (who sees the
+  // invitation and the consent state, nothing else - notes, assessments,
+  // tasks, outcomes and recommendations are `org`, the provider's alone);
+  // only the organisation's members may write a case on the tenant path (the
+  // client consents through the service, on the system client, audited).
+  // Assignment gating (a case manager sees only their own caseload) is the
+  // service's, on top of this organisational isolation. The retention policy
+  // is read by members and written by the service.
+  RetentionPolicy: { kind: 'orgReadOnly', column: 'organizationId' },
+  Case: {
+    kind: 'custom',
+    using: '("organizationId" = ANY (app_member_organization_ids()) OR "clientUserId" = app_current_user_id())',
+    check: '"organizationId" = ANY (app_member_organization_ids())',
+  },
+  CaseNote: { kind: 'org', column: 'organizationId' },
+  CaseAssessment: { kind: 'org', column: 'organizationId' },
+  CaseTask: { kind: 'org', column: 'organizationId' },
+  CaseOutcome: { kind: 'org', column: 'organizationId' },
+  CaseFollowUp: { kind: 'org', column: 'organizationId' },
+  CaseRecommendation: { kind: 'org', column: 'organizationId' },
   Region: { kind: 'reference' },
   RegionLabel: { kind: 'reference' },
 
@@ -334,6 +355,7 @@ export const STAGE_12_TABLES = ['FieldMappingVersion'];
 export const STAGE_13_TABLES = ['CandidateOutcomeMart', 'CandidateMatchMart', 'CandidateBenchmarkMart'];
 export const STAGE_15_TABLES = ['Entitlement'];
 export const STAGE_16_TABLES = ['Credential', 'CredentialSkill', 'OccupationCredential', 'LearningProvider', 'LearningOffering', 'OfferingSkill', 'CareerPlan', 'CareerPlanMilestone'];
+export const STAGE_17_TABLES = ['RetentionPolicy', 'Case', 'CaseNote', 'CaseAssessment', 'CaseTask', 'CaseOutcome', 'CaseFollowUp', 'CaseRecommendation'];
 
 export const RLS_MANIFESTS: RlsManifest[] = [
   { migration: '20260903073000_row_level_security', preamble: true, tables: STAGE_01_TABLES },
@@ -351,4 +373,5 @@ export const RLS_MANIFESTS: RlsManifest[] = [
   { migration: '20260903210100_rls_candidate_marts', preamble: false, tables: STAGE_13_TABLES },
   { migration: '20260905120100_rls_entitlements', preamble: false, tables: STAGE_15_TABLES },
   { migration: '20260905140100_rls_career_graph', preamble: false, tables: STAGE_16_TABLES },
+  { migration: '20260905160100_rls_case_management', preamble: false, tables: STAGE_17_TABLES },
 ];

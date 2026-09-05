@@ -1,6 +1,6 @@
 # ADR-0020 — WorkBC integration boundary
 
-**Status:** Proposed · **Date:** 2026-09-02
+**Status:** Accepted (Stage 17 ships Level 0, 2026-09-05; ADR-0032) · **Date:** 2026-09-02
 
 ## Context
 Product 3 is initially a **companion platform** for WorkBC case managers and

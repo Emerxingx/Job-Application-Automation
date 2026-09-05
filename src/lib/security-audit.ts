@@ -65,7 +65,23 @@ export type SecurityEvent =
   | 'mailbox.thread.rejected'
   | 'mailbox.event.confirmed'
   | 'mailbox.event.rejected'
-  | 'mailbox.revoked';
+  | 'mailbox.revoked'
+  // Stage 17 (ADR-0032): case management. Reads of RESTRICTED rows are audited
+  // BEFORE the read, strictly; ids and kinds only, never a note or a barrier.
+  | 'case.invited'
+  | 'case.consented'
+  | 'case.declined'
+  | 'case.assigned'
+  | 'case.closed'
+  | 'case.client.read'
+  | 'case.note.read'
+  | 'case.note.written'
+  | 'case.assessment.read'
+  | 'case.assessment.written'
+  | 'case.copilot.run'
+  | 'case.recommendation.decided'
+  | 'case.retention.set'
+  | 'case.retention.purged';
 
 export interface RequestMeta {
   ip?: string | null;
