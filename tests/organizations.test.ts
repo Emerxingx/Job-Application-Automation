@@ -34,7 +34,9 @@ describe('membership service — fails closed', { skip: SKIP }, () => {
       await db.user.create({ data: { id: u.id, email: u.email, passwordHash: 'x', fullName: u.fullName } });
       await orgs.ensurePersonalWorkspace(db, u);
     }
-    const org = await orgs.createOrganization(owner.id, { name: `Org ${S}`, type: 'employer', billingEmail: owner.email });
+    // Stage 18 review: an employer organisation is created by staff once verified; the flag is the console gate's decision
+    await rejects(orgs.createOrganization(owner.id, { name: `Org ${S}`, type: 'employer', billingEmail: owner.email }), 403);
+    const org = await orgs.createOrganization(owner.id, { name: `Org ${S}`, type: 'employer', billingEmail: owner.email }, { verifiedOrganization: true });
     orgId = org.id;
     await orgs.inviteMember(owner.id, orgId, { userId: admin.id, role: 'admin' });
     await orgs.acceptInvitation(admin.id, orgId);

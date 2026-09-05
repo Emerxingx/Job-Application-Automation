@@ -235,6 +235,29 @@ export const RLS_TABLES: Record<string, RlsKind> = {
   CaseOutcome: { kind: 'org', column: 'organizationId' },
   CaseFollowUp: { kind: 'org', column: 'organizationId' },
   CaseRecommendation: { kind: 'org', column: 'organizationId' },
+  // Stage 18 (ADR-0033): employer-side hiring. The employer's record is the
+  // organisation's; a Disclosure is visible to the organisation AND to the
+  // candidate it asks about (who answers it through the service, on the
+  // system client), and members alone may write it on the tenant path. No
+  // candidate row is readable here: identity reaches an employer only
+  // through the delegated read behind a GRANTED disclosure (employer/service.ts).
+  Requisition: { kind: 'org', column: 'organizationId' },
+  // The employer's members write it; the candidate it concerns may READ their
+  // own row (the request and the consent state) and nothing more - a
+  // SELECT-only policy (the Stage 17 review's lesson): they answer on the
+  // system client, never by editing the row.
+  Disclosure: {
+    kind: 'custom',
+    using: '"organizationId" = ANY (app_member_organization_ids())',
+    readUsing: '("organizationId" = ANY (app_member_organization_ids()) OR "candidateUserId" = app_current_user_id())',
+  },
+  TalentPool: { kind: 'org', column: 'organizationId' },
+  TalentPoolMember: { kind: 'org', column: 'organizationId' },
+  Submission: { kind: 'org', column: 'organizationId' },
+  SubmissionEvent: { kind: 'org', column: 'organizationId' },
+  EmployerInterview: { kind: 'org', column: 'organizationId' },
+  EmployerNote: { kind: 'org', column: 'organizationId' },
+  Offer: { kind: 'org', column: 'organizationId' },
   Region: { kind: 'reference' },
   RegionLabel: { kind: 'reference' },
 
@@ -365,6 +388,7 @@ export const STAGE_13_TABLES = ['CandidateOutcomeMart', 'CandidateMatchMart', 'C
 export const STAGE_15_TABLES = ['Entitlement'];
 export const STAGE_16_TABLES = ['Credential', 'CredentialSkill', 'OccupationCredential', 'LearningProvider', 'LearningOffering', 'OfferingSkill', 'CareerPlan', 'CareerPlanMilestone'];
 export const STAGE_17_TABLES = ['RetentionPolicy', 'Case', 'CaseNote', 'CaseAssessment', 'CaseTask', 'CaseOutcome', 'CaseFollowUp', 'CaseRecommendation'];
+export const STAGE_18_TABLES = ['Requisition', 'Disclosure', 'TalentPool', 'TalentPoolMember', 'Submission', 'SubmissionEvent', 'EmployerInterview', 'EmployerNote', 'Offer'];
 
 export const RLS_MANIFESTS: RlsManifest[] = [
   { migration: '20260903073000_row_level_security', preamble: true, tables: STAGE_01_TABLES },
@@ -383,4 +407,5 @@ export const RLS_MANIFESTS: RlsManifest[] = [
   { migration: '20260905120100_rls_entitlements', preamble: false, tables: STAGE_15_TABLES },
   { migration: '20260905140100_rls_career_graph', preamble: false, tables: STAGE_16_TABLES },
   { migration: '20260905160100_rls_case_management', preamble: false, tables: STAGE_17_TABLES },
+  { migration: '20260905180100_rls_talent_acquisition', preamble: false, tables: STAGE_18_TABLES },
 ];

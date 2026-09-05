@@ -211,7 +211,7 @@ export function JobPreferencesForm({ initial }: { initial: PreferencesValues }) 
             <option value="visible">Visible</option>
           </select>
           <p id="visibility-help" className="mt-1 text-xs text-muted">
-            No recruiter features exist yet; this records your choice for when they do.
+            Hidden: no employer can find or ask you. Anonymous: employers hiring on JobPilot see a fit score, matched skills and your country - never your name, contact details or city - and may ask to see who you are, which you decide under Settings. Visible: they also see your name, headline and city before asking. Your self-identification answers are never shown to any employer.
           </p>
         </div>
         <div>

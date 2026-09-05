@@ -37,6 +37,15 @@ Support and admin reads of candidate data are audited without exception.
 | Employer reporting | F | F | R (own) | R | — | R |
 | Billing | F | W | — | — | — | — |
 
+Enforced in code since Stage 18 (`src/lib/employer/roles.ts`, ADR-0033):
+owner and admin act as admin; a recruiter sources, asks for disclosure and
+runs the pipeline; a hiring manager owns their requisitions and their offers;
+an interviewer records only an interview they are named on; reporting is
+organisation-level for every role but interviewer (the "own" cut for a hiring
+manager is not built). Hiring-team notes are pipeline writes (not the
+interviewer's). Nothing here shows a candidate who has not granted disclosure
+to that organisation.
+
 ## Staffing agency
 
 | Resource | Owner | Admin | Recruiter | Delivery | Finance |

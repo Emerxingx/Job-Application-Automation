@@ -128,7 +128,7 @@ describe('Stage 08 — weight governance, regression and dimensions against the 
       ];
       const active = await weights.getActiveWeights();
       const r = await pipeline.scoreCompatibility({ userId: USER.id, resume, evidence: { ids: entries.map((e) => e.id), claims: entries.map((e) => e.claim), entries }, job, weights: active });
-      assert.equal(r.run.route, 'deterministic');
+      assert.equal(r.run!.route, 'deterministic');
       assert.equal(r.analysis.matchScore, keywords.combineScore(r.analysis.breakdown, active.weights), 'the recorded score is the governed rule over the breakdown');
 
       const skills = r.dimensions.find((d) => d.dimension === 'skills')!;

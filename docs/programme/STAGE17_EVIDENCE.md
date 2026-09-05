@@ -198,7 +198,7 @@ BLOCKED on L-1.** Merge posture inherited from the stack.
 2. A data-sharing agreement before any integration level above 0
    (ADR-0020), recorded in `COMPLIANCE_REGISTER.md`.
 3. Create each verified service-provider organisation as staff
-   (`createOrganization(..., { verifiedProvider: true })` behind the
+   (`createOrganization(..., { verifiedOrganization: true })` behind the
    console gate; no self-serve path exists, by design).
 
 ## 12. Independent review

@@ -136,20 +136,26 @@ export function slugify(name: string): string {
  * is validated against the closed list; `personal` cannot be created this way
  * because a user has exactly one and it is created at signup.
  */
+/** Organisation types that only staff create, after verification (an impersonated company name is the harm). */
+export const VERIFIED_TYPES: ReadonlySet<string> = new Set(['employer', 'service_provider']);
+
 export async function createOrganization(
   actorUserId: string,
   input: { name: string; type: OrganizationType; slug?: string; billingEmail: string },
-  options: { verifiedProvider?: boolean } = {},
+  options: { verifiedOrganization?: boolean } = {},
 ) {
   if (!isOrganizationType(input.type) || input.type === 'personal' || input.type === 'platform') {
     throw new OrganizationAccessError('That organization type cannot be created here.', 422);
   }
-  // Stage 17 review: a service-provider organisation invites people to hand it
-  // their job-search data (ADR-0032), so it is not self-serve - JobPilot staff
-  // set it up once the provider is verified. The caller says whether that
-  // verification happened (the route passes the console's two-lock decision).
-  if (input.type === 'service_provider' && !options.verifiedProvider) {
-    throw new OrganizationAccessError('A service-provider organisation is set up by JobPilot staff once the provider is verified. Contact support.', 403);
+  // Stage 17 and 18 reviews: a service-provider organisation invites people to
+  // hand it their job-search data (ADR-0032), and an employer organisation
+  // publishes postings under a company name into every candidate's feed and
+  // receives identities through "Apply through JobPilot" (ADR-0033) - so
+  // neither is self-serve. JobPilot staff set them up once the organisation
+  // is verified; the caller says whether that verification happened (the
+  // route passes the console's two-lock decision).
+  if (VERIFIED_TYPES.has(input.type) && !options.verifiedOrganization) {
+    throw new OrganizationAccessError('An employer or service-provider organisation is set up by JobPilot staff once it is verified. Contact support.', 403);
   }
   const slug = input.slug ?? slugify(input.name);
   if (!SLUG_SHAPE.test(slug)) {

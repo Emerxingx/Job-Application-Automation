@@ -1,13 +1,13 @@
 {
   "$comment": "Machine-readable controller for the autonomous build programme. Authoritative over any chat transcript: if this file and a conversation disagree, this file wins. Updated at every stage checkpoint.",
   "schema_version": 1,
-  "updated_at": "2026-09-05T15:50:00Z",
-  "current_stage": "17",
-  "last_completed_stage": "16",
-  "current_branch": "claude/stage-17-employment-services",
-  "current_head": "4809620c7802c923a6d9dd199ee362f1ddcbff21",
+  "updated_at": "2026-09-05T14:25:00Z",
+  "current_stage": "18",
+  "last_completed_stage": "17",
+  "current_branch": "claude/stage-18-talent-acquisition",
+  "current_head": "31a052148829782080a2b022873c1187a0d82371",
   "current_head_meaning": "SHA of the last commit whose full gate set was verified locally (lint, typecheck, tests, build). Set by the status-sync commit that immediately follows it, so it names a real, verified commit rather than the one it is written in.",
-  "current_pr": "https://github.com/Emerxingx/Job-Application-Automation/pull/29",
+  "current_pr": "https://github.com/Emerxingx/Job-Application-Automation/pull/30",
   "main_head": "d6ae8b3a9180b529abe06f23417515432c0a7f0e",
   "run_complete": false,
   "stage_status": {
@@ -28,8 +28,8 @@
     "14": "PASS_ENGINEERING_EXIT_PARTIAL",
     "15": "PASS_ENGINEERING_EXIT_BLOCKED_CREDENTIALS",
     "16": "PASS_ENGINEERING_EXIT_BLOCKED_LEGAL",
-    "17": "PASS_ENGINEERING_EXIT_BLOCKED_LEGAL",
-    "18": "NOT_STARTED",
+    "17": "PASS_ENGINEERING_EXIT_BLOCKED_L1",
+    "18": "PASS_ENGINEERING_EXIT_BLOCKED_L5",
     "19": "NOT_STARTED",
     "20": "NOT_STARTED",
     "21": "NOT_STARTED",
@@ -83,7 +83,7 @@
     ],
     "verdict": "Stage 01 is PARTIAL, not PASS. Every unmet item traces to the staging project being unreachable from the build environment, except tenant-path adoption, which is engineering and continues in Stage 02 alongside the schema work that touches those handlers."
   },
-  "next_requirement": "Stage 17 independent adversarial review, then Stage 18 (Corporate / Talent Acquisition OS: requisitions, sourcing, consent-gated candidate disclosure, pipeline, offers; L-5 consent wording open) on a stacked branch from the Stage 17 head.",
+  "next_requirement": "Stage 18 independent adversarial review (fix HIGH/MEDIUM), then Stage 19 (Staffing / Placement OS: client contracts, engagements, fees, guarantee periods, representation consent, placements, invoicing kept apart from candidate-paid billing; L-4 licensing and L-5 representation consent open) on a stacked branch from the Stage 18 head.",
   "blockers": [
     {
       "id": "ATS-SANDBOX-CREDENTIAL",
@@ -173,6 +173,15 @@
       "latest_blocking_stage": "15",
       "status": "OPEN",
       "effect": "Stage 15 exit BLOCKED on 'Stripe SANDBOX-VALIDATED minimum'. The entitlement layer, the webhook dispatch and its replay/ordering guards, and every entitlement consequence of every event type are proven locally."
+    },
+    {
+      "id": "L-5-DISCLOSURE-CONSENT-WORDING",
+      "type": "LEGAL",
+      "issue": "The consent wording a candidate reads before being disclosed to an employer has not been settled by counsel (COMPLIANCE_REGISTER.md L-5); the mechanism ships at version 2026-09-05-draft",
+      "owner": "Founder + employment / privacy counsel",
+      "latest_blocking_stage": "18",
+      "status": "OPEN",
+      "effect": "grantConsent refuses the employer_disclosure purpose when NODE_ENV is production, so no candidate can be disclosed to an employer in production. Everything else in Stage 18 is proven locally."
     }
   ],
   "external_actions": [
@@ -666,5 +675,31 @@
       "Staging rehearsal (NOT VERIFIED — R-34)"
     ],
     "verdict": "Stage 17 engineering is complete at Level 0; public-sector deployment is blocked on L-1. Merge posture inherited from the stack."
+  },
+  "stage_18_progress": {
+    "organisations_roles": "DONE — employer organisations created only by staff once verified ({ verifiedOrganization: true }, the console two-lock gate; review H1); Membership.serviceRole as a named set (recruiter | hiring_manager | interviewer | viewer; owner/admin → admin; unknown → viewer) enforced per the matrix row, including the profile (interviewer only when named; never a viewer) and offers (hidden from interviewer and viewer)",
+    "requisitions_publishing": "DONE — migration 20260905180000_talent_acquisition (9 tables) + RLS 20260905180100_rls_talent_acquisition; a requisition is a draft until opened; opening publishes through requireEnabledSource('employer') + the Stage 06 pipeline as a canonical Job (source employer); the first-party `employer` connector with an injectable catalogue (contract suite database-free); closure stated by the requisition status",
+    "disclosure_consent": "DONE — Disclosure per (organisation, candidate); only anonymous/visible candidates can be asked; the candidate grants (ConsentRecord employer_disclosure in one transaction), declines (final), revokes (record revoked, submissions withdrawn, pool memberships removed); applying through the platform grants by the candidate's act; grantedDisclosure() checks the row's own consent record; Disclosure SELECT-only for the candidate under RLS (custom + readUsing)",
+    "sourcing_pipeline": "DONE — anonymised scored cards via scoreCompatibility({ mode: 'deterministic' }) (no AiRun under the candidate, no model), rate-limited per requisition, honouring recruiter visibility (hidden never; anonymous no identity; visible name+headline), audited; stage machine with no stage past consent without a granted disclosure (a re-request never moves a terminal row; a grant moves sourced and consent_requested rows); interviews, notes, offers, hires (an offer on a withdrawn submission closes as withdrawn); pools of consented candidates; reporting (funnel, medians, sources, member-only activity) from the organisation's own events; employer audit rows buffered and flushed after the transaction; requisition status writes carry a precondition and close only a job this source owns",
+    "surfaces": "DONE — /dashboard/employer, /dashboard/employer/[reqId], /dashboard/employer/submissions/[id]; nav entry for employer members; Settings disclosure section; job page 'Apply through JobPilot' for first-party postings; /api/employer/* and /api/disclosures/*",
+    "l5_consent_wording": "BLOCKED (LEGAL, L-5) — version 2026-09-05-draft; grantConsent refuses a -draft purpose in production (ConsentWordingPendingError 503, tested)",
+    "independent_review": "DONE — 2 HIGH (self-serve employer organisations could impersonate any company and harvest identities; requestDisclosure resurrected terminal submissions) / 10 MEDIUM / 11 LOW; every HIGH and MEDIUM fixed with tests, every LOW fixed or recorded (L18's 'unknown' kept per the connector contract; L19/L20 recorded in ADR-0033); migration 20260905180200_recruiter_visibility_reconfirm resets every pre-Stage-18 visibility choice to hidden; STAGE18_EVIDENCE.md §11"
+  },
+  "stage_18_exit_gate": {
+    "met": [
+      "Requisition → hire flow complete (draft, publish, source, ask, consent, screen, interview, note, offer, hire, fill, close; tested end to end)",
+      "Consent enforced on every employer-visible disclosure (grantedDisclosure on every read and disclosed stage; tested before, after, revoked, another employer)",
+      "Recruiter visibility honoured (hidden never sourced nor askable; anonymous without identity; visible with name and headline; tested)",
+      "Sensitive attributes never employer-visible (static test on src/lib/employer; Stage 02 allowlist unchanged)",
+      "Cross-employer isolation (RLS org policies + organisation filter; tested)",
+      "Full gate set green: lint 0/7, typecheck 0, tests 1179 / 1179 (0 skipped), build 0; rehearsal 46 migrations, drift clean, 146 forced tables"
+    ],
+    "not_met": [
+      "Production disclosure — BLOCKED (LEGAL, L-5): refused by code until counsel records the wording",
+      "Notifications to candidates or recruiters — NOT IMPLEMENTED (none are sent)",
+      "Hiring-manager 'own' reporting cut, sub-teams, contact directory, calendar — NOT IMPLEMENTED",
+      "Staging rehearsal (NOT VERIFIED — R-34)"
+    ],
+    "verdict": "Stage 18 engineering is complete; production disclosure is blocked on L-5. Merge posture inherited from the stack."
   }
 }

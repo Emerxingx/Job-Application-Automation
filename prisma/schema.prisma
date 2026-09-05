@@ -130,6 +130,7 @@ model User {
   careerPlanMilestones CareerPlanMilestone[]
   clientCases          Case[]                   @relation("CaseClient")
   managedCases         Case[]                   @relation("CaseManager")
+  disclosures          Disclosure[]             @relation("DisclosureCandidate")
 }
 
 // ---------------------------------------------------------------------------
@@ -352,6 +353,8 @@ model Job {
   snapshots    JobSnapshot[]
   provenance   JobProvenance[]
   eligibility  EligibilityResult[]
+
+  requisition Requisition?
 
   @@unique([source, externalId])
   @@index([title])
@@ -2473,6 +2476,10 @@ model Organization {
   apiKeys         ApiKey[]
   cases           Case[]
   retentionPolicy RetentionPolicy?
+  requisitions    Requisition[]
+  disclosures     Disclosure[]
+  talentPools     TalentPool[]
+  submissions     Submission[]
 
   @@index([status])
   @@index([type])
@@ -2484,9 +2491,11 @@ model Membership {
   organizationId String
   userId         String
   role           String    @default("member") // owner | admin | member
-  // Stage 17 (ADR-0032): a named permission set OVER the ladder for a
-  // service_provider organisation - supervisor | case_manager | viewer. Null,
-  // or any value this code does not recognise, resolves to viewer (weakest).
+  // Stage 17 (ADR-0032): a named permission set OVER the ladder, by
+  // organisation type - service_provider: supervisor | case_manager | viewer;
+  // Stage 18 (ADR-0033) employer: hiring_manager | recruiter | interviewer |
+  // viewer. Null, or any value this code does not recognise, resolves to
+  // viewer (weakest).
   serviceRole    String?
   invitedEmail   String?
   invitedAt      DateTime  @default(now())
@@ -4138,5 +4147,224 @@ model CaseRecommendation {
   case Case @relation(fields: [caseId], references: [id], onDelete: Cascade)
 
   @@index([caseId, status])
+  @@index([organizationId, status])
+}
+
+// --- Stage 18 (ADR-0033): employer-side hiring (talent acquisition) ----------
+// An employer organisation runs requisitions and pipelines. No candidate is
+// disclosed to an employer without a granted Disclosure (the candidate's
+// consent, one record per candidate x organisation, revocable), and a
+// candidate whose recruiter visibility is `hidden` is never sourced at all.
+// Sensitive attributes are never employer-visible (ADR-0007). Everything here
+// is the employer's record: organisation-scoped under RLS, CONFIDENTIAL.
+
+model Requisition {
+  id                        String    @id @default(cuid())
+  organizationId            String
+  title                     String
+  department                String    @default("")
+  location                  String
+  country                   String    @default("CA")
+  workMode                  String    @default("onsite")
+  jobType                   String    @default("full_time")
+  description               String    @default("")
+  requiredSkills            String    @default("[]")
+  preferredSkills           String    @default("[]")
+  certificationRequirements String    @default("[]")
+  experienceYearsMin        Int?
+  salaryMin                 Int?
+  salaryMax                 Int?
+  salaryCurrency            String    @default("CAD")
+  // draft | open | on_hold | filled | closed
+  status                    String    @default("draft")
+  hiringManagerId           String?
+  recruiterId               String?
+  // The canonical Job row this requisition publishes as (source `employer`), so candidates' agents match it like any posting
+  jobId                     String?   @unique
+  openedAt                  DateTime?
+  closedAt                  DateTime?
+  createdById               String
+  createdAt                 DateTime  @default(now())
+  updatedAt                 DateTime  @updatedAt
+
+  organization Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  job          Job?                @relation(fields: [jobId], references: [id], onDelete: SetNull)
+  submissions  Submission[]
+  interviews   EmployerInterview[]
+  offers       Offer[]
+
+  @@index([organizationId, status])
+  @@index([hiringManagerId])
+  @@index([recruiterId])
+}
+
+/// The candidate's consent to be disclosed to ONE employer organisation: requested by a recruiter, answered by the candidate, revocable.
+model Disclosure {
+  id              String    @id @default(cuid())
+  organizationId  String
+  candidateUserId String
+  requisitionId   String?
+  // requested | granted | declined | revoked
+  status          String    @default("requested")
+  message         String    @default("")
+  requestedById   String
+  requestedAt     DateTime  @default(now())
+  respondedAt     DateTime?
+  consentRecordId String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  candidate    User               @relation("DisclosureCandidate", fields: [candidateUserId], references: [id], onDelete: Cascade)
+  submissions  Submission[]
+  poolMembers  TalentPoolMember[]
+
+  @@unique([organizationId, candidateUserId])
+  @@index([candidateUserId, status])
+  @@index([organizationId, status])
+}
+
+model TalentPool {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  description    String   @default("")
+  createdById    String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  members      TalentPoolMember[]
+
+  @@index([organizationId])
+}
+
+/// A consented candidate in a pool: the membership cites the granted Disclosure and goes when it is revoked.
+model TalentPoolMember {
+  id              String   @id @default(cuid())
+  poolId          String
+  organizationId  String
+  candidateUserId String
+  disclosureId    String
+  addedById       String
+  createdAt       DateTime @default(now())
+
+  pool       TalentPool @relation(fields: [poolId], references: [id], onDelete: Cascade)
+  disclosure Disclosure @relation(fields: [disclosureId], references: [id], onDelete: Cascade)
+
+  @@unique([poolId, candidateUserId])
+  @@index([organizationId])
+}
+
+/// A candidate in a requisition's pipeline. Identity is readable only through a granted Disclosure.
+model Submission {
+  id              String    @id @default(cuid())
+  organizationId  String
+  requisitionId   String
+  candidateUserId String
+  disclosureId    String?
+  // sourced | consent_requested | consented | screening | interviewing | offered | hired | rejected | withdrawn
+  stage           String    @default("sourced")
+  // sourced | pool | applied | referred
+  source          String    @default("sourced")
+  matchScore      Int?
+  matchBreakdown  String    @default("{}")
+  weightVersion   String    @default("")
+  pipelineVersion String    @default("")
+  ownerId         String?
+  rejectedReason  String    @default("")
+  hiredAt         DateTime?
+  createdById     String
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  organization Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  requisition  Requisition         @relation(fields: [requisitionId], references: [id], onDelete: Cascade)
+  disclosure   Disclosure?         @relation(fields: [disclosureId], references: [id], onDelete: SetNull)
+  events       SubmissionEvent[]
+  interviews   EmployerInterview[]
+  notes        EmployerNote[]
+  offers       Offer[]
+
+  @@unique([requisitionId, candidateUserId])
+  @@index([organizationId, stage])
+  @@index([candidateUserId])
+}
+
+model SubmissionEvent {
+  id             String   @id @default(cuid())
+  submissionId   String
+  organizationId String
+  fromStage      String
+  toStage        String
+  actorId        String
+  note           String   @default("")
+  at             DateTime @default(now())
+
+  submission Submission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+
+  @@index([submissionId, at])
+  @@index([organizationId, toStage, at])
+}
+
+model EmployerInterview {
+  id              String   @id @default(cuid())
+  submissionId    String
+  requisitionId   String
+  organizationId  String
+  kind            String   @default("screen")
+  scheduledAt     DateTime
+  durationMinutes Int?
+  interviewerIds  String   @default("[]")
+  // scheduled | completed | cancelled
+  outcome         String   @default("scheduled")
+  feedback        String   @default("")
+  createdById     String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  submission  Submission  @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  requisition Requisition @relation(fields: [requisitionId], references: [id], onDelete: Cascade)
+
+  @@index([submissionId, scheduledAt])
+  @@index([organizationId, scheduledAt])
+}
+
+model EmployerNote {
+  id             String   @id @default(cuid())
+  submissionId   String
+  organizationId String
+  authorId       String
+  authorEmail    String   @default("")
+  body           String
+  createdAt      DateTime @default(now())
+
+  submission Submission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+
+  @@index([submissionId, createdAt])
+  @@index([organizationId])
+}
+
+model Offer {
+  id             String    @id @default(cuid())
+  submissionId   String
+  requisitionId  String
+  organizationId String
+  salaryCents    Int?
+  currency       String    @default("CAD")
+  startDate      DateTime?
+  note           String    @default("")
+  // draft | extended | accepted | declined | withdrawn
+  status         String    @default("draft")
+  extendedAt     DateTime?
+  respondedAt    DateTime?
+  createdById    String
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  submission  Submission  @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  requisition Requisition @relation(fields: [requisitionId], references: [id], onDelete: Cascade)
+
+  @@index([submissionId, status])
   @@index([organizationId, status])
 }

@@ -27,7 +27,7 @@ export interface ConnectorDefinition {
   credentialEnvVars: readonly string[];
   /** The record as it can be pre-filled from the code; a person still approves. */
   defaults: Pick<JobSource, 'legalBasis' | 'robotsPosition' | 'rateLimitPerMinute' | 'attributionRequired' | 'attributionText' | 'dataCategories' | 'personalData' | 'retentionRef' | 'notes'>;
-  /** Whether the register row is complete and enabled on creation (mock only). */
+  /** Whether the register row is complete and enabled on creation (the mock, and the first-party employer source). */
   enabledByDefault: boolean;
   load(): Promise<JobSourceConnector>;
 }
@@ -51,6 +51,31 @@ export const CONNECTOR_DEFINITIONS: readonly ConnectorDefinition[] = [
     },
     enabledByDefault: true,
     load: async () => new MockConnector(),
+  },
+  {
+    // Stage 18 (ADR-0033): first-party postings authored by employer
+    // organisations on this platform. Not a third party, not a crawl: the
+    // record is complete by construction, so it is enabled alongside the mock.
+    key: 'employer',
+    name: 'Employer postings on this platform',
+    kind: 'career_page',
+    credentialEnvVars: [],
+    defaults: {
+      legalBasis: 'First-party content: requisitions authored by employer organisations on this platform under its terms of service; no external access.',
+      robotsPosition: 'not applicable — no network access',
+      rateLimitPerMinute: 0,
+      attributionRequired: false,
+      attributionText: '',
+      dataCategories: JSON.stringify(['employer requisitions (first party)']),
+      personalData: false,
+      retentionRef: 'DATA_RETENTION_MATRIX.md — Job postings & snapshots',
+      notes: 'Enabled by default: the postings are the employers\' own rows on this platform, published through the same pipeline as every source.',
+    },
+    enabledByDefault: true,
+    load: async () => {
+      const { EmployerConnector } = await import('./employer');
+      return new EmployerConnector();
+    },
   },
   {
     key: 'adzuna',

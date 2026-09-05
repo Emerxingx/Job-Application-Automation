@@ -10,6 +10,7 @@ import path from 'node:path';
 import { afterEach, describe, it } from 'node:test';
 import { connectorContract } from './connector-contract';
 import { MockConnector } from '../src/lib/connectors/mock';
+import { EmployerConnector, inMemoryCatalogue } from '../src/lib/connectors/employer';
 import { AdzunaConnector } from '../src/lib/connectors/adzuna';
 import { AdzunaJobProvider } from '../src/lib/providers/jobs/adzuna';
 import { normalizePosting, postingHash, validatePosting } from '../src/lib/connectors/base';
@@ -32,6 +33,20 @@ function stubAdzuna() {
 
 describe('connector contract — mock', () => {
   connectorContract('mock', () => new MockConnector());
+  // Stage 18: the first-party source over an in-memory catalogue (the suite runs without a database); one open requisition, one on hold.
+  const OPEN = { id: 'req_open', title: 'Data Analyst', location: 'Toronto, ON', country: 'CA', workMode: 'hybrid', jobType: 'full_time', description: 'Analyse data with SQL and Python for the reporting team, building dashboards and models.', requiredSkills: '["SQL","Python"]', preferredSkills: '["Excel"]', certificationRequirements: '[]', experienceYearsMin: 2, salaryMin: 80_000, salaryMax: 100_000, salaryCurrency: 'CAD', status: 'open', openedAt: new Date('2026-09-01T00:00:00Z'), createdAt: new Date('2026-08-30T00:00:00Z'), organization: { name: 'Employer E' } };
+  const HELD = { ...OPEN, id: 'req_held', title: 'Data Engineer', status: 'on_hold' };
+  connectorContract('employer', () => new EmployerConnector(inMemoryCatalogue([OPEN, HELD])));
+  it('employer: only an OPEN requisition is discoverable; closure is what the status says (an id not held is unknown, per the contract); the apply route is this platform', async () => {
+    const c = new EmployerConnector(inMemoryCatalogue([OPEN, HELD, { ...OPEN, id: 'req_filled', status: 'filled' }]));
+    const found = await c.discover({ titles: ['analyst'], countries: ['CA'], country: 'CA', limit: 10 } as never);
+    assert.deepEqual(found.map((p) => p.externalId), ['req_open']);
+    assert.equal(found[0]!.company, 'Employer E');
+    assert.ok(found[0]!.requirements?.includes('Required: SQL'));
+    assert.deepEqual(await c.refresh(['req_open', 'req_held', 'req_filled', 'req_missing']), { req_open: 'active', req_held: 'unknown', req_filled: 'closed', req_missing: 'unknown' });
+    assert.equal(c.getApplicationRoute(c.normalize(found[0]!)).vendor, 'jobpilot');
+    assert.equal((await c.healthCheck()).detail, '1 open requisition(s)');
+  });
 });
 
 describe('connector contract — adzuna (recorded-shape fixture)', () => {
@@ -131,10 +146,11 @@ describe('connector base — normalisation, validation, hashing', () => {
 });
 
 describe('connector register — definitions', () => {
-  it('every definition names its class, credentials and a default record; only the mock is enabled by default', () => {
+  it('every definition names its class, credentials and a default record; only the mock and the first-party employer source are enabled by default', () => {
     for (const d of CONNECTOR_DEFINITIONS) {
       assert.ok(d.key && d.name && d.kind);
-      assert.equal(d.enabledByDefault, d.key === 'mock');
+      // Stage 18: employer requisitions are the platform's own rows, not a third party (ADR-0033).
+      assert.equal(d.enabledByDefault, d.key === 'mock' || d.key === 'employer');
       if (d.enabledByDefault) assert.ok(d.defaults.legalBasis.length > 0);
     }
     const adzuna = CONNECTOR_DEFINITIONS.find((d) => d.key === 'adzuna')!;

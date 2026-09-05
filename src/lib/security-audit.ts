@@ -82,7 +82,16 @@ export type SecurityEvent =
   | 'case.copilot.run'
   | 'case.recommendation.decided'
   | 'case.retention.set'
-  | 'case.retention.purged';
+  | 'case.retention.purged'
+  // Stage 18 (ADR-0033): employer-side hiring. A candidate's identity reaches an employer only behind a granted disclosure, and every such read is audited.
+  | 'disclosure.requested'
+  | 'disclosure.granted'
+  | 'disclosure.declined'
+  | 'disclosure.revoked'
+  | 'employer.sourcing.run'
+  | 'employer.candidate.read'
+  | 'employer.submission.moved'
+  | 'employer.offer.decided';
 
 export interface RequestMeta {
   ip?: string | null;

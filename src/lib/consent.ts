@@ -25,6 +25,8 @@ export const CONSENT_PURPOSES = [
   'calendar_sync',
   // Stage 17: a service provider's case manager may read this person's job-search data (never the sensitive schema); one record per accepted case.
   'employment_services_case',
+  // Stage 18: this person's profile may be disclosed to ONE employer organisation; one record per granted disclosure. Wording pending L-5.
+  'employer_disclosure',
 ] as const;
 export type ConsentPurpose = (typeof CONSENT_PURPOSES)[number];
 
@@ -57,6 +59,8 @@ export const CONSENT_VERSIONS: Record<ConsentPurpose, string> = {
   mailbox_sync: '2026-09-03',
   calendar_sync: '2026-09-03',
   employment_services_case: '2026-09-05',
+  // The consent MECHANISM is in force; the wording a candidate reads is a draft until counsel settles L-5 (COMPLIANCE_REGISTER.md).
+  employer_disclosure: '2026-09-05-draft',
 };
 
 export function isConsentPurpose(value: unknown): value is ConsentPurpose {
@@ -64,6 +68,17 @@ export function isConsentPurpose(value: unknown): value is ConsentPurpose {
 }
 
 type Client = Prisma.TransactionClient | typeof db;
+
+/** The wording for this purpose is a draft (an open item in COMPLIANCE_REGISTER.md); nothing is recorded under it in production. */
+export class ConsentWordingPendingError extends Error {
+  readonly status = 503;
+  readonly purpose: ConsentPurpose;
+  constructor(purpose: ConsentPurpose) {
+    super(`The ${purpose} consent wording is pending legal review (${CONSENT_VERSIONS[purpose]}); it cannot be recorded in production yet.`);
+    this.name = 'ConsentWordingPendingError';
+    this.purpose = purpose;
+  }
+}
 
 /** Record a grant of the current version of `purpose`. */
 export async function grantConsent(
@@ -74,6 +89,14 @@ export async function grantConsent(
 ) {
   if (purpose === 'cross_border_ai_processing') {
     throw new Error('cross_border_ai_processing consent cannot be recorded while L-3 is open');
+  }
+  // A purpose whose wording counsel has not settled carries a `-draft` version
+  // (employer_disclosure, L-5). The mechanism is exercised outside production;
+  // in production no such consent is recorded until the version is final -
+  // the register's rule that an open legal question is never treated as
+  // settled in code.
+  if (CONSENT_VERSIONS[purpose].endsWith('-draft') && process.env.NODE_ENV === 'production') {
+    throw new ConsentWordingPendingError(purpose);
   }
   const row = await client.consentRecord.create({
     data: {

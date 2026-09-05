@@ -59,19 +59,19 @@ a recorded run. Recording and enabling are admin actions at `/console/sources`,
 step-up re-authenticated and audited. Credentials are referenced by
 environment-variable NAME only.
 
-| Field | Built-in synthetic catalogue (`mock`) | Adzuna (`adzuna`) |
-| --- | --- | --- |
-| Source name | Built-in synthetic catalogue | Adzuna search API |
-| Legal basis | Synthetic data shipped in the repository; no external access, no third-party terms | **UNRECORDED** — the API terms have not been reviewed; the field is empty in the register and stays so until a person records it |
-| Terms reviewed | not applicable (recorded as "repository") | — |
-| `robots.txt` position | not applicable — no network access | not applicable — documented API, no crawling |
-| Rate limits | none | **to record** from the API terms; enforced by the adapter's call cap (5 titles × 3 locations per search) until then |
-| Attribution required | no | **yes** (the API terms require it); text to record |
-| Data categories | synthetic postings | job postings (CA/US): title, company, location, snippet description, salary where stated, apply link |
-| Personal data | none | none retrieved (postings only; queries carry search criteria, never candidate identity) |
-| Retention | `DATA_RETENTION_MATRIX.md` — Job postings & snapshots | same |
-| Approval | enabled by default (the reason a clean clone boots); recorded as "repository" | **none** — `disabled`; enabling requires the record above and `ADZUNA_APP_ID` / `ADZUNA_APP_KEY` present |
-| Validation status | not applicable | `IMPLEMENTED-NOT-VALIDATED`: contract suite passed on a recorded-shape fixture; **never called with a live key** |
+| Field | Built-in synthetic catalogue (`mock`) | Adzuna (`adzuna`) | Employer postings on this platform (`employer`, Stage 18) |
+| --- | --- | --- | --- |
+| Source name | Built-in synthetic catalogue | Adzuna search API | Employer postings on this platform |
+| Legal basis | Synthetic data shipped in the repository; no external access, no third-party terms | **UNRECORDED** — the API terms have not been reviewed; the field is empty in the register and stays so until a person records it | First-party: the employer's own requisition, authored on the platform under its terms; no external access |
+| Terms reviewed | not applicable (recorded as "repository") | — | not applicable (recorded as "repository") |
+| `robots.txt` position | not applicable — no network access | not applicable — documented API, no crawling | not applicable — no network access |
+| Rate limits | none | **to record** from the API terms; enforced by the adapter's call cap (5 titles × 3 locations per search) until then | none (a database read) |
+| Attribution required | no | **yes** (the API terms require it); text to record | no |
+| Data categories | synthetic postings | job postings (CA/US): title, company, location, snippet description, salary where stated, apply link | the employer's requisition: title, organisation name, location, description, skills, salary band, apply link to this platform |
+| Personal data | none | none retrieved (postings only; queries carry search criteria, never candidate identity) | none in the posting; the candidate side is consent-gated disclosure (ADR-0033), not a source |
+| Retention | `DATA_RETENTION_MATRIX.md` — Job postings & snapshots | same | same; a filled or closed requisition closes its job at once |
+| Approval | enabled by default (the reason a clean clone boots); recorded as "repository" | **none** — `disabled`; enabling requires the record above and `ADZUNA_APP_ID` / `ADZUNA_APP_KEY` present | enabled by default (the platform's own rows); recorded as "repository"; staff may disable it at `/console/sources`, which stops every publication |
+| Validation status | not applicable | `IMPLEMENTED-NOT-VALIDATED`: contract suite passed on a recorded-shape fixture; **never called with a live key** | exercised end to end in the database suite (`tests/employer.test.ts`: open → published job → snapshot → closed with the requisition) |
 
 ## Taxonomy licensing
 NOC, TEER, OaSIS, the Canadian Skills and Competencies Taxonomy and O*NET each
