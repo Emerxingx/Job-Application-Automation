@@ -80,6 +80,11 @@ npm run export:web           # Metro bundles the whole app for web into dist/ - 
 npm run verify               # all of the above
 ```
 
+The package pins **TypeScript 5.9** (not the 6.x the web app uses):
+`openapi-typescript` declares a `^5.x` peer, and a lockfile that only resolves
+under `--legacy-peer-deps` is not a lockfile `npm ci` will accept in CI. Expo
+SDK 57 accepts either major. Bump the two together, or not at all.
+
 Running on a device or simulator (not possible in the build environment):
 
 ```bash
