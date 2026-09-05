@@ -1,6 +1,6 @@
 # ADR-0016 — Application automation and human approval policy
 
-**Status:** Proposed · **Date:** 2026-09-02 · **Enforced in code (Stage 12, 2026-09-03, ADR-0026):** the three reachable modes are stored per applicant and enforced at the apply route, the applicator and the submission step; `approved_auto_apply` is refused by `parseApplicationMode` and has no permission row; preparation never submits in any engine; a programmatic submission exists only as the applicant's instructed click after review, where an employer has authorised their board.
+**Status:** Proposed · **Date:** 2026-09-02 · **Enforced in code (Stage 12, 2026-09-03, ADR-0026):** the three reachable modes are stored per applicant and enforced at the apply route, the applicator and the submission step; `approved_auto_apply` is refused by `parseApplicationMode` and has no permission row; preparation never submits in any engine; a programmatic submission exists only as the applicant's instructed click after review, where an employer has authorised their board. · **Stage 22 (2026-09-05):** the gate is RECORDED, not opened — `docs/programme/STAGE22_GATE.md` lists the ten preconditions (every one NOT MET), the proof that the platform submits nothing autonomously today, and the order in which counsel (L-6), the consent wording and a written founder decision would reopen it; no design work, schema, flag, provider or scheduler was added.
 
 ## Context
 The existing implementation already made the right call, and documented it well.
