@@ -19,7 +19,7 @@ programme was built to refuse.
 
 | Area | Verified (evidence) | Not verified |
 | --- | --- | --- |
-| Build and quality | lint 0/8 · typecheck 0 · **1322 tests** on a migrated PostgreSQL 16 (0 skipped) · build 0 · CI on every push (verify, mobile, generated files, line endings, accessibility + smoke + CSP proof, SBOM) - `PRODUCTION_READINESS_GATES.md` G1 | branch protection on `main` (external) |
+| Build and quality | lint 0/8 · typecheck 0 · **1325 tests** on a migrated PostgreSQL 16 (0 skipped) · build 0 · CI on every push (verify, mobile, generated files, line endings, accessibility + smoke + CSP proof, SBOM) - `PRODUCTION_READINESS_GATES.md` G1 | branch protection on `main` (external) |
 | Tenant isolation | RLS on every table (`ENABLE`+`FORCE`, generated from one classification), transaction-scoped context, a negative suite with filters removed through the real client, through PgBouncer in transaction mode (Stage 01) | the managed pooler (Supavisor) - unreachable from here (R-34) |
 | Sessions, auth, CSRF, headers | revocable session rows; deny-by-default edge gate; explicit cross-site refusal; one header list plus a per-request script nonce proven in a real browser (Stages 01, 23, 24) | MFA (absent; step-up only); a penetration test |
 | Privacy | the sensitive schema with its own role and module; per-tenant AI policy failing closed; erasure across every table the review named, tested; retention as a sweep; audit rows never deleted (Stages 02, 03, 23) | the consent wording (L-5, `-draft` refused in production); cross-border AI acceptability (L-3); the audit hash chain (columns unwired) |

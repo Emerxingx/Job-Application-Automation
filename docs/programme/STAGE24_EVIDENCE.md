@@ -1,7 +1,7 @@
 # Stage 24 - Production deployment and readiness - evidence
 
-Recorded 2026-09-05 on branch `claude/stage-24-production-readiness` (draft
-PR, stacked on Stage 23 (PR #35) - 22 (#34) - 21 (#33) - 20 (#32) - 19
+Recorded 2026-09-05 on branch `claude/stage-24-production-readiness` (PR
+#36, stacked on Stage 23 (PR #35) - 22 (#34) - 21 (#33) - 20 (#32) - 19
 (#31) - 18 (#30) - 17 (#29) - 16 (#28) - 15 (#27) - 14 (#26) - 13 (#25) -
 12 (#24) - 11 (#23) - 10 (#22) - 09 (#21) - 08 (#20) - 07 (#19) - 06 (#18)
 - 05 (#17) - 04 (#16) - 03 (#15) - 02 (#14) - 01 (#13, PARTIAL)). Every
@@ -122,7 +122,7 @@ async limiter in the path. **Local numbers**; production is NOT measured.
 | --- | --- |
 | `npm run lint:ci` | 0 errors, 8 warnings (baseline 8) |
 | `npx tsc --noEmit` | 0 errors |
-| `npm test` (CI=true, both URLs on `jobpilot_test23`, 58 migrations) | 1322 / 1322, 0 skipped (20 new: 12 static and pure in `operations-static`, 6 database in `operations`, 1 on `v1Params`, 1 in the storage paging) |
+| `npm test` (CI=true, both URLs on `jobpilot_test23`, 58 migrations) | 1325 / 1325, 0 skipped (23 new: 12 static and pure in `operations-static`, 8 database in `operations`, 2 in `rate-limit`, 1 on `v1Params`) - after the review |
 | `npm run build` | exit 0 (worktree with its own dependencies) |
 | `npm run smoke` | 18 / 18 |
 | `npm run a11y` | 58 / 58 (42 WCAG pages + 15 CSP pages + the sign-in setup) |
@@ -193,5 +193,5 @@ that reported the configured store rather than the one serving requests.
 | L14 | LOW | The `withCsp` count included the definition | Fixed: every `return` in `proxy()` is checked |
 | INFO | - | `'self' https:` fallback semantics; script-src only; opaque arithmetic; pool-serialised concurrency; UTC windows; tick minimum; "two commands" | Each stated in the module, the gate row, the test, the evidence, `DEPLOYMENT.md`, `.env.example` and the ADR |
 
-After the fixes: lint 0 / 8, typecheck 0, `npm test` TESTS_AFTER_REVIEW,
+After the fixes: lint 0 / 8, typecheck 0, `npm test` 1325 / 1325,
 build exit 0, smoke 18 / 18 on the rebuilt app.

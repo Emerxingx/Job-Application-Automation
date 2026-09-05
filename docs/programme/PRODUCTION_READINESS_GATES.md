@@ -16,7 +16,7 @@ Stage 00 baseline this table replaced is in git history.
 | --- | --- | --- | --- |
 | Install from lockfile | exit 0 | exit 0 (`npm ci`, retried once for ETXTBSY, R-32) | PASS |
 | Typecheck | exit 0 | exit 0 | PASS |
-| Unit + integration tests | all pass | 1322 / 1322 with `CI=true` against migrated PostgreSQL; database suites THROW when the URLs are unset in CI | PASS |
+| Unit + integration tests | all pass | 1325 / 1325 with `CI=true` against migrated PostgreSQL; database suites THROW when the URLs are unset in CI | PASS |
 | Production build | exit 0 | exit 0, 102 routes | PASS |
 | Lint | configured, non-interactive, clean | flat config, `eslint` directly; 0 errors, 8 warnings locked by `--max-warnings=8` (`LINT_BASELINE.md`) | PASS |
 | CI enforcing all of the above | required on `main` | `ci.yml` verify · mobile · generated-files · line-endings · accessibility (with the smoke suite and the CSP browser proof, Stage 24) · sbom, all green on the stacked branches; **branch protection is an EXTERNAL ACTION** (`AUTONOMOUS_STATUS.json`) | PARTIAL |
