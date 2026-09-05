@@ -1,7 +1,7 @@
 # Stage 16 - Career transition, learning and certification OS - evidence
 
 Recorded 2026-09-05 on branch `claude/stage-16-career-transition`
-(PR __PR__), stacked on Stage 15 (PR #27) - 14 (#26) - 13 (#25) - 12 (#24) -
+(PR #28), stacked on Stage 15 (PR #27) - 14 (#26) - 13 (#25) - 12 (#24) -
 11 (#23) - 10 (#22) - 09 (#21) - 08 (#20) - 07 (#19) - 06 (#18) - 05 (#17) -
 04 (#16) - 03 (#15) - 02 (#14) - 01 (#13, PARTIAL). Every line was run or
 read; nothing is PASS on the strength of a mock, a skipped test or a
