@@ -26,7 +26,7 @@ remediation has begun.**
 npm ci                # install from the lockfile
 npm run dev           # http://localhost:3000
 npx tsc --noEmit      # typecheck  — PASSES
-npm test              # 1205 tests  — PASSES with the two database URLs below set; the
+npm test              # 1236 tests  — PASSES with the two database URLs below set; the
                       #   database suites skip WITH A REASON without them and THROW
                       #   when CI=true, so CI cannot pass by skipping them
 npm run build         # production — PASSES
@@ -57,7 +57,7 @@ npm run cms:types          # regenerate payload-types.ts
 ## Things that will surprise you
 
 1. **The database is PostgreSQL with a versioned migration history** since
-   Stage 01 (`ADR-0002`). Fifty migrations under `prisma/migrations/`; CI applies
+   Stage 01 (`ADR-0002`). Fifty-two migrations under `prisma/migrations/`; CI applies
    them to an empty database and fails on drift. `DATABASE_URL` is the
    transaction pooler, `DIRECT_URL` the session endpoint for migrations. The RLS
    migration is **generated** from `src/lib/tenancy/rls-tables.ts` — regenerate
@@ -456,6 +456,37 @@ npm run cms:types          # regenerate payload-types.ts
     representation is final; `fell_off` only from `started` (a never-started
     placement is `cancelled`); `Placement.candidateUserId` is RESTRICT;
     recording counsel's answer is under step-up.
+
+31. **Platform administration sits on the ADR-0019 line, and the enterprise
+    doors are machine-verified** (Stage 20, ADR-0035). `src/lib/admin/`:
+    staff create VERIFIED organisations (`createVerifiedOrganization`),
+    suspend them (a suspended organisation has no tenant path -
+    `requireTenant` refuses) and set tenant policy (`requireSso`,
+    `allowedEmailDomains`, `sessionMaxHours`) - never the tenant's own
+    admins; platform roles are ASSIGNED there and DEFINED in code; feature
+    flags are DECLARED in `FLAG_REGISTRY` with the file that reads them,
+    `isTierTwoKey` refuses a key naming a security control, and a static
+    test keeps every security module free of flag reads - never add
+    `isFlagEnabled` to auth, sessions, tenancy, consent, apply modes, the
+    sensitive path, step-up or the proxy. Every `/api/console` write added
+    here is admin + `requireStepUp` with a reason and an audit row (a
+    static test walks the matrix). **Impersonation is read-only**: a second
+    cookie names an `ImpersonationSession` row, `getSessionUserId` answers
+    with the target while it is live (checked per request, no cache), and
+    `route()` refuses every non-GET - the only unwrapped write is
+    `/api/console/impersonation/end`; no `Session` row is ever issued for
+    the target. **SSO is OIDC** (`src/lib/sso/`): one connection per
+    organisation for one domain, the client secret AES-256-GCM under
+    `SSO_ENCRYPTION_KEY` (a separate key from the mailbox one) and decrypted
+    in exactly one place; PKCE, discovery with issuer match, JWKS
+    verification, a verified email inside the domain; JIT provisioning
+    records the signup consents as source `sso`; a removed membership is
+    never reinstated by a sign-in. **SCIM is Users-only** (`src/lib/scim/`)
+    behind staff-issued SHA-256-hashed tokens scoped to one organisation;
+    deactivation removes the membership and revokes sessions and never
+    deletes or scrubs the account. `/api/auth/sso` and `/api/scim` are
+    public prefixes. **No real identity provider or SCIM client has been
+    validated** - the register says so; do not claim otherwise.
 
 ## Conventions worth preserving
 

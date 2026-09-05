@@ -66,6 +66,16 @@ const PUBLIC_PREFIXES = [
   // definition the caller has no session yet. The route verifies the token's
   // signature, issuer and audience before trusting a single claim.
   '/api/auth/exchange',
+  // Stage 20 (ADR-0035): enterprise sign-in. `start` routes an address to its
+  // organisation's identity provider (no session yet, by definition) and
+  // `callback` is where that provider sends the browser back; both verify
+  // everything they receive (a signed state cookie, the provider's signed ID
+  // token) before trusting a single claim.
+  '/api/auth/sso',
+  // SCIM provisioning authenticates with a bearer token issued by staff for
+  // ONE organisation (SHA-256 digest, constant-time compare), never a cookie:
+  // the caller is an identity provider, not a person.
+  '/api/scim',
   // Logout must work even with an expired or malformed cookie, or a user can be
   // stuck holding a session they cannot clear.
   '/api/auth/logout',

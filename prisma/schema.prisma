@@ -2447,31 +2447,44 @@ model ExportJob {
 // today, and org quota pools alongside the existing Subscription rather than
 // replacing it.
 model Organization {
-  id                         String   @id @default(cuid())
+  id                         String    @id @default(cuid())
   name                       String
-  slug                       String   @unique
+  slug                       String    @unique
   // Typed per docs/architecture/MULTITENANCY_ARCHITECTURE.md. `personal` is
   // the workspace every candidate owns; it exists so that tenancy has exactly
   // one shape (a row belongs to an organisation a user is a member of) rather
   // than two (individual rows AND organisation rows).
-  type                       String   @default("personal") // personal | employer | staffing_agency | service_provider | career_consultancy | training_organization | platform
+  type                       String    @default("personal") // personal | employer | staffing_agency | service_provider | career_consultancy | training_organization | platform
   // Per-tenant AI processing policy (ADR-0015). The DEFAULT is the most
   // restrictive state: a tenant whose policy nobody has set must not have its
   // data routed to a cross-border provider. The Stage 03 AI gateway reads this
   // and fails closed on anything it does not recognise.
-  aiProcessingPolicy         String   @default("EXTERNAL_AI_PROHIBITED") // EXTERNAL_AI_ALLOWED | EXTERNAL_AI_RESTRICTED | EXTERNAL_AI_PROHIBITED
+  aiProcessingPolicy         String    @default("EXTERNAL_AI_PROHIBITED") // EXTERNAL_AI_ALLOWED | EXTERNAL_AI_RESTRICTED | EXTERNAL_AI_PROHIBITED
   planId                     String?
-  seats                      Int      @default(1)
-  applicationsPerMonthPooled Int      @default(0)
-  applicationsUsed           Int      @default(0)
+  seats                      Int       @default(1)
+  applicationsPerMonthPooled Int       @default(0)
+  applicationsUsed           Int       @default(0)
   perSeatCap                 Int? // so one heavy user cannot drain the block
   billingEmail               String
   externalCustomerId         String?
-  status                     String   @default("active") // active | past_due | suspended | canceled
-  createdAt                  DateTime @default(now())
-  updatedAt                  DateTime @updatedAt
+  status                     String    @default("active") // active | past_due | suspended | canceled
+  // Stage 20 (ADR-0035): staff verification of an employer, agency or
+  // service-provider organisation (who, when), and the tenant-level policy the
+  // organisation's admins cannot set for themselves: whether members must sign
+  // in through the organisation's SSO, which email domains may be invited, and
+  // the longest session the platform issues to them (hours; null = platform
+  // default). Set by staff under step-up and audited; read on the tenant path.
+  verifiedAt                 DateTime?
+  verifiedByEmail            String    @default("")
+  requireSso                 Boolean   @default(false)
+  allowedEmailDomains        String    @default("[]")
+  sessionMaxHours            Int?
+  createdAt                  DateTime  @default(now())
+  updatedAt                  DateTime  @updatedAt
 
   plan              Plan?                   @relation(fields: [planId], references: [id], onDelete: SetNull)
+  ssoConnection     SsoConnection?
+  scimTokens        ScimToken[]
   memberships       Membership[]
   invoices          Invoice[]
   entitlements      Entitlement[]
@@ -4579,4 +4592,53 @@ model PlacementInvoice {
 
   @@index([organizationId, status])
   @@index([placementId])
+}
+
+// ---------------------------------------------------------------------------
+// Enterprise sign-in (Stage 20, ADR-0035). One OIDC connection per
+// organisation; the client secret is AES-256-GCM under SSO_ENCRYPTION_KEY and
+// is decrypted only inside src/lib/sso. SCIM tokens are stored as a SHA-256
+// digest with a display prefix; the plaintext is shown once. Both tables are
+// SYSTEM-ONLY under RLS: a secret never sits on the tenant path.
+// ---------------------------------------------------------------------------
+
+model SsoConnection {
+  id                     String    @id @default(cuid())
+  organizationId         String    @unique
+  protocol               String    @default("oidc")
+  issuer                 String
+  clientId               String
+  clientSecretCiphertext String
+  clientSecretIv         String
+  clientSecretTag        String
+  clientSecretKeyVersion Int       @default(1)
+  // The email domain this connection is authoritative for (lower-case, no @)
+  emailDomain            String
+  // Create an account and a membership on first sign-in through this connection
+  jitProvisioning        Boolean   @default(true)
+  // enabled | disabled
+  status                 String    @default("disabled")
+  createdByEmail         String    @default("")
+  lastSignInAt           DateTime?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([emailDomain, status])
+}
+
+model ScimToken {
+  id             String    @id @default(cuid())
+  organizationId String
+  tokenHash      String    @unique
+  prefix         String
+  createdByEmail String    @default("")
+  lastUsedAt     DateTime?
+  revokedAt      DateTime?
+  createdAt      DateTime  @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, revokedAt])
 }

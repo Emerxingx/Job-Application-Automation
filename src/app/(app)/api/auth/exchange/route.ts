@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { createSession } from '@/lib/auth';
+import { passwordSignInRefusal, sessionMaxHoursFor } from '@/lib/sso/service';
 import { describeWait, fail, ok, route, tooMany } from '@/lib/api';
 import { LIMITS, clientAddress, rateLimit } from '@/lib/rate-limit';
 import { SELF_SERVICE_PURPOSES } from '@/lib/consent';
@@ -77,10 +78,15 @@ export const POST = route(async (request: Request) => {
         // The plan is a convenience default; its absence is not a sign-in failure.
       }
     }
+    // Stage 20 (ADR-0035): an organisation that requires SSO for its domain
+    // closes this door for that domain too.
+    const ssoRequired = await passwordSignInRefusal(user.email);
+    if (ssoRequired) return fail(ssoRequired, 403);
     const sessionId = await createSession(user.id, {
       method: 'supabase',
       assuranceLevel: identity.assuranceLevel,
       meta,
+      maxHours: await sessionMaxHoursFor(user.id),
     });
     await recordSecurityEvent({
       event: 'auth.login.succeeded',

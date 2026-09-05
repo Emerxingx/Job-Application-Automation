@@ -617,3 +617,66 @@ never occurred.
   beyond compile and lint, route-level status codes, and any public-sector
   regime (L-1).
 
+## Stage 20 — enterprise tenant controls
+
+- **Pure and static (`tests/enterprise-static.test.ts`):** the admin
+  authorisation matrix - every exported handler under `/api/console` is
+  wrapped by `consoleRoute`/`governanceRoute` and calls `requireStaff` with a
+  rank, the one unwrapped route (ending an impersonation) is named and reads
+  the impersonation token; every Stage 20 write is admin + `requireStepUp`
+  with the role check first; the console map offers each new page at the
+  rank its `consoleGate` uses. The flag boundary: every registry key passes
+  the Tier-2 filter and is read in the file it names; a dozen
+  security-control keys are refused; evaluation is deterministic and an
+  allow-list works at 0%; no auth, session, tenancy, consent, apply-mode,
+  sensitive, step-up, proxy, audit, SSO or SCIM module reads a flag. OIDC
+  against a local RS256 key: PKCE (RFC 7636 vector), issuer URL shape,
+  discovery refusals (issuer mismatch, missing endpoint, no S256, non-2xx),
+  the authorization request's parameters, ID-token refusals (wrong key,
+  audience, issuer, nonce, unverified email, no email). The client secret's
+  AES-GCM under a separate key, tamper detection, fail-closed without a key,
+  the single decryption site, no secret material in the description or the
+  console. SCIM PatchOp parsing (replace/add on `active` and `name.formatted`
+  only; wrong schema, `remove`, other paths, non-boolean refused), the
+  `userName eq` filter, an erased member inactive with no address, the
+  digest; SCIM routes never `route()`; `/api/scim` and `/api/auth/sso`
+  public and segment-aware; the two new tables system-only. Impersonation
+  liveness (null, ended, expired, not read-only, wrong target, wrong staff,
+  staff session dead) and the read-only refusal placed before the handler in
+  `route()`; no `staff_impersonation` session issued. The session ceiling
+  shortens and never lengthens; the domain policy; the platform roles; the
+  suspended-organisation refusal in `requireTenant`; both sign-in routes
+  honour `requireSso` and the ceiling. The CSV neutralises formulas, quotes
+  commas and newlines and has no IP column. Forbidden paths under
+  `src/lib/{sso,scim,admin}`.
+- **Database (`tests/enterprise.test.ts`):** verified creation (non-verified
+  type, unknown owner, empty reason refused; audit with the reason; a listing
+  by name); policy validation (bad domain, SSO without a connection, zero
+  hours), an invitation outside the domain policy refused, the ceiling only
+  once accepted, the shortest across organisations; role assignment audited
+  with before/after, own role refused, unknown role refused, staff revocation
+  of a live session with `staff_revoke`; flags (undeclared refused, range,
+  default without a row, off, allow-list at 0%, before/after audit, listing);
+  the export (filtered, capped, no IP column, itself audited, cursor paging);
+  impersonation (short reason, oneself, a staff target, the row and token,
+  liveness with and without the staff session, a second one refused, ended
+  only by its own staff member, both audit rows, no session row); the SSO
+  connection (bad issuer, missing secret, secret encrypted and absent from
+  the answer and the audit row, one enabled claimant per domain,
+  `requireSso` refusal after the policy); the sign-in end to end against a
+  local issuer (discovery, PKCE verifier and secret at the token endpoint,
+  provisioning with two `sso` consents, a personal workspace, an accepted
+  membership, audit rows; a second sign-in finds the account and records no
+  new consent); refusals audited against digests (unverified email, outside
+  domain, nonce, forged state, tampered state token, a removed member), a
+  suspended organisation, JIT off, an update without a secret keeping the
+  stored one; SCIM (token shape and digest, no token in the audit row,
+  missing/invalid/revoked token, list and filter, outside-domain and malformed
+  create refused, provisioning with a name, duplicate refused, no consent,
+  deactivation removes the membership and revokes the session but keeps the
+  account, reactivation, another organisation's token scoped out, revocation,
+  suspension).
+- **NOT covered, by honesty:** any real identity provider or SCIM client
+  (none is reachable); the browser; the cookie-setting routes themselves
+  beyond compile (the services they call are what is tested); MFA claims.
+

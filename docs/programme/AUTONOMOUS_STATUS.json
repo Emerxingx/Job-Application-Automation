@@ -1,13 +1,13 @@
 {
   "$comment": "Machine-readable controller for the autonomous build programme. Authoritative over any chat transcript: if this file and a conversation disagree, this file wins. Updated at every stage checkpoint.",
   "schema_version": 1,
-  "updated_at": "2026-09-05T15:15:00Z",
-  "current_stage": "19",
-  "last_completed_stage": "18",
-  "current_branch": "claude/stage-19-staffing-placement",
-  "current_head": "4dcd4eae91ef725d0def7370449dda586fb16122",
+  "updated_at": "2026-09-05",
+  "current_stage": "20",
+  "last_completed_stage": "19",
+  "current_branch": "claude/stage-20-enterprise-controls",
+  "current_head": "__HEAD__",
   "current_head_meaning": "SHA of the last commit whose full gate set was verified locally (lint, typecheck, tests, build). Set by the status-sync commit that immediately follows it, so it names a real, verified commit rather than the one it is written in.",
-  "current_pr": "https://github.com/Emerxingx/Job-Application-Automation/pull/31",
+  "current_pr": "__PR__",
   "main_head": "d6ae8b3a9180b529abe06f23417515432c0a7f0e",
   "run_complete": false,
   "stage_status": {
@@ -31,7 +31,7 @@
     "17": "PASS_ENGINEERING_EXIT_BLOCKED_L1",
     "18": "PASS_ENGINEERING_EXIT_BLOCKED_L5",
     "19": "PASS_ENGINEERING_EXIT_BLOCKED_L4_L5",
-    "20": "NOT_STARTED",
+    "20": "PASS (engineering) — exit gate PARTIAL; SSO/SCIM IMPLEMENTED-NOT-VALIDATED",
     "21": "NOT_STARTED",
     "22": "BLOCKED_BY_DESIGN",
     "23": "NOT_STARTED",
@@ -83,7 +83,7 @@
     ],
     "verdict": "Stage 01 is PARTIAL, not PASS. Every unmet item traces to the staging project being unreachable from the build environment, except tenant-path adoption, which is engineering and continues in Stage 02 alongside the schema work that touches those handlers."
   },
-  "next_requirement": "Stage 19 independent adversarial review (fix HIGH/MEDIUM), then Stage 20 (enterprise tenant controls, SSO, public-sector readiness: tenant configuration, retention/erasure review across the new products, audit export, SSO; L-1) on a stacked branch from the Stage 19 head.",
+  "next_requirement": "Stage 20 independent adversarial review (fix HIGH/MEDIUM), then Stage 21 (advanced reporting and warehouse readiness) on a stacked branch from the Stage 20 head.",
   "blockers": [
     {
       "id": "ATS-SANDBOX-CREDENTIAL",
@@ -191,6 +191,13 @@
       "latest_blocking_stage": "19",
       "status": "OPEN",
       "effect": "issuePlacementInvoice refuses under any jurisdiction whose verdict is not `allowed`; placements are recorded and marked unconfirmed. Everything else in Stage 19 is proven locally."
+    },
+    {
+      "id": "INT-SSO-SCIM-VALIDATION",
+      "classification": "EXTERNAL_DEPENDENCY",
+      "stage": "20",
+      "summary": "No real OIDC identity provider or SCIM client is reachable or configured; SSO and SCIM are IMPLEMENTED-NOT-VALIDATED. Needs SSO_ENCRYPTION_KEY on the deployment, a customer identity provider, and an operator to complete the first sign-in and provisioning cycle.",
+      "owner": "founder / operator"
     }
   ],
   "external_actions": [
@@ -737,5 +744,34 @@
       "Staging rehearsal (NOT VERIFIED — R-34)"
     ],
     "verdict": "Stage 19 engineering is complete; invoicing is blocked on L-4 and production representation on L-5. Merge posture inherited from the stack."
+  },
+  "stage_20_progress": {
+    "organisations_policy": "DONE — src/lib/admin/organizations.ts: staff create VERIFIED employer/service_provider/staffing_agency for an existing owner (verifiedAt/verifiedByEmail), suspend/reactivate (requireTenant refuses a suspended organisation; SSO and SCIM refused), tenant policy requireSso / allowedEmailDomains / sessionMaxHours (never lengthens; inviteMember and SCIM honour the domains; login, exchange and SSO routes honour the ceiling; requireSso refused without an enabled connection); /console/organizations and /[id]; every write admin + step-up + reason + audit before/after",
+    "users_roles": "DONE — src/lib/admin/users.ts: lookup by email, platform role assignment (member | support | billing_ops | admin; never own; never erased; audited from/to), staff session revocation (staff_revoke, audited); /console/users",
+    "feature_flags": "DONE — src/lib/admin/feature-flags.ts: FLAG_REGISTRY declares auth.sso_start_button and console.audit_export with defaults and readers; setFeatureFlag refuses undeclared keys and isTierTwoKey matches; deterministic evaluation (hash cohort, allow-list); audited; /console/flags; static test: readers exist, no security module reads a flag",
+    "impersonation": "DONE — ImpersonationSession made real: startImpersonation (reason ≥10 chars, never staff, never self, one at a time, 60 min), a second signed cookie, currentImpersonation() checked per request (row unended, in window, read-only, staff session live), getSessionUserId answers with the target, route() refuses every non-GET, the end route is the one unwrapped write, banner in the dashboard shell, start/end audited, no Session row for the target",
+    "audit": "DONE — src/lib/admin/audit.ts: filtered cursor query, CSV export (no IP/user-agent, formula cells neutralised, ≤1000 rows) that writes audit.exported; /console/audit; gated by console.audit_export",
+    "sso": "DONE (mechanism) / IMPLEMENTED-NOT-VALIDATED (any real provider) — src/lib/sso/: AES-256-GCM secret under SSO_ENCRYPTION_KEY (separate key), pure OIDC (PKCE S256, discovery with issuer match, authorization request, code exchange, jose JWKS verification incl. nonce and email_verified), one enabled connection per domain, JIT provisioning (consents source sso, personal workspace, accepted membership; removed membership never reinstated), refusals audited against digests; /api/auth/sso/start|callback public; login page entry behind the flag; proven end to end against a loopback fake issuer",
+    "scim": "DONE (mechanism) / IMPLEMENTED-NOT-VALIDATED (any real client) — src/lib/scim/: staff-issued tokens (shown once, SHA-256 digest + prefix, constant-time, per-token rate limit, revocable, refused under suspension); /api/scim/v2/Users list(userName eq)/create/get/PATCH/PUT(active, name.formatted)/DELETE(deactivate: membership removed + sessions revoked; account never deleted or scrubbed); ServiceProviderConfig; scoped to the token organisation; SCIM error envelope, not route()",
+    "tests": "DONE — tests/enterprise-static.test.ts (20: admin matrix, flag boundary, OIDC against a local key, secret crypto, SCIM parsing, public prefixes, impersonation liveness, session ceiling, CSV) and tests/enterprise.test.ts (10, database, incl. SSO end to end against a local issuer and SCIM lifecycle). Root suite 1236/1236",
+    "docs": "DONE — ADR-0035; ADR-0019 status Accepted with the Stage 20 note; INTEGRATION_REGISTER rows for OIDC SSO and SCIM (IMPLEMENTED-NOT-VALIDATED); ROLE_PERMISSION_MATRIX platform-staff rows + enforcement note; GAP G-26 PARTIAL; STAGE20_EVIDENCE; TEST_STRATEGY Stage 20; CLAUDE.md item 31; .env.example SSO_ENCRYPTION_KEY",
+    "independent_review": "PENDING"
+  },
+  "stage_20_exit_gate": {
+    "met": [
+      "Every routine change the stage built is performed in /console without a deploy, under step-up with a reason and an audit row",
+      "Admin authorisation matrix tested statically; impersonation read-only enforced in route() and tested; SSO flow tested end to end against a local issuer; SCIM lifecycle tested against the database",
+      "ADR-0019 boundary held: flags declared in code, Tier-2 keys refused, no security module reads a flag",
+      "Full gate set green: lint 0/7, typecheck 0, tests 1236/1236 (0 skipped), build 0 (main tree); rehearsal 52 migrations, drift clean, 155 forced tables"
+    ],
+    "not_met": [
+      "\"No routine business change requires a code deploy\" as written — plan/price editing, notification/email templates, retention beyond cases and system health still need a developer (NOT IMPLEMENTED)",
+      "Founder sign-off of the admin capability checklist (NOT DONE)",
+      "Any real identity provider sign-in or SCIM client sync (NOT VALIDATED — none reachable)",
+      "SAML; SCIM Groups/bulk; MFA as tenant policy (NOT IMPLEMENTED, stated)",
+      "Retention/erasure review across Stages 17–19 (NOT DONE)",
+      "Staging rehearsal (NOT VERIFIED — R-34)"
+    ],
+    "verdict": "Stage 20 engineering PASS for the controls built; the plan's exit gate PARTIAL; SSO and SCIM IMPLEMENTED-NOT-VALIDATED. Independent review pending."
   }
 }

@@ -303,7 +303,7 @@ still read transactional tables (Stage 21); no event stream feeds the marts
 (ADR-0011); no scheduler runs the sweep.
 **Remediation:** `ADR-0012`, Stage 21.
 
-### G-26 — No platform admin; founder cannot operate the business · FAIL
+### G-26 — No platform admin; founder cannot operate the business · PARTIAL (Stage 20: organisations, users, roles, flags, audit, impersonation, SSO, SCIM built; plans/prices, notifications, retention and system health not)
 The founder is non-technical. Today, changing a plan price, a matching weight, a
 job source, a feature flag, an AI model or a retention policy requires editing
 source or the database.
@@ -316,6 +316,16 @@ audit and system health.
 **Remediation:** threaded through every stage, consolidated in Stage 20. The rule
 in `ADR-0019`: business configuration is admin-editable; security-critical
 implementation is not.
+**Stage 20 (ADR-0035):** `/console/organizations` (verified creation, suspension,
+tenant policy, the OIDC connection, SCIM tokens), `/console/users` (platform
+role, sign out everywhere, read-only impersonation), `/console/flags` (flags
+declared in code), `/console/audit` (viewer and audited CSV export), all under
+step-up with a reason. Together with Stages 03/05/08/12/15/19 (prompts, ATS
+rulesets, weights, field mappings, entitlements, jurisdiction rules) the
+founder performs those changes without a deploy. Still absent: plan and price
+editing (rows are seeded), notification and email templates, retention
+policies beyond cases, integration and system health. Enterprise SSO and SCIM
+exist and are IMPLEMENTED-NOT-VALIDATED.
 
 ### G-27 — No mobile · PARTIAL (the contract and the Expo app exist, Stage 14; device-level proofs NOT VERIFIED, push NOT IMPLEMENTED)
 Target is React Native + Expo. The blocker was the absence of a stable public API

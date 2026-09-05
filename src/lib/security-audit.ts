@@ -102,7 +102,28 @@ export type SecurityEvent =
   | 'staffing.placement.created'
   | 'staffing.placement.updated'
   | 'staffing.invoice.issued'
-  | 'staffing.invoice.updated';
+  | 'staffing.invoice.updated'
+  // Stage 20 (ADR-0035): enterprise controls. Staff administration carries a
+  // reason and before/after values; SSO and SCIM carry digests, never an
+  // address, and never a secret or a token.
+  | 'organization.verified'
+  | 'organization.suspended'
+  | 'organization.reactivated'
+  | 'organization.policy.set'
+  | 'staff.role.set'
+  | 'feature_flag.set'
+  | 'user.impersonation.started'
+  | 'user.impersonation.ended'
+  | 'audit.exported'
+  | 'sso.connection.updated'
+  | 'auth.sso.succeeded'
+  | 'auth.sso.failed'
+  | 'auth.sso.provisioned'
+  | 'scim.token.issued'
+  | 'scim.token.revoked'
+  | 'scim.user.provisioned'
+  | 'scim.user.deactivated'
+  | 'scim.user.reactivated';
 
 export interface RequestMeta {
   ip?: string | null;
@@ -130,7 +151,7 @@ export interface SecurityEventInput {
   /** The account the event concerns, when one exists. */
   user?: { id: string; email: string; role?: string } | null;
   /** Who acted — defaults to the user. */
-  actor?: { type: 'user' | 'staff' | 'system'; id?: string | null; email?: string; role?: string } | null;
+  actor?: { type: 'user' | 'staff' | 'system' | 'api_key'; id?: string | null; email?: string; role?: string } | null;
   entityType?: string;
   entityId?: string;
   summary: string;
