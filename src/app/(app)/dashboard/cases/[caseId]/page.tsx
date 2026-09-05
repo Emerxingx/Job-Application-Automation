@@ -5,6 +5,7 @@ import { db } from '@/lib/db';
 import { requireTenant } from '@/lib/tenancy/request';
 import { requestMeta } from '@/lib/security-audit';
 import { CaseError, assignableMembers, listAssessments, listNotes, loadCase, requireCaseActor } from '@/lib/cases/service';
+import { OrganizationAccessError } from '@/lib/tenancy/organizations';
 import { readClientSummary, type ClientSummary } from '@/lib/cases/client-view';
 import { Card, PageHeader } from '@/components/ui';
 import { CaseRecord } from '@/components/case-record';
@@ -16,15 +17,18 @@ export default async function CasePage({ params, searchParams }: { params: Promi
   const { caseId } = await params;
   const { org } = await searchParams;
   if (!org) notFound();
-  const { user, run } = await requireTenant(org);
-  const actor = await requireCaseActor({ id: user.id, email: user.email }, org, requestMeta(undefined));
-  let view: Awaited<ReturnType<typeof loadCase>>;
+  // A non-member, a non-provider organisation or a case the role may not open
+  // are all "not found" - the page never learns which (Stage 17 review, L10).
+  let gate: { actor: Awaited<ReturnType<typeof requireCaseActor>>; run: Awaited<ReturnType<typeof requireTenant>>['run']; view: Awaited<ReturnType<typeof loadCase>> };
   try {
-    view = await run((tx) => loadCase(tx, actor, caseId));
+    const { user, run } = await requireTenant(org);
+    const actor = await requireCaseActor({ id: user.id, email: user.email }, org, requestMeta(undefined));
+    gate = { actor, run, view: await run((tx) => loadCase(tx, actor, caseId)) };
   } catch (error) {
-    if (error instanceof CaseError && error.status === 404) notFound();
+    if (error instanceof CaseError || error instanceof OrganizationAccessError) notFound();
     throw error;
   }
+  const { actor, run, view } = gate;
   const c = view.case;
   const [notes, assessments, members] = await Promise.all([run((tx) => listNotes(tx, actor, caseId)), run((tx) => listAssessments(tx, actor, caseId)), run((tx) => assignableMembers(tx, actor))]);
   let summary: ClientSummary | null = null;

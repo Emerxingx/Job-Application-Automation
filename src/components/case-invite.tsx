@@ -25,7 +25,7 @@ export function CaseInvite({ organizationId, members }: { organizationId: string
         setMessage({ ok: false, text: data.error ?? 'Could not invite the client.' });
         return;
       }
-      setMessage({ ok: true, text: 'Invitation sent. The client accepts it under Settings; until then the case holds nothing about them.' });
+      setMessage({ ok: true, text: 'Invitation recorded for that address. If the client has an account with it - or signs up with it - the invitation appears under their Settings; until they accept, the case holds nothing about them.' });
       setEmail('');
       setGoal('');
       router.refresh();
@@ -39,7 +39,7 @@ export function CaseInvite({ organizationId, members }: { organizationId: string
   return (
     <Card className="p-5">
       <h2 className="text-base font-semibold text-ink">Invite a client</h2>
-      <p className="mt-1 text-xs text-muted">Use the email the client gave you for this purpose. The lookup is recorded. Nothing about the client is visible until they accept and consent.</p>
+      <p className="mt-1 text-xs text-muted">Use the email the client gave you for this purpose. The invitation is addressed to that email; the platform does not tell you whether an account exists. Nothing about the client is visible until they accept and consent.</p>
       <form onSubmit={submit} className="mt-3 grid gap-3 md:grid-cols-2">
         <label className="flex flex-col text-sm">
           <span className="text-muted">Client email</span>

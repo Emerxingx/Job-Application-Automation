@@ -20,11 +20,17 @@ export const RESTRICTED_KEYS = [
   'case_notes',
   // Stage 17: a case note, an assessment and its barriers are RESTRICTED
   // (DATA_CLASSIFICATION.md); none may reach a provider or a matching path.
+  // The keys are case-specific on purpose: a Stage 10 application folder
+  // carries an `assessments` COUNT (an employer's screening steps), which is
+  // not RESTRICTED and must keep passing (Stage 17 review, L9).
   'caseNote',
   'case_note',
-  'assessment',
-  'assessments',
-  'barriers',
+  'caseAssessment',
+  'case_assessment',
+  'caseAssessments',
+  'case_assessments',
+  'caseBarriers',
+  'case_barriers',
   'mailbox',
 ] as const;
 

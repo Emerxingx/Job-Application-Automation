@@ -18,7 +18,8 @@ import type { Prisma } from '@prisma/client';
 import { db } from '@/lib/db';
 import { grantConsent } from '@/lib/consent';
 import { datasetFacts, isServable } from '@/lib/career/service';
-import { recordSecurityEvent, type RequestMeta, type SecurityEvent } from '@/lib/security-audit';
+import { hashEmail, recordSecurityEvent, type RequestMeta, type SecurityEvent } from '@/lib/security-audit';
+import { LIMITS, rateLimit } from '@/lib/rate-limit';
 import { findActiveMembership } from '@/lib/tenancy/organizations';
 import { canManageCaseload, canOpenCase, canWriteCase, caseRoleOf, isServiceRole, type CaseRole, type ServiceRole } from './roles';
 
@@ -46,6 +47,14 @@ export const TASK_STATUSES = ['planned', 'in_progress', 'done', 'dropped'] as co
 export const OUTCOME_KINDS = ['employed', 'self_employed', 'training', 'not_employed', 'other'] as const;
 export const FOLLOW_UP_STATUSES = ['pending', 'retained', 'not_retained', 'unknown'] as const;
 export const ASSESSMENT_KINDS = ['intake', 'review'] as const;
+/**
+ * Why a case was closed - a NAMED set, because the reason is written to the
+ * audit trail, and free text there could carry what a note carries
+ * (Stage 17 review, L7). `client_withdrew` is set only by the client's own
+ * withdrawal; staff pick from the rest.
+ */
+export const CLOSE_REASONS = ['outcome_recorded', 'service_complete', 'referred_elsewhere', 'lost_contact', 'client_request', 'other'] as const;
+export type CloseReason = (typeof CLOSE_REASONS)[number] | 'client_withdrew';
 /** Retention follow-ups after an employment outcome, in weeks (a common programme shape; not a WorkBC schema - ADR-0020 rule 5). */
 export const FOLLOW_UP_WEEKS = [4, 12, 24] as const;
 
@@ -112,23 +121,31 @@ export async function assignableMembers(tx: Client, actor: CaseActor) {
 // --- Lifecycle --------------------------------------------------------------
 
 /**
- * Invite a client: a case in status `invited`, holding nothing about the
- * person until they accept (client-view.ts refuses until then). The lookup
- * by email is audited; a case manager who did not obtain the address from
- * the client in person is answerable for it (ADR-0032 §3).
+ * Invite a client. The invitation is addressed to an EMAIL and the accounts
+ * table is never consulted: the answer is the same whether or not an account
+ * exists, so a provider learns nothing about who is on the platform (Stage
+ * 17 review, H1 - the earlier design looked the address up and said "no
+ * account"). The person sees the invitation under Settings when their
+ * account's address matches, and is linked to the case only when they
+ * accept. Volume is bounded per supervisor and per organisation, and the
+ * audit row carries a digest of the address, never the address.
+ *
+ * Every engagement is its own row: a declined invitation is not re-sent by
+ * the platform (the person said no; the provider may ask them in person),
+ * and a closed case is never reopened - a new invitation starts a new case
+ * with no access to the old one's RESTRICTED rows (M4).
  */
 export async function inviteClient(actor: CaseActor, input: { email: string; caseManagerId?: string | null; employmentGoal?: string }) {
   mustManage(actor);
   const email = input.email.trim().toLowerCase();
-  const client = await db.user.findUnique({ where: { email }, select: { id: true, anonymizedAt: true } });
-  if (!client || client.anonymizedAt) throw new CaseError('No account with that email. The client signs up first, then accepts the invitation under Settings.', 404);
-  const existing = await db.case.findUnique({ where: { organizationId_clientUserId: { organizationId: actor.organizationId, clientUserId: client.id } } });
-  if (existing && existing.status !== 'declined' && existing.status !== 'closed') throw new CaseError('This organisation already has a case for that client.', 409);
+  if (!rateLimit('cases:invite', actor.user.id, LIMITS.caseInvite).ok) throw new CaseError('Too many invitations from this account; try again later.', 429);
+  if (!rateLimit('cases:invite:org', actor.organizationId, LIMITS.caseInviteOrganization).ok) throw new CaseError('This organisation has reached its invitation limit for today.', 429);
+  const existing = await db.case.findMany({ where: { organizationId: actor.organizationId, invitedEmail: email, status: { in: ['invited', 'open', 'declined'] } }, select: { status: true } });
+  if (existing.some((c) => c.status === 'invited' || c.status === 'open')) throw new CaseError('This organisation already has a case for that address.', 409);
+  if (existing.some((c) => c.status === 'declined')) throw new CaseError('That person declined an earlier invitation from this organisation; the platform does not re-invite them.', 409);
   if (input.caseManagerId) await assertAssignable(db, actor.organizationId, input.caseManagerId);
-  const c = existing
-    ? await db.case.update({ where: { id: existing.id }, data: { status: 'invited', caseManagerId: input.caseManagerId ?? null, employmentGoal: input.employmentGoal ?? '', consentedAt: null, consentRecordId: null, openedAt: null, closedAt: null, closedReason: '', createdById: actor.user.id } })
-    : await db.case.create({ data: { organizationId: actor.organizationId, clientUserId: client.id, caseManagerId: input.caseManagerId ?? null, status: 'invited', employmentGoal: input.employmentGoal ?? '', createdById: actor.user.id } });
-  await audit('case.invited', actor, 'Case', c.id, 'Client invited to a case', { clientUserId: client.id, caseManagerId: c.caseManagerId });
+  const c = await db.case.create({ data: { organizationId: actor.organizationId, invitedEmail: email, caseManagerId: input.caseManagerId ?? null, status: 'invited', employmentGoal: input.employmentGoal ?? '', createdById: actor.user.id } });
+  await audit('case.invited', actor, 'Case', c.id, 'Client invited to a case', { emailDigest: hashEmail(email), caseManagerId: c.caseManagerId });
   return c;
 }
 
@@ -138,37 +155,58 @@ async function assertAssignable(client: Client, organizationId: string, userId: 
 }
 
 /**
- * The client's side: the invitations and cases that concern them - their own
- * rows on their tenant path. The provider's NAME comes from the system
- * client: the client is not a member of the organisation, so its row is
- * invisible to them under RLS, and an invitation that named nobody would be
- * useless. The name is all that is read.
+ * The client's side: the cases that concern them. LINKED cases (accepted,
+ * open or closed) are their own rows on their tenant path (the SELECT-only
+ * policy). An INVITATION is addressed to an email and carries no user id,
+ * and the tenant predicate has no email accessor, so invitations are read
+ * on the system client filtered by the person's own account address - the
+ * same trust as a `where: { userId }` filter. The provider's NAME comes
+ * from the system client too: the client is not a member, so the
+ * organisation row is invisible to them under RLS, and an invitation that
+ * named nobody would be useless. The name is all that is read.
  */
-export async function listClientCases(tx: Client, clientUserId: string) {
-  const rows = await tx.case.findMany({ where: { clientUserId }, orderBy: { createdAt: 'desc' } });
+export async function listClientCases(tx: Client, client: { id: string; email: string }) {
+  const [linked, invited] = await Promise.all([
+    tx.case.findMany({ where: { clientUserId: client.id } }),
+    db.case.findMany({ where: { clientUserId: null, status: 'invited', invitedEmail: client.email.trim().toLowerCase() } }),
+  ]);
+  const rows = [...invited, ...linked].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
   const orgIds = [...new Set(rows.map((r) => r.organizationId))];
   const names = orgIds.length ? await db.organization.findMany({ where: { id: { in: orgIds } }, select: { id: true, name: true } }) : [];
   return rows.map((r) => ({ ...r, organization: { name: names.find((o) => o.id === r.organizationId)?.name ?? 'An employment service provider' } }));
 }
 
 /**
- * The client answers. Accepting records a `ConsentRecord`
- * (`employment_services_case`, source `settings`) and opens the case;
- * declining closes the door without a word about the person. System
- * client: the tenant policy lets the client SEE their case, not write it.
+ * The client answers an invitation addressed to their account's email.
+ * Accepting links them to the case, snapshots their name, records a
+ * `ConsentRecord` (`employment_services_case`, source `settings`) and opens
+ * the case - in ONE transaction, so a case is never open without its
+ * consent record nor a consent recorded for a case that did not open
+ * (L10). One open case per (organisation, client) is held under an
+ * advisory lock. Declining records nothing about the person beyond the
+ * address the provider typed. System client: the tenant policy lets the
+ * client SEE a linked case, not write one.
  */
 export async function respondToInvitation(client: { id: string; email: string }, caseId: string, accept: boolean, meta?: RequestMeta) {
-  const c = await db.case.findFirst({ where: { id: caseId, clientUserId: client.id } });
+  const email = client.email.trim().toLowerCase();
+  const c = await db.case.findFirst({ where: { id: caseId, OR: [{ clientUserId: client.id }, { clientUserId: null, invitedEmail: email }] } });
   if (!c) throw new CaseError('Case not found.', 404);
-  if (c.status !== 'invited') throw new CaseError('This invitation has already been answered.', 409);
+  if (c.status !== 'invited' || c.clientUserId !== null) throw new CaseError('This invitation has already been answered.', 409);
   if (!accept) {
     const declined = await db.case.update({ where: { id: c.id }, data: { status: 'declined' } });
     await recordSecurityEvent({ event: 'case.declined', user: client, entityType: 'Case', entityId: c.id, summary: 'Client declined a case invitation', detail: { organizationId: c.organizationId }, meta }, db, { strict: true });
     return declined;
   }
-  const consent = await grantConsent(db, client, 'employment_services_case', { source: 'settings', meta });
-  const opened = await db.case.update({ where: { id: c.id }, data: { status: 'open', consentedAt: new Date(), consentRecordId: consent.id, openedAt: new Date() } });
-  await recordSecurityEvent({ event: 'case.consented', user: client, entityType: 'Case', entityId: c.id, summary: 'Client consented to case management', detail: { organizationId: c.organizationId, consentRecordId: consent.id }, meta }, db, { strict: true });
+  const opened = await db.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`case:open:${c.organizationId}:${client.id}`}::text))`;
+    const open = await tx.case.count({ where: { organizationId: c.organizationId, clientUserId: client.id, status: 'open' } });
+    if (open > 0) throw new CaseError('You already have an open case with this organisation.', 409);
+    const person = await tx.user.findUniqueOrThrow({ where: { id: client.id }, select: { fullName: true } });
+    const consent = await grantConsent(tx, client, 'employment_services_case', { source: 'settings', meta });
+    const now = new Date();
+    return tx.case.update({ where: { id: c.id }, data: { status: 'open', clientUserId: client.id, invitedName: person.fullName, consentedAt: now, consentRecordId: consent.id, openedAt: now } });
+  });
+  await recordSecurityEvent({ event: 'case.consented', user: client, entityType: 'Case', entityId: c.id, summary: 'Client consented to case management', detail: { organizationId: c.organizationId, consentRecordId: opened.consentRecordId }, meta }, db, { strict: true });
   return opened;
 }
 
@@ -204,10 +242,13 @@ export async function updateCaseGoal(tx: Client, actor: CaseActor, caseId: strin
   return tx.case.update({ where: { id: c.id }, data: { ...(input.employmentGoal !== undefined ? { employmentGoal: input.employmentGoal } : {}), ...(input.targetOccupationId !== undefined ? { targetOccupationId: input.targetOccupationId } : {}) } });
 }
 
-export async function closeCase(tx: Client, actor: CaseActor, caseId: string, reason: string) {
+/** Close a case: the assigned case manager, a supervisor or an admin; the reason is one of the named set. A closed case is never reopened. */
+export async function closeCase(tx: Client, actor: CaseActor, caseId: string, reason: (typeof CLOSE_REASONS)[number]) {
   const c = await ownedCase(tx, actor, caseId);
   if (!canManageCaseload(actor.role)) mustWrite(actor, c);
+  if (!(CLOSE_REASONS as readonly string[]).includes(reason)) throw new CaseError('Unknown close reason.', 422);
   if (c.status === 'closed') throw new CaseError('This case is already closed.', 409);
+  if (c.status === 'declined') throw new CaseError('A declined invitation is not a case to close.', 409);
   const closed = await tx.case.update({ where: { id: c.id }, data: { status: 'closed', closedAt: new Date(), closedReason: reason } });
   await audit('case.closed', actor, 'Case', c.id, 'Case closed', { reason });
   return closed;
@@ -232,20 +273,26 @@ export async function listCaseload(tx: Client, actor: CaseActor, filter: { statu
   const identities = await clientIdentities(rows);
   return {
     aggregate,
-    cases: rows.map((c) => ({ id: c.id, status: c.status, caseManagerId: c.caseManagerId, employmentGoal: c.employmentGoal, targetOccupationId: c.targetOccupationId, openedAt: c.openedAt, closedAt: c.closedAt, updatedAt: c.updatedAt, tasks: c._count.tasks, recommendations: c._count.recommendations, client: identities.get(c.clientUserId) ?? { name: null, email: null } })),
+    cases: rows.map((c) => ({ id: c.id, status: c.status, caseManagerId: c.caseManagerId, employmentGoal: c.employmentGoal, targetOccupationId: c.targetOccupationId, openedAt: c.openedAt, closedAt: c.closedAt, updatedAt: c.updatedAt, tasks: c._count.tasks, recommendations: c._count.recommendations, client: identities.get(c.clientUserId ?? c.invitedEmail) ?? { name: null, email: null } })),
   };
 }
 
-async function clientIdentities(rows: { clientUserId: string; status: string }[]): Promise<Map<string, { name: string | null; email: string | null }>> {
-  const ids = rows.filter((r) => r.status !== 'declined').map((r) => r.clientUserId);
-  if (ids.length === 0) return new Map();
-  const users = await db.user.findMany({ where: { id: { in: ids } }, select: { id: true, fullName: true, email: true } });
+/**
+ * What the organisation sees of who a case concerns, by status: an
+ * invitation or a declined one shows the address the supervisor typed and
+ * nothing else; an OPEN case (consent current) shows the person's name,
+ * read now; a CLOSED case shows the name snapshotted at acceptance - the
+ * user row is not read once the engagement has ended (L6).
+ */
+async function clientIdentities(rows: { clientUserId: string | null; invitedEmail: string; invitedName: string; status: string }[]): Promise<Map<string, { name: string | null; email: string | null }>> {
+  const openIds = rows.filter((r): r is typeof r & { clientUserId: string } => r.status === 'open' && r.clientUserId !== null).map((r) => r.clientUserId);
+  const users = openIds.length ? await db.user.findMany({ where: { id: { in: openIds } }, select: { id: true, fullName: true } }) : [];
   const out = new Map<string, { name: string | null; email: string | null }>();
   for (const r of rows) {
-    const u = users.find((x) => x.id === r.clientUserId);
-    if (!u) continue;
-    // Before consent only the address the case manager typed is shown back; the name waits for the person.
-    out.set(r.clientUserId, r.status === 'invited' ? { name: null, email: u.email } : { name: u.fullName, email: u.email });
+    const key = r.clientUserId ?? r.invitedEmail;
+    if (r.status === 'open') out.set(key, { name: users.find((u) => u.id === r.clientUserId)?.fullName ?? r.invitedName, email: r.invitedEmail });
+    else if (r.status === 'closed') out.set(key, { name: r.invitedName || null, email: r.invitedEmail });
+    else out.set(key, { name: null, email: r.invitedEmail });
   }
   return out;
 }
@@ -260,7 +307,7 @@ export async function loadCase(tx: Client, actor: CaseActor, caseId: string) {
     tx.caseRecommendation.findMany({ where: { caseId: c.id }, orderBy: [{ status: 'asc' }, { createdAt: 'desc' }] }),
     clientIdentities([c]),
   ]);
-  return { case: c, client: identity.get(c.clientUserId) ?? { name: null, email: null }, tasks, outcomes, followUps, recommendations, canWrite: canWriteCase(actor.role, c, actor.user.id), canManage: canManageCaseload(actor.role) };
+  return { case: c, client: identity.get(c.clientUserId ?? c.invitedEmail) ?? { name: null, email: null }, tasks, outcomes, followUps, recommendations, canWrite: canWriteCase(actor.role, c, actor.user.id), canManage: canManageCaseload(actor.role) };
 }
 
 // --- RESTRICTED: notes and assessments --------------------------------------
@@ -392,33 +439,45 @@ export async function setRetentionPolicy(actor: CaseActor, input: { caseNoteDays
 }
 
 /**
- * Apply every organisation's retention policy: notes and assessments older
- * than `caseNoteDays`, closed cases (with everything under them) closed
- * longer ago than `closedCaseDays`. An organisation WITHOUT a policy is
- * untouched - a public-body contract may require records kept, and
- * nothing is destroyed on a platform default. Audited per organisation
- * with counts. No scheduler runs this; `npm run cases:retention` does.
+ * Apply every organisation's retention policy. `caseNoteDays` bounds how
+ * long the RESTRICTED rows (notes, assessments) of a CLOSED case are kept,
+ * measured from the closure - an open case's record is never thinned by
+ * age, because the case manager is still working from it (Stage 17
+ * review, M5). `closedCaseDays` bounds the closed case itself, with
+ * everything under it; the children the cascade removes are counted so
+ * the audit row states what was destroyed. An organisation WITHOUT a
+ * policy is untouched - a public-body contract may require records kept,
+ * and nothing is destroyed on a platform default. No scheduler runs this;
+ * `npm run cases:retention` does.
  */
-export async function purgeExpiredCaseRecords(now = new Date()): Promise<{ organizations: number; notes: number; assessments: number; cases: number }> {
+export async function purgeExpiredCaseRecords(now = new Date()): Promise<{ organizations: number; notes: number; assessments: number; cases: number; children: number }> {
   const policies = await db.retentionPolicy.findMany();
-  let notes = 0;
-  let assessments = 0;
-  let cases = 0;
+  const total = { notes: 0, assessments: 0, cases: 0, children: 0 };
   for (const p of policies) {
     const noteCutoff = new Date(now.getTime() - p.caseNoteDays * 86_400_000);
     const caseCutoff = new Date(now.getTime() - p.closedCaseDays * 86_400_000);
     const r = await db.$transaction(async (tx) => {
-      const n = await tx.caseNote.deleteMany({ where: { organizationId: p.organizationId, createdAt: { lt: noteCutoff } } });
-      const a = await tx.caseAssessment.deleteMany({ where: { organizationId: p.organizationId, createdAt: { lt: noteCutoff } } });
-      const c = await tx.case.deleteMany({ where: { organizationId: p.organizationId, status: 'closed', closedAt: { lt: caseCutoff } } });
-      return { n: n.count, a: a.count, c: c.count };
+      const closedLongEnough = { organizationId: p.organizationId, status: 'closed', closedAt: { lt: noteCutoff } };
+      const n = await tx.caseNote.deleteMany({ where: { organizationId: p.organizationId, case: closedLongEnough } });
+      const a = await tx.caseAssessment.deleteMany({ where: { organizationId: p.organizationId, case: closedLongEnough } });
+      const expired = { organizationId: p.organizationId, status: 'closed', closedAt: { lt: caseCutoff } };
+      const ids = (await tx.case.findMany({ where: expired, select: { id: true } })).map((c) => c.id);
+      let children = 0;
+      if (ids.length) {
+        const under = { caseId: { in: ids } };
+        const counts = await Promise.all([tx.caseNote.count({ where: under }), tx.caseAssessment.count({ where: under }), tx.caseTask.count({ where: under }), tx.caseOutcome.count({ where: under }), tx.caseFollowUp.count({ where: under }), tx.caseRecommendation.count({ where: under })]);
+        children = counts.reduce((x, y) => x + y, 0);
+      }
+      const c = await tx.case.deleteMany({ where: { id: { in: ids } } });
+      return { n: n.count, a: a.count, c: c.count, children };
     });
-    notes += r.n;
-    assessments += r.a;
-    cases += r.c;
+    total.notes += r.n;
+    total.assessments += r.a;
+    total.cases += r.c;
+    total.children += r.children;
     if (r.n || r.a || r.c) {
-      await recordSecurityEvent({ event: 'case.retention.purged', actor: { type: 'system' }, entityType: 'Organization', entityId: p.organizationId, summary: 'Case records purged under the retention policy', detail: { notes: r.n, assessments: r.a, cases: r.c, caseNoteDays: p.caseNoteDays, closedCaseDays: p.closedCaseDays } }, db, { strict: true });
+      await recordSecurityEvent({ event: 'case.retention.purged', actor: { type: 'system' }, entityType: 'Organization', entityId: p.organizationId, summary: 'Case records purged under the retention policy', detail: { notes: r.n, assessments: r.a, cases: r.c, children: r.children, caseNoteDays: p.caseNoteDays, closedCaseDays: p.closedCaseDays } }, db, { strict: true });
     }
   }
-  return { organizations: policies.length, notes, assessments, cases };
+  return { organizations: policies.length, ...total };
 }

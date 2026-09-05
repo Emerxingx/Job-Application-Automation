@@ -6,7 +6,10 @@
  * context cannot see them, by design. So this is a DELEGATED read on the
  * system client, allowed only after four checks - the actor is a member of
  * the case's organisation with a role that may open the case, the case is
- * OPEN, the client's consent record is current - and audited FIRST,
+ * OPEN and linked to the person, and THE CASE'S OWN consent record is
+ * current (never "any consent for the purpose": a person may have consented
+ * to another provider, and withdrawing from one must close exactly that one
+ * - Stage 17 review, M2) - and audited FIRST,
  * strictly (`case.client.read`, ids and kinds only). It reads application
  * counts and statuses, interviews, eligibility rule outcomes, compatibility
  * dimensions, whether a résumé exists, the target titles and locations the
@@ -17,7 +20,6 @@
  */
 import { db } from '@/lib/db';
 import { marketSignal } from '@/lib/career/service';
-import { hasCurrentConsent } from '@/lib/consent';
 import { recordSecurityEvent } from '@/lib/security-audit';
 import { canOpenCase } from './roles';
 import { CaseError, type CaseActor } from './service';
@@ -39,14 +41,15 @@ export interface ClientSummary {
 async function delegated(actor: CaseActor, caseId: string, purpose: 'summary' | 'copilot') {
   const c = await db.case.findFirst({ where: { id: caseId, organizationId: actor.organizationId } });
   if (!c || !canOpenCase(actor.role, c, actor.user.id)) throw new CaseError('Case not found.', 404);
-  if (c.status !== 'open' || !c.consentedAt) throw new CaseError('The client has not consented, or the case is not open; nothing about them is read.', 403);
-  if (!(await hasCurrentConsent(db, c.clientUserId, 'employment_services_case'))) throw new CaseError('The client withdrew consent; nothing about them is read.', 403);
+  if (c.status !== 'open' || !c.consentedAt || !c.clientUserId || !c.consentRecordId) throw new CaseError('The client has not consented, or the case is not open; nothing about them is read.', 403);
+  const consent = await db.consentRecord.findFirst({ where: { id: c.consentRecordId, userId: c.clientUserId, purpose: 'employment_services_case', revokedAt: null }, select: { id: true } });
+  if (!consent) throw new CaseError('The client withdrew consent; nothing about them is read.', 403);
   await recordSecurityEvent(
     { event: 'case.client.read', actor: { type: 'user', id: actor.user.id, email: actor.user.email, role: `case:${actor.role}` }, entityType: 'Case', entityId: c.id, summary: `Client job-search data read (${purpose})`, detail: { organizationId: actor.organizationId, clientUserId: c.clientUserId, purpose }, meta: actor.meta },
     db,
     { strict: true },
   );
-  return c;
+  return { ...c, clientUserId: c.clientUserId };
 }
 
 function parseArray(json: string): string[] {

@@ -25,7 +25,8 @@ DROP POLICY IF EXISTS tenant_access ON "Case";
 DROP POLICY IF EXISTS tenant_read ON "Case";
 DO $$ BEGIN EXECUTE format('CREATE POLICY system_full_access ON "Case" TO %I USING (true) WITH CHECK (true)', current_user); END $$;
 DROP POLICY IF EXISTS tenant_update ON "Case";
-CREATE POLICY tenant_access ON "Case" TO app_tenant USING (("organizationId" = ANY (app_member_organization_ids()) OR "clientUserId" = app_current_user_id())) WITH CHECK ("organizationId" = ANY (app_member_organization_ids()));
+CREATE POLICY tenant_access ON "Case" TO app_tenant USING ("organizationId" = ANY (app_member_organization_ids())) WITH CHECK ("organizationId" = ANY (app_member_organization_ids()));
+CREATE POLICY tenant_read ON "Case" FOR SELECT TO app_tenant USING (("organizationId" = ANY (app_member_organization_ids()) OR "clientUserId" = app_current_user_id()));
 
 -- CaseAssessment (org)
 ALTER TABLE "CaseAssessment" ENABLE ROW LEVEL SECURITY;

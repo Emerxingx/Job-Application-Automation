@@ -17,7 +17,7 @@ export const dynamic = 'force-dynamic';
 export default async function SettingsPage({ searchParams }: { searchParams: Promise<{ mailbox?: string }> }) {
   const { user, run } = await requireTenant();
   const [preferences, workAuthorization, connections, clientCases] = await run((tx) =>
-    Promise.all([loadPreferences(tx, user.id), loadWorkAuthorization(tx, user.id), listConnections(tx, user.id), listClientCases(tx, user.id)]),
+    Promise.all([loadPreferences(tx, user.id), loadWorkAuthorization(tx, user.id), listConnections(tx, user.id), listClientCases(tx, { id: user.id, email: user.email })]),
   );
   const { mailbox: mailboxNotice } = await searchParams;
   // Stage 11: connections (never a token) and the scope inventory, so what is asked for is what is shown.

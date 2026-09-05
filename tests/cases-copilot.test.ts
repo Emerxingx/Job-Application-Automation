@@ -128,6 +128,7 @@ describe('case data - static: RESTRICTED rows reach no recommendation, matching,
   });
 
   it('the AI gateway refuses a payload carrying a case note, an assessment or barriers', () => {
-    for (const k of ['caseNote', 'case_note', 'caseNotes', 'assessment', 'barriers']) assert.ok((RESTRICTED_KEYS as readonly string[]).includes(k), k);
+    for (const k of ['caseNote', 'case_note', 'caseNotes', 'caseAssessment', 'caseAssessments', 'caseBarriers']) assert.ok((RESTRICTED_KEYS as readonly string[]).includes(k), k);
+    for (const k of ['assessments', 'assessment', 'barriers']) assert.ok(!(RESTRICTED_KEYS as readonly string[]).includes(k), `${k} is a Stage 10 folder count, not a RESTRICTED key`);
   });
 });

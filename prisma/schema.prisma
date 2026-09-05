@@ -3971,7 +3971,14 @@ model RetentionPolicy {
 model Case {
   id                 String    @id @default(cuid())
   organizationId     String
-  clientUserId       String
+  // The address the supervisor typed. An invitation is addressed to an EMAIL,
+  // never resolved against the accounts table: whether an account exists is
+  // not the provider's to learn (Stage 17 review, H1). The person is linked
+  // (`clientUserId`) only when they accept, and their name is snapshotted
+  // then so a closed case never reads the user row again (L6).
+  invitedEmail       String
+  invitedName        String    @default("")
+  clientUserId       String?
   caseManagerId      String?
   // invited | declined | open | closed
   status             String    @default("invited")
@@ -3988,7 +3995,7 @@ model Case {
   updatedAt          DateTime  @updatedAt
 
   organization    Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  client          User                 @relation("CaseClient", fields: [clientUserId], references: [id], onDelete: Cascade)
+  client          User?                @relation("CaseClient", fields: [clientUserId], references: [id], onDelete: Cascade)
   caseManager     User?                @relation("CaseManager", fields: [caseManagerId], references: [id], onDelete: SetNull)
   notes           CaseNote[]
   assessments     CaseAssessment[]
@@ -3997,7 +4004,12 @@ model Case {
   followUps       CaseFollowUp[]
   recommendations CaseRecommendation[]
 
-  @@unique([organizationId, clientUserId])
+  // One OPEN case per (organisation, client) is enforced by the service under
+  // an advisory lock, not by a unique key: every engagement is its own row
+  // (a re-invitation after closure never reuses a case and its RESTRICTED
+  // rows - Stage 17 review, M4).
+  @@index([organizationId, clientUserId])
+  @@index([organizationId, invitedEmail])
   @@index([organizationId, status])
   @@index([caseManagerId, status])
   @@index([clientUserId])

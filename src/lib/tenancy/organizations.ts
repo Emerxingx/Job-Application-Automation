@@ -139,9 +139,17 @@ export function slugify(name: string): string {
 export async function createOrganization(
   actorUserId: string,
   input: { name: string; type: OrganizationType; slug?: string; billingEmail: string },
+  options: { verifiedProvider?: boolean } = {},
 ) {
   if (!isOrganizationType(input.type) || input.type === 'personal' || input.type === 'platform') {
     throw new OrganizationAccessError('That organization type cannot be created here.', 422);
+  }
+  // Stage 17 review: a service-provider organisation invites people to hand it
+  // their job-search data (ADR-0032), so it is not self-serve - JobPilot staff
+  // set it up once the provider is verified. The caller says whether that
+  // verification happened (the route passes the console's two-lock decision).
+  if (input.type === 'service_provider' && !options.verifiedProvider) {
+    throw new OrganizationAccessError('A service-provider organisation is set up by JobPilot staff once the provider is verified. Contact support.', 403);
   }
   const slug = input.slug ?? slugify(input.name);
   if (!SLUG_SHAPE.test(slug)) {

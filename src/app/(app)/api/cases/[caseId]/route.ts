@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { ok, route } from '@/lib/api';
 import { caseFail, caseRequest, organizationIdOf } from '@/lib/cases/request';
-import { assignCaseManager, closeCase, loadCase, updateCaseGoal } from '@/lib/cases/service';
+import { CLOSE_REASONS, assignCaseManager, closeCase, loadCase, updateCaseGoal } from '@/lib/cases/service';
 
 type Params = { params: Promise<{ caseId: string }> };
 
@@ -20,7 +20,7 @@ export const GET = route(async (request: Request, { params }: Params) => {
 const patchSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('assign'), organizationId: z.string().min(1), caseManagerId: z.string().min(1).nullable() }),
   z.object({ action: z.literal('goal'), organizationId: z.string().min(1), employmentGoal: z.string().trim().max(500).optional(), targetOccupationId: z.string().min(1).nullable().optional() }),
-  z.object({ action: z.literal('close'), organizationId: z.string().min(1), reason: z.string().trim().min(2).max(200) }),
+  z.object({ action: z.literal('close'), organizationId: z.string().min(1), reason: z.enum(CLOSE_REASONS) }),
 ]);
 
 /** PATCH /api/cases/:caseId - assign (supervisor/admin), goal (the case manager), close. */

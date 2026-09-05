@@ -36,7 +36,9 @@ const OB = mk('ob', 'Owner B');
 const OE = mk('oe', 'Owner Employer');
 const CL = mk('cl', 'Client One');
 const CL2 = mk('cl2', 'Client Two');
-const ALL = [OA, SUP, CM1, CM2, VIEW, OB, OE, CL, CL2];
+/** Invited before any account exists with the address; signs up later. */
+const LATE = mk('late', 'Late Signup');
+const ALL = [OA, SUP, CM1, CM2, VIEW, OB, OE, CL, CL2, LATE];
 
 let db: Db;
 let svc: Svc;
@@ -48,6 +50,9 @@ let orgA = '';
 let orgB = '';
 let orgE = '';
 let caseId = '';
+let lateCaseId = '';
+let secondCaseId = '';
+let bCaseId = '';
 const noteBody = `Client disclosed a private matter ${S}`;
 
 describe('cases - roles, consent, isolation, restricted rows, plan, outcomes, copilot, retention', { skip: SKIP }, () => {
@@ -60,11 +65,14 @@ describe('cases - roles, consent, isolation, restricted rows, plan, outcomes, co
     orgs = await import('../src/lib/tenancy/organizations');
     ctx = await import('../src/lib/tenancy/context');
     for (const u of ALL) {
+      if (u === LATE) continue; // signs up after being invited
       await db.user.create({ data: { id: u.id, email: u.email, passwordHash: 'x', fullName: u.fullName, country: 'CA' } });
       await orgs.ensurePersonalWorkspace(db, u);
     }
-    orgA = (await orgs.createOrganization(OA.id, { name: `Provider A ${S}`, type: 'service_provider', billingEmail: OA.email })).id;
-    orgB = (await orgs.createOrganization(OB.id, { name: `Provider B ${S}`, type: 'service_provider', billingEmail: OB.email })).id;
+    // a service-provider organisation is not self-serve (Stage 17 review): the service refuses without the staff verification flag
+    await assert.rejects(() => orgs.createOrganization(OA.id, { name: `Provider A ${S}`, type: 'service_provider', billingEmail: OA.email }), (e: unknown) => e instanceof orgs.OrganizationAccessError && e.status === 403);
+    orgA = (await orgs.createOrganization(OA.id, { name: `Provider A ${S}`, type: 'service_provider', billingEmail: OA.email }, { verifiedProvider: true })).id;
+    orgB = (await orgs.createOrganization(OB.id, { name: `Provider B ${S}`, type: 'service_provider', billingEmail: OB.email }, { verifiedProvider: true })).id;
     orgE = (await orgs.createOrganization(OE.id, { name: `Employer ${S}`, type: 'employer', billingEmail: OE.email })).id;
     for (const [u, serviceRole] of [
       [SUP, 'supervisor'],
@@ -103,42 +111,79 @@ describe('cases - roles, consent, isolation, restricted rows, plan, outcomes, co
     assert.deepEqual(mine.map((m) => m.organizationId), [orgA], 'the employer membership is not a case membership');
   });
 
-  it('a supervisor invites a client by email (audited); a case manager cannot; no account is 404; the case holds nothing until the client accepts', async () => {
+  it('a supervisor invites by email and the accounts table is never consulted: the answer is the same with or without an account; the audit row carries a digest, never the address; a case manager cannot invite', async () => {
     await status(svc.inviteClient(await actorOf(CM1), { email: CL.email }), 403);
-    await status(svc.inviteClient(await actorOf(SUP), { email: `nobody-${S}@cases.test` }), 404);
     await status(svc.inviteClient(await actorOf(SUP), { email: CL.email, caseManagerId: VIEW.id }), 422, /cannot be assigned/);
+    // no account exists with LATE's address yet - the invitation is recorded all the same
+    const late = await svc.inviteClient(await actorOf(SUP), { email: LATE.email.toUpperCase() });
+    lateCaseId = late.id;
+    assert.equal(late.status, 'invited');
+    assert.equal(late.clientUserId, null);
+    assert.equal(late.invitedEmail, LATE.email, 'normalised');
     const c = await svc.inviteClient(await actorOf(SUP), { email: CL.email, caseManagerId: CM1.id, employmentGoal: 'Return to office work' });
     caseId = c.id;
     assert.equal(c.status, 'invited');
+    assert.equal(c.clientUserId, null, 'nobody is linked until they accept');
     assert.equal(await auditCount('case.invited', c.id), 1);
+    const row = await db.auditLog.findFirstOrThrow({ where: { action: 'case.invited', entityId: c.id } });
+    assert.ok(!JSON.stringify(row).includes(CL.email), 'the address is not in the audit trail');
+    assert.ok(row.after.includes('emailDigest'));
     await status(svc.inviteClient(await actorOf(SUP), { email: CL.email }), 409);
+    await status(svc.inviteClient(await actorOf(SUP), { email: LATE.email }), 409, /already has a case/);
     // nothing is read about the client before consent
     await status(view.readClientSummary(await actorOf(CM1), c.id), 403, /not consented/);
     await status(copilot.runCopilot(await actorOf(CM1), c.id), 403);
     await status(tenant(CM1.id, orgA, (tx) => svc.addNote(tx, { user: CM1, organizationId: orgA, role: 'case_manager' }, c.id, 'x')), 409);
-    // the caseload shows the invited address (what the supervisor typed), not a name
+    // the caseload shows the addresses the supervisor typed, and no name
     const load = await tenant(SUP.id, orgA, (tx) => svc.listCaseload(tx, { user: SUP, organizationId: orgA, role: 'supervisor' }));
-    assert.deepEqual(load.cases.map((x) => x.client), [{ name: null, email: CL.email }]);
+    assert.deepEqual(load.cases.map((x) => x.client).sort((a, b) => a.email!.localeCompare(b.email!)), [{ name: null, email: CL.email }, { name: null, email: LATE.email }]);
   });
 
-  it('the client sees the invitation on their own tenant path and nobody else does; only the client answers; accepting records consent', async () => {
-    assert.equal((await tenant(CL.id, undefined, (tx) => svc.listClientCases(tx, CL.id))).length, 1);
-    assert.equal(await tenant(CL2.id, undefined, (tx) => tx.case.count({ where: { id: caseId } })), 0);
+  it('the client sees an invitation addressed to their account email and nobody else does; only the client answers; accepting links them and records consent in one transaction; the linked row is SELECT-only for them under RLS', async () => {
+    assert.equal((await tenant(CL.id, undefined, (tx) => svc.listClientCases(tx, CL))).length, 1);
+    assert.equal((await tenant(CL2.id, undefined, (tx) => svc.listClientCases(tx, CL2))).length, 0);
+    assert.equal(await tenant(CL.id, undefined, (tx) => tx.case.count({ where: { id: caseId } })), 0, 'not on the tenant path until linked');
     assert.equal(await tenant(OB.id, orgB, (tx) => tx.case.count({ where: { id: caseId } })), 0, 'another provider sees nothing');
     await status(svc.respondToInvitation(CL2, caseId, true), 404);
-    await assert.rejects(() => tenant(CL.id, undefined, (tx) => tx.case.update({ where: { id: caseId }, data: { status: 'open' } })), 'the client cannot write the case on the tenant path');
+    const consentsBefore = await db.consentRecord.count({ where: { userId: CL.id, purpose: 'employment_services_case' } });
     const opened = await svc.respondToInvitation(CL, caseId, true);
     assert.equal(opened.status, 'open');
+    assert.equal(opened.clientUserId, CL.id);
+    assert.equal(opened.invitedName, CL.fullName, 'the name is snapshotted at acceptance');
     assert.ok(opened.consentedAt && opened.consentRecordId);
     const consent = await db.consentRecord.findUniqueOrThrow({ where: { id: opened.consentRecordId! } });
     assert.equal(consent.purpose, 'employment_services_case');
     assert.equal(consent.source, 'settings');
+    assert.equal(await db.consentRecord.count({ where: { userId: CL.id, purpose: 'employment_services_case' } }), consentsBefore + 1);
     assert.equal(await auditCount('case.consented', caseId), 1);
     await status(svc.respondToInvitation(CL, caseId, true), 409);
+    // now the row is the client's to SEE on the tenant path - and only to see (M3)
+    assert.equal(await tenant(CL.id, undefined, (tx) => tx.case.count({ where: { id: caseId } })), 1);
+    await assert.rejects(() => tenant(CL.id, undefined, (tx) => tx.case.update({ where: { id: caseId }, data: { status: 'closed' } })), 'the client cannot write the case on the tenant path');
+    assert.equal((await tenant(CL.id, undefined, (tx) => tx.case.deleteMany({ where: { id: caseId } }))).count, 0, 'the client cannot delete the case on the tenant path');
+    assert.equal(await db.case.count({ where: { id: caseId } }), 1);
+    assert.equal((await db.case.findUniqueOrThrow({ where: { id: caseId } })).status, 'open');
     // the case consent is not a self-service toggle: the candidate API neither lists nor sets it
     const api = await import('../src/lib/integrations/candidate-api');
     assert.ok(!(await api.listConsents(CL.id)).some((c) => c.purpose === 'employment_services_case'));
     await assert.rejects(() => api.setConsent(CL.id, 'employment_services_case', false, {}), /managed with the case/);
+  });
+
+  it('a person invited before signing up sees the invitation once their account exists; declining records nothing about them, and the platform does not re-invite a person who declined', async () => {
+    await db.user.create({ data: { id: LATE.id, email: LATE.email, passwordHash: 'x', fullName: LATE.fullName, country: 'CA' } });
+    await orgs.ensurePersonalWorkspace(db, LATE);
+    const mine = await tenant(LATE.id, undefined, (tx) => svc.listClientCases(tx, LATE));
+    assert.deepEqual(mine.map((c) => c.id), [lateCaseId]);
+    assert.equal(mine[0]!.organization.name, `Provider A ${S}`);
+    const declined = await svc.respondToInvitation(LATE, lateCaseId, false);
+    assert.equal(declined.status, 'declined');
+    assert.equal(declined.clientUserId, null, 'declining links nobody');
+    assert.equal(declined.invitedName, '');
+    assert.equal(await auditCount('case.declined', lateCaseId), 1);
+    await status(svc.respondToInvitation(LATE, lateCaseId, true), 409);
+    await status(svc.inviteClient(await actorOf(SUP), { email: LATE.email }), 409, /declined an earlier invitation/);
+    const load = await tenant(SUP.id, orgA, (tx) => svc.listCaseload(tx, { user: SUP, organizationId: orgA, role: 'supervisor' }, { status: 'declined' }));
+    assert.deepEqual(load.cases.map((x) => x.client), [{ name: null, email: LATE.email }], 'the address the supervisor typed, nothing more');
   });
 
   it('assignment gates the case manager; a supervisor reads everything and writes nothing; a viewer sees counts only; another provider sees nothing', async () => {
@@ -201,6 +246,9 @@ describe('cases - roles, consent, isolation, restricted rows, plan, outcomes, co
     assert.deepEqual(follow.map((f) => f.dueAt.toISOString().slice(0, 10)), ['2026-09-29', '2026-11-24', '2027-02-16']);
     const r = await tenant(CM1.id, orgA, (tx) => svc.updateFollowUp(tx, cm1, follow[0]!.id, { status: 'retained' }));
     assert.equal(r.status, 'retained');
+    // another provider's admin cannot touch A's follow-up or task by id
+    await status(tenant(OB.id, orgB, (tx) => svc.updateFollowUp(tx, { user: OB, organizationId: orgB, role: 'admin' }, follow[1]!.id, { status: 'not_retained' })), 404);
+    await status(tenant(OB.id, orgB, (tx) => svc.updateTask(tx, { user: OB, organizationId: orgB, role: 'admin' }, t.id, { status: 'dropped' })), 404);
     const none = await tenant(CM1.id, orgA, (tx) => svc.recordOutcome(tx, cm1, caseId, { kind: 'not_employed' }));
     assert.equal(await db.caseFollowUp.count({ where: { outcomeId: none.id } }), 0);
   });
@@ -255,6 +303,7 @@ describe('cases - roles, consent, isolation, restricted rows, plan, outcomes, co
     assert.equal(await db.caseRecommendation.count({ where: { caseId, status: 'open' } }), open.length, 'no duplicates');
     // the case manager decides: accepting with a task creates the task citing the recommendation; dismissing creates nothing
     const rec = open.find((r) => r.pattern === 'poor_response_rate')!;
+    await status(tenant(OB.id, orgB, (tx) => svc.decideRecommendation(tx, { user: OB, organizationId: orgB, role: 'admin' }, rec.id, { status: 'accepted' })), 404, undefined);
     const decided = await tenant(CM1.id, orgA, (tx) => svc.decideRecommendation(tx, cm1, rec.id, { status: 'accepted', createTask: { kind: 'intervention', title: 'Review targeting together' } }));
     assert.equal(decided.task?.recommendationId, rec.id);
     const rec2 = open.find((r) => r.pattern === 'geographic_constraints')!;
@@ -274,7 +323,21 @@ describe('cases - roles, consent, isolation, restricted rows, plan, outcomes, co
     assert.ok(!JSON.stringify(summary).includes('private matter'));
   });
 
-  it('the client withdraws: the case closes, the consent is revoked, nothing more is read', async () => {
+  it('consent is per case: a second provider gets its own consent record, and withdrawing from one closes exactly that one', async () => {
+    const b = await svc.inviteClient(await actorOf(OB, orgB), { email: CL.email, caseManagerId: OB.id });
+    bCaseId = b.id;
+    const openedB = await svc.respondToInvitation(CL, b.id, true);
+    assert.notEqual(openedB.consentRecordId, (await db.case.findUniqueOrThrow({ where: { id: caseId } })).consentRecordId, 'a record per case');
+    const admB = { user: OB, organizationId: orgB, role: 'admin' as const };
+    assert.equal((await view.readClientSummary(admB, b.id)).client.name, CL.fullName);
+    await svc.withdrawFromCase(CL, b.id);
+    await status(view.readClientSummary(admB, b.id), 403, /not open|withdrew/);
+    // A's case is untouched: its own consent record is current
+    assert.equal((await view.readClientSummary({ user: CM1, organizationId: orgA, role: 'case_manager' }, caseId)).client.name, CL.fullName);
+    assert.equal((await db.case.findUniqueOrThrow({ where: { id: caseId } })).status, 'open');
+  });
+
+  it('the client withdraws: the case closes, the consent is revoked, nothing more is read; the closed case shows the snapshotted name; a close reason is one of the named set', async () => {
     await status(svc.withdrawFromCase(CL2, caseId), 404);
     await svc.withdrawFromCase(CL, caseId);
     const c = await db.case.findUniqueOrThrow({ where: { id: caseId } });
@@ -284,32 +347,74 @@ describe('cases - roles, consent, isolation, restricted rows, plan, outcomes, co
     await status(view.readClientSummary({ user: CM1, organizationId: orgA, role: 'case_manager' }, caseId), 403);
     await status(tenant(CM1.id, orgA, (tx) => svc.addNote(tx, { user: CM1, organizationId: orgA, role: 'case_manager' }, caseId, 'x')), 409);
     assert.equal(await auditCount('case.closed', caseId), 1);
+    const sup = { user: SUP, organizationId: orgA, role: 'supervisor' as const };
+    assert.deepEqual((await tenant(SUP.id, orgA, (tx) => svc.loadCase(tx, sup, caseId))).client, { name: CL.fullName, email: CL.email }, 'from the snapshot');
+    await status(tenant(SUP.id, orgA, (tx) => svc.closeCase(tx, sup, caseId, 'free text' as never)), 422);
+    await status(tenant(SUP.id, orgA, (tx) => svc.closeCase(tx, sup, caseId, 'other')), 409, /already closed/);
   });
 
-  it('retention: only an admin sets a policy, within bounds; the purge removes expired notes and old closed cases, and touches an organisation without a policy not at all', async () => {
+  it('a new engagement is a NEW case: re-inviting after closure never reopens the old row or its restricted rows', async () => {
+    const again = await svc.inviteClient(await actorOf(SUP), { email: CL.email, caseManagerId: CM1.id });
+    secondCaseId = again.id;
+    assert.notEqual(again.id, caseId);
+    assert.equal(again.status, 'invited');
+    assert.equal(await db.caseNote.count({ where: { caseId } }), 1, 'the old case keeps its note');
+    assert.equal(await db.caseNote.count({ where: { caseId: again.id } }), 0);
+    const opened = await svc.respondToInvitation(CL, again.id, true);
+    assert.equal(opened.status, 'open');
+    await status(svc.inviteClient(await actorOf(SUP), { email: CL.email }), 409, /already has a case/);
+    assert.equal((await db.case.findUniqueOrThrow({ where: { id: caseId } })).status, 'closed', 'the old case stays closed');
+    const cm1 = { user: CM1, organizationId: orgA, role: 'case_manager' as const };
+    assert.equal((await tenant(CM1.id, orgA, (tx) => svc.listNotes(tx, cm1, again.id))).length, 0, 'the earlier engagement is not readable through the new case');
+    await tenant(CM1.id, orgA, (tx) => svc.addNote(tx, cm1, again.id, 'Second engagement note'));
+  });
+
+  it('retention: only an admin sets a policy, within bounds; the purge thins CLOSED cases only (from closure), removes old closed cases with everything under them (counted), and touches an organisation without a policy not at all', async () => {
     await status(svc.setRetentionPolicy({ user: CM1, organizationId: orgA, role: 'case_manager' }, { caseNoteDays: 365, closedCaseDays: 730 }), 403);
     await status(svc.setRetentionPolicy({ user: OA, organizationId: orgA, role: 'admin' }, { caseNoteDays: 5, closedCaseDays: 730 }), 422);
     await svc.setRetentionPolicy({ user: OA, organizationId: orgA, role: 'admin' }, { caseNoteDays: 365, closedCaseDays: 730, note: 'Programme rule X' });
     assert.equal(await auditCount('case.retention.set'), 1);
-    // an old note on A's closed case, and a closed case in B (no policy) closed long ago
     const old = new Date(Date.now() - 400 * 86_400_000);
+    // an OLD note on the OPEN second case: never thinned by age
+    await db.caseNote.updateMany({ where: { caseId: secondCaseId }, data: { createdAt: old } });
+    // the closed first case: closed today, so its old note and assessment stay for now
     await db.caseNote.updateMany({ where: { caseId }, data: { createdAt: old } });
-    const bCase = await db.case.create({ data: { organizationId: orgB, clientUserId: CL2.id, status: 'closed', closedAt: new Date(Date.now() - 3000 * 86_400_000), createdById: OB.id } });
+    const r0 = await svc.purgeExpiredCaseRecords();
+    assert.deepEqual([r0.notes, r0.assessments, r0.cases], [0, 0, 0], 'closed today: nothing expires yet');
+    // closed 400 days ago: its RESTRICTED rows expire; the case itself (730) stays; B (no policy) is untouched
+    await db.case.update({ where: { id: caseId }, data: { closedAt: old } });
+    const bCase = await db.case.create({ data: { organizationId: orgB, invitedEmail: CL2.email, clientUserId: CL2.id, status: 'closed', closedAt: new Date(Date.now() - 3000 * 86_400_000), createdById: OB.id } });
     await db.caseNote.create({ data: { caseId: bCase.id, organizationId: orgB, authorId: OB.id, body: 'old', createdAt: old } });
     const r1 = await svc.purgeExpiredCaseRecords();
     assert.equal(r1.organizations, 1);
     assert.equal(r1.notes, 1);
-    assert.equal(r1.assessments, 0, 'the assessment is younger than the policy');
-    assert.equal(r1.cases, 0, 'closed today, kept');
+    assert.equal(r1.assessments, 1);
+    assert.equal(r1.cases, 0, 'closed 400 days ago, kept for 730');
     assert.equal(await db.caseNote.count({ where: { caseId } }), 0);
+    assert.equal(await db.caseNote.count({ where: { caseId: secondCaseId } }), 1, 'the open case keeps its old note');
     assert.equal(await db.caseNote.count({ where: { caseId: bCase.id } }), 1, 'no policy, no purge');
+    assert.equal(await db.case.count({ where: { id: bCaseId } }), 1);
     assert.equal(await auditCount('case.retention.purged', orgA), 1);
-    // the closed case itself goes once it is older than the policy, with everything under it
+    // the closed case itself goes once it is older than the policy, with everything under it, and the audit row counts what went
     await db.case.update({ where: { id: caseId }, data: { closedAt: new Date(Date.now() - 800 * 86_400_000) } });
+    const under = { caseId };
+    const expectedChildren = (await db.caseTask.count({ where: under })) + (await db.caseOutcome.count({ where: under })) + (await db.caseFollowUp.count({ where: under })) + (await db.caseRecommendation.count({ where: under }));
+    assert.ok(expectedChildren > 0);
     const r2 = await svc.purgeExpiredCaseRecords();
     assert.equal(r2.cases, 1);
+    assert.equal(r2.children, expectedChildren);
     assert.equal(await db.case.count({ where: { id: caseId } }), 0);
     assert.equal(await db.caseTask.count({ where: { caseId } }), 0);
+    assert.equal(await db.case.count({ where: { id: secondCaseId } }), 1);
     assert.equal(await db.case.count({ where: { id: bCase.id } }), 1);
+    const purged = await db.auditLog.findFirst({ where: { action: 'case.retention.purged', entityId: orgA }, orderBy: { createdAt: 'desc' } });
+    assert.ok(purged?.after.includes(`"children":${expectedChildren}`));
+  });
+
+  it('invitations are rate-limited per supervisor account', async () => {
+    const admB = await actorOf(OB, orgB);
+    // OB has sent one invitation in this run (to CL); the window allows thirty
+    for (let i = 0; i < 29; i += 1) await svc.inviteClient(admB, { email: `bulk-${i}-${S}@cases.test` });
+    await status(svc.inviteClient(admB, { email: `bulk-last-${S}@cases.test` }), 429);
   });
 });

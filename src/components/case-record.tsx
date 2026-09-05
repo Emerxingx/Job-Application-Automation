@@ -83,7 +83,7 @@ export function CaseRecord({ organizationId, caseId, status, canWrite, canManage
   const [offeringId, setOfferingId] = useState('');
   const [outcomeKind, setOutcomeKind] = useState('employed');
   const [employer, setEmployer] = useState('');
-  const [closeReason, setCloseReason] = useState('');
+  const [closeReason, setCloseReason] = useState('service_complete');
   const open = status === 'open';
 
   async function run(key: string, url: string, method: string, body: unknown, after?: () => void) {
@@ -121,7 +121,14 @@ export function CaseRecord({ organizationId, caseId, status, canWrite, canManage
                   run('close', `/api/cases/${caseId}`, 'PATCH', { action: 'close', organizationId, reason: closeReason });
                 }}
               >
-                <input className="rounded-md border border-line bg-surface px-3 py-2" placeholder="Reason for closing" value={closeReason} minLength={2} required onChange={(e) => setCloseReason(e.target.value)} />
+                <select className="rounded-md border border-line bg-surface px-3 py-2" value={closeReason} onChange={(e) => setCloseReason(e.target.value)} aria-label="Reason for closing">
+                  <option value="outcome_recorded">Outcome recorded</option>
+                  <option value="service_complete">Service complete</option>
+                  <option value="referred_elsewhere">Referred elsewhere</option>
+                  <option value="lost_contact">Lost contact</option>
+                  <option value="client_request">Client request</option>
+                  <option value="other">Other</option>
+                </select>
                 <button type="submit" className="rounded-md border border-line px-3 py-2 text-xs text-muted" disabled={busy !== null}>
                   Close case
                 </button>

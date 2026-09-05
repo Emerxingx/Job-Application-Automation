@@ -1,9 +1,11 @@
 import Link from 'next/link';
+import { notFound } from 'next/navigation';
 import { Briefcase } from 'lucide-react';
 import { db } from '@/lib/db';
 import { requireTenant } from '@/lib/tenancy/request';
 import { requestMeta } from '@/lib/security-audit';
-import { assignableMembers, listCaseload, requireCaseActor, serviceProviderMemberships } from '@/lib/cases/service';
+import { CaseError, assignableMembers, listCaseload, requireCaseActor, serviceProviderMemberships } from '@/lib/cases/service';
+import { OrganizationAccessError } from '@/lib/tenancy/organizations';
 import { Card, EmptyState, PageHeader } from '@/components/ui';
 import { CaseInvite } from '@/components/case-invite';
 import { CaseSettings } from '@/components/case-settings';
@@ -30,13 +32,21 @@ export default async function CasesPage({ searchParams }: { searchParams: Promis
     );
   }
   const current = memberships.find((m) => m.organizationId === params.org) ?? memberships[0]!;
-  const { run } = await requireTenant(current.organizationId);
-  const actor = await requireCaseActor({ id: user.id, email: user.email }, current.organizationId, requestMeta(undefined));
-  const [caseload, members, policy] = await Promise.all([
-    run((tx) => listCaseload(tx, actor, { status: params.status })),
-    run((tx) => assignableMembers(tx, actor)),
-    db.retentionPolicy.findUnique({ where: { organizationId: current.organizationId } }),
-  ]);
+  // The organisation is one of the caller's own memberships, so a refusal
+  // here is a race (membership removed since the list was read) and is a
+  // 404, not a server error (Stage 17 review, L10).
+  let page: { actor: Awaited<ReturnType<typeof requireCaseActor>>; caseload: Awaited<ReturnType<typeof listCaseload>>; members: Awaited<ReturnType<typeof assignableMembers>> };
+  try {
+    const { run } = await requireTenant(current.organizationId);
+    const actor = await requireCaseActor({ id: user.id, email: user.email }, current.organizationId, requestMeta(undefined));
+    const [caseload, members] = await Promise.all([run((tx) => listCaseload(tx, actor, { status: params.status })), run((tx) => assignableMembers(tx, actor))]);
+    page = { actor, caseload, members };
+  } catch (error) {
+    if (error instanceof CaseError || error instanceof OrganizationAccessError) notFound();
+    throw error;
+  }
+  const { actor, caseload, members } = page;
+  const policy = await db.retentionPolicy.findUnique({ where: { organizationId: current.organizationId } });
   const memberRows = await db.membership.findMany({ where: { organizationId: current.organizationId, acceptedAt: { not: null }, removedAt: null }, include: { user: { select: { fullName: true, email: true } } }, orderBy: { createdAt: 'asc' } });
   const label = (userId: string) => {
     const m = memberRows.find((r) => r.userId === userId);

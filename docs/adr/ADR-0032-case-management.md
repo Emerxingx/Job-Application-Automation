@@ -30,23 +30,33 @@ rows, by design, and must not be able to until the client says so.
    weakest. A case manager opens and writes only cases assigned to them; a
    supervisor reads every case and writes none; a viewer sees counts; an
    admin does everything and sets roles and the retention policy.
-2. **A case exists only with the client's recorded consent.** A supervisor
-   or admin invites a client by the email the client gave them (the lookup
-   is audited, `case.invited`, and is answerable for). The case is
-   `invited` and holds nothing about the person. The CLIENT accepts under
-   Settings: a `ConsentRecord` (`employment_services_case`, versioned,
-   source `settings`) is written and the case opens; declining closes the
-   door; withdrawing later closes the case and revokes that consent, and
-   nothing about the client is read from then on. Before consent and
+2. **A case exists only with the client's recorded consent, and an
+   invitation is addressed to an email.** A supervisor or admin invites
+   by the address the client gave them; the accounts table is NEVER
+   consulted (the answer is the same with or without an account, so a
+   provider learns nothing about who is on the platform), the audit row
+   (`case.invited`) carries a digest of the address, and invitations are
+   rate-limited per supervisor and per organisation. The case is `invited`
+   and holds nothing about the person. The CLIENT, whose account address
+   matches, accepts under Settings: in ONE transaction they are linked to
+   the case, their name is snapshotted, a `ConsentRecord`
+   (`employment_services_case`, versioned, source `settings`) is written
+   and the case opens; declining records nothing about them and is final
+   (the platform does not re-invite); withdrawing later closes the case
+   and revokes THAT consent record, and nothing about the client is read
+   from then on. Every engagement is its own `Case` row: a closed case is
+   never reopened, and a new invitation gives no access to an earlier
+   engagement's RESTRICTED rows. A service-provider organisation is not
+   self-serve: staff create it once the provider is verified. Before consent and
    after withdrawal every read about the client is refused (403) and the
    copilot does not run.
 3. **Isolation is RLS first, then the service.** `CaseNote`,
    `CaseAssessment`, `CaseTask`, `CaseOutcome`, `CaseFollowUp` and
    `CaseRecommendation` are `org`-scoped: the organisation's accepted
    members and nobody else - not the client, not another provider. `Case`
-   itself is visible to the organisation's members AND to the client it
-   concerns (the invitation and the consent state; the client can write
-   nothing on the tenant path). The `RetentionPolicy` is read by members
+   itself is written by the organisation's members and READ, additionally,
+   by the client it concerns once linked - a SELECT-only policy, so the
+   client can neither update nor delete their case on the tenant path. The `RetentionPolicy` is read by members
    and written by the service. Assignment gating and role checks are the
    service's, on top of the policy; a case a role may not open is 404.
 4. **Case notes and assessments are RESTRICTED and every access is
@@ -54,14 +64,17 @@ rows, by design, and must not be able to until the client says so.
    before the read or the write (the tenant role cannot write `AuditLog`;
    an access whose record cannot be written does not happen), with ids and
    kinds - a note's length, an assessment's barrier count - never a body,
-   a barrier or a name. `caseNote`, `assessment` and `barriers` join the
-   AI gateway's RESTRICTED keys; a static test refuses any reference to a
+   a barrier or a name. `caseNote`, `caseAssessment` and `caseBarriers`
+   join the AI gateway's RESTRICTED keys (case-specific names: a Stage 10
+   folder's `assessments` count is not RESTRICTED); a static test refuses any reference to a
    case note or assessment under matching, eligibility, analytics, career
    or the gateway, and in the copilot and the client view.
 5. **What a case manager sees of the client is a DELEGATED, audited read.**
    `client-view.ts` runs on the system client only after four checks
    (member of the case's organisation, a role that may open the case, the
-   case open, the consent current) and an audit row (`case.client.read`).
+   case open and linked, THE CASE'S OWN consent record current - never any
+   consent for the purpose, so one provider's consent is never another's)
+   and an audit row (`case.client.read`).
    It reads application counts and statuses, interviews, eligibility rule
    outcomes, compatibility dimensions, whether a résumé exists, the
    client's target titles and locations, and this deployment's postings
@@ -89,8 +102,9 @@ rows, by design, and must not be able to until the client says so.
 8. **Retention is per organisation, and NO policy means NO automatic
    purge.** `RetentionPolicy` holds `caseNoteDays` and `closedCaseDays`
    (30-3650), set by an admin and audited. `npm run cases:retention`
-   deletes notes and assessments older than the first and closed cases
-   (with everything under them) closed longer ago than the second, per
+   deletes the notes and assessments of cases CLOSED longer ago than the
+   first (an open case is never thinned by age) and closed cases (with
+   everything under them, counted) closed longer ago than the second, per
    organisation, audited with counts; an organisation without a policy is
    untouched, because a public-body contract may require records kept and
    nothing is destroyed on a platform default. No scheduler exists.
@@ -108,10 +122,14 @@ rows, by design, and must not be able to until the client says so.
   engineering is complete; the regime, the residency and the retention
   rules a public body requires are the founder's and counsel's to settle,
   after which they are configuration (ADR-0015), not redesign.
-- Inviting by email discloses to a supervisor whether an address has an
-  account. This is accepted for a provider working with clients in person
-  and is audited; a client-initiated code is the alternative if a future
-  review requires it.
+- Inviting by email discloses nothing about accounts: the invitation
+  simply waits for an account with that address. No email is sent (no
+  mail provider is wired), so the provider tells the client in person; a
+  person who declined is not re-invited by the platform.
+- Roles as tested: an admin reads and writes everything, including notes;
+  a supervisor reads everything (notes, outcomes included), invites,
+  assigns and closes, and writes no note, assessment, task or outcome; a
+  case manager writes their assigned cases; a viewer sees counts.
 - The viewer role sees counts, not names; small-cohort suppression for
   aggregate reporting across organisations is Stage 20 work and is not
   claimed here.

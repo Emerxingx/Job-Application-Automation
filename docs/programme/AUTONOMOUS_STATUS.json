@@ -1,7 +1,7 @@
 {
   "$comment": "Machine-readable controller for the autonomous build programme. Authoritative over any chat transcript: if this file and a conversation disagree, this file wins. Updated at every stage checkpoint.",
   "schema_version": 1,
-  "updated_at": "2026-09-05T18:45:00Z",
+  "updated_at": "2026-09-05T15:45:00Z",
   "current_stage": "17",
   "last_completed_stage": "16",
   "current_branch": "claude/stage-17-employment-services",
@@ -642,14 +642,14 @@
   },
   "stage_17_progress": {
     "organisations_roles": "DONE — service_provider organisations; Membership.serviceRole as a named set over the ladder (supervisor | case_manager | viewer; owner/admin → admin; unknown → viewer); assignment gating",
-    "consent": "DONE — a supervisor invites by email (audited); the client accepts under Settings (ConsentRecord employment_services_case), declines, or withdraws (consent revoked, case closed); nothing about the client is read before consent or after withdrawal",
-    "isolation_restricted": "DONE — migration 20260905160000_case_management (8 tables) + RLS 20260905160100_rls_case_management: notes, assessments, tasks, outcomes, follow-ups, recommendations org-scoped; Case visible to the client (read) and members; every note/assessment read and write audited first with ids and kinds only; RESTRICTED gateway keys; static guard on matching/analytics/career/gateway",
+    "consent": "DONE — a supervisor invites by EMAIL (accounts table never consulted; audit carries a digest; rate-limited per supervisor 30/h and per organisation 200/day); the client whose account address matches accepts under Settings (linked + name snapshotted + ConsentRecord employment_services_case + open, one transaction under an advisory lock), declines (final; nothing recorded about them), or withdraws (that case's consent revoked, case closed); every engagement is a new Case row; nothing about the client is read before consent or after withdrawal; the delegated read checks the case's own consent record",
+    "isolation_restricted": "DONE — migrations 20260905160000_case_management (8 tables) + 20260905160100_rls_case_management (regenerated in-branch after review: Case tenant_access org-only + tenant_read SELECT-only for the linked client) + 20260905160200_case_invitation_by_email; notes, assessments, tasks, outcomes, follow-ups, recommendations org-scoped; every note/assessment read and write audited first with ids and kinds only; RESTRICTED gateway keys caseNote/caseAssessment/caseBarriers; static guard on matching/analytics/career/gateway; service-provider organisations created only with the staff verification flag",
     "client_view_copilot": "DONE — delegated audited read after four checks; pure copilot with nine patterns; runCopilot writes CaseRecommendation only (snapshot-proven); the case manager decides; no AI provider",
     "record": "DONE — assessments, action plan (task | intervention | referral to a licensed offering), outcomes with 4/12/24-week follow-ups, close; pages /dashboard/cases and /dashboard/cases/[caseId]; Settings section for the client; routes under /api/cases",
-    "retention": "DONE — RetentionPolicy per organisation (admin, audited); npm run cases:retention; no policy = no purge; no scheduler",
+    "retention": "DONE — RetentionPolicy per organisation (admin, audited); npm run cases:retention thins CLOSED cases only (from closure) and purges old closed cases with the cascade counted; no policy = no purge; no scheduler",
     "workbc_integration": "LEVEL 0 BY DESIGN (ADR-0020) — none exists, none is claimed; every page says so",
     "public_sector_deployment": "BLOCKED (LEGAL, L-1)",
-    "independent_review": "PENDING"
+    "independent_review": "DONE — 1 HIGH (account-existence oracle in inviteClient) / 4 MEDIUM (consent by purpose; client could DELETE a Case under RLS; re-invite reused the row and its RESTRICTED rows; retention thinned open cases and under-counted) / 5 LOW; all fixed on the branch with tests (cases 9 → 13 subtests; suite 1152/1152); STAGE17_EVIDENCE.md §12"
   },
   "stage_17_exit_gate": {
     "met": [

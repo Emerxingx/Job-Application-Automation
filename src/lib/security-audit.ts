@@ -68,6 +68,7 @@ export type SecurityEvent =
   | 'mailbox.revoked'
   // Stage 17 (ADR-0032): case management. Reads of RESTRICTED rows are audited
   // BEFORE the read, strictly; ids and kinds only, never a note or a barrier.
+  | 'organization.create.refused'
   | 'case.invited'
   | 'case.consented'
   | 'case.declined'

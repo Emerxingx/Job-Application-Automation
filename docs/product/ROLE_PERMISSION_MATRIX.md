@@ -55,16 +55,21 @@ Support and admin reads of candidate data are audited without exception.
 | --- | --- | --- | --- | --- |
 | Organisation / centres | F | R | — | — |
 | Members & assignment | F | W | — | — |
-| Caseload | F | F | A (own) | R (aggregate) |
+| Caseload (invite, assign, close) | F | F | A (own) | R (aggregate) |
 | Client case record | F | R | A (own) | — |
-| **Case notes** | R (audited) | R | A (own) | — |
+| **Case notes** (every read audited) | F | R | A (own) | — |
 | Assessments / employment plans | F | R | A (own) | — |
 | Interventions / referrals | F | R | A (own) | — |
-| Outcomes / retention | F | F | A (own) | R (aggregate) |
+| Outcomes / retention follow-up | F | R | A (own) | R (aggregate) |
 | Reporting | F | F | R (own) | R (aggregate) |
+| Service roles, retention policy | F | — | — | — |
 
 Case-manager access is **assignment-gated**: a case manager sees only clients
-assigned to them. Aggregate views apply small-cohort suppression.
+assigned to them. A supervisor reads every case (notes included) and manages
+the caseload - invites, assigns, closes - but writes no note, assessment, task
+or outcome (Stage 17, `src/lib/cases/roles.ts`; this row is what the tests
+enforce). Aggregate views apply small-cohort suppression (not built at
+Stage 17: a viewer sees their organisation's counts).
 
 ## Platform staff
 

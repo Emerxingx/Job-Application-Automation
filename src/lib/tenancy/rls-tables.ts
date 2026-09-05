@@ -54,7 +54,13 @@ export type RlsKind =
   | { kind: 'userOrOrg'; userColumn: string; orgColumn: string }
   | { kind: 'org'; column: string }
   | { kind: 'viaParent'; parent: string; fk: string; parentKey?: string; extra?: string }
-  | { kind: 'custom'; using: string; check?: string }
+  /**
+   * A hand-written predicate. `using` governs every command; `readUsing`,
+   * when given, WIDENS SELECT only (a second, SELECT-only policy) so a party
+   * who may see a row - the client their case concerns - can never update or
+   * delete it (Stage 17 review, M3).
+   */
+  | { kind: 'custom'; using: string; check?: string; readUsing?: string }
   | { kind: 'reference'; where?: string }
   | { kind: 'system' };
 
@@ -215,10 +221,13 @@ export const RLS_TABLES: Record<string, RlsKind> = {
   // service's, on top of this organisational isolation. The retention policy
   // is read by members and written by the service.
   RetentionPolicy: { kind: 'orgReadOnly', column: 'organizationId' },
+  // The organisation's members write it; the client it concerns may READ
+  // their own row (the consent state) and nothing more - a SELECT-only
+  // policy, so they can neither close nor delete a case on the tenant path.
   Case: {
     kind: 'custom',
-    using: '("organizationId" = ANY (app_member_organization_ids()) OR "clientUserId" = app_current_user_id())',
-    check: '"organizationId" = ANY (app_member_organization_ids())',
+    using: '"organizationId" = ANY (app_member_organization_ids())',
+    readUsing: '("organizationId" = ANY (app_member_organization_ids()) OR "clientUserId" = app_current_user_id())',
   },
   CaseNote: { kind: 'org', column: 'organizationId' },
   CaseAssessment: { kind: 'org', column: 'organizationId' },
