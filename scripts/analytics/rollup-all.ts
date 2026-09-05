@@ -1,26 +1,23 @@
 /**
- * Stage 21 (ADR-0036) - the operator's mart sweep: rebuild EVERY mart a
- * dashboard reads for the last N days (default 400) - usage, revenue, the
- * Stage 13 platform counts, the Stage 21 platform metrics and snapshots,
- * every organisation's product reporting, the subscription cohorts and the
- * candidate outcome marts. There is no scheduler (ADR-0011 is not built);
- * this is what a nightly cron would call, and a mart's freshness on its page
- * says whether it has been.
+ * Stage 21 (ADR-0036) - the operator's sweep: rebuild every mart a dashboard
+ * reads over the last N whole UTC days (default 400), ending today.
  *
- *   npm run analytics:rollup            # last 400 days
- *   npm run analytics:rollup -- 30      # last 30 days
+ *   npm run analytics:rollup            # 400 days
+ *   npm run analytics:rollup -- 30      # 30 days
  *
  * Idempotent: every job replaces whole scopes and converges on the same rows.
- * A failed job is reported and the others still run.
+ * A failed job is reported and the others still run; the exit code is 1 if
+ * any failed. There is no scheduler: this is the command a stale freshness
+ * line asks for.
  */
 import { db } from '@/lib/db';
 import { rollupAll } from '@/lib/analytics/rollups';
+import { rangeOfDays } from '@/lib/analytics/time';
 
 async function main() {
   const days = Math.max(1, Number.parseInt(process.argv[2] ?? '400', 10) || 400);
-  const end = new Date(Date.now() + 86400_000);
-  const start = new Date(end.getTime() - days * 86400_000);
-  const results = await rollupAll({ start, end });
+  // Review L16: the window ends at the end of TODAY, never tomorrow.
+  const results = await rollupAll(rangeOfDays(days));
   let failed = 0;
   for (const r of results) {
     if (r.status === 'failed') failed += 1;

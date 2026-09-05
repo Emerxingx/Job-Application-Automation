@@ -115,6 +115,7 @@ export type SecurityEvent =
   | 'user.impersonation.started'
   | 'user.impersonation.ended'
   | 'audit.exported'
+  | 'analytics.exported'
   | 'sso.connection.updated'
   | 'auth.sso.succeeded'
   | 'auth.sso.failed'

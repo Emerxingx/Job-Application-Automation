@@ -82,10 +82,15 @@ one, is a change of destination rather than a rewrite.
    page by the static test.
 
 7. **Small cohorts are never a number.** The supervisor's outcome summary
-   withholds an outcome figure — in total and by kind — under five distinct
-   clients (`MIN_ORG_COHORT`, the Stage 13 threshold), and the case product
-   has no cut but outcome kind, because a caseload cut by anything else could
-   re-identify a client.
+   withholds every DAY on which fewer than five distinct clients recorded an
+   outcome — from the total and from every kind (`MIN_ORG_COHORT`, the Stage
+   13 threshold, applied per day as the benchmark applies it). `people` on a
+   mart row is that day's distinct clients; it is never summed across days,
+   because that would count a client once per day (review H1), and a per-day
+   threshold means differencing two ranges reveals nothing about a small day.
+   Over-suppression for a small provider is the accepted cost. The case
+   product has no cut but outcome kind, because a caseload cut by anything
+   else could re-identify a client.
 
 8. **The warehouse extraction boundary.** `src/lib/analytics/warehouse/export.ts`
    writes each mart's rows for a day range as one CSV per mart per day under
@@ -104,8 +109,22 @@ one, is a change of destination rather than a rewrite.
 - The employer `days_to_*` figures are MEANS (a sum with the count behind
   it); the page says "mean", because a median is not a quantity a daily mart
   can hold.
-- The opening MRR for a range is the previous day's mart row; the sweep
-  rolls up from the day before the window for that reason.
+- The opening MRR for a range is the previous day's mart row and nothing
+  older: when that row is absent the page says the opening figures are
+  unavailable rather than using an older row or a zero (review M10).
+- The MRR block (MRR, ARR, ARPU, lifetime value) is base-currency only; on
+  another currency the page says where it is reported instead of relabelling
+  CAD figures (review M4). Trialing, past-due and canceled counts are a
+  snapshot the rollup can only take on its own day; they are read from the
+  latest row and shown with that day (review M5).
+- A mart written by two jobs (`DailyMetric`) is as fresh as the older of the
+  two latest successes and "never rebuilt" while either has never run; a run
+  scoped to one organisation is recorded as `organization_reporting:scoped`
+  and never counts as a rebuild (review M2, L11).
+- The extraction writes an `analytics.exported` audit row naming the marts
+  and the range; a partition that had rows and now has none is overwritten
+  header-only so a loader never keeps stale rows; a number is never
+  neutralised as a formula (review M3, M6, L15).
 
 ## Consequences
 
@@ -120,6 +139,15 @@ one, is a change of destination rather than a rewrite.
 - Still not built, and stated: an event stream feeding the marts (ADR-0011),
   a scheduler, a warehouse, and any measurement of extraction or rollup
   throughput at production volume (**NOT VERIFIED**; a Stage 23 item).
+
+## Independent review (2026-09-05)
+
+1 HIGH (per-day suppression), 9 MEDIUM and 7 LOW findings; every HIGH and
+MEDIUM and six of the seven LOW were fixed with tests in the same pull
+request (the table is in `STAGE21_EVIDENCE.md` §10). Not changed: the
+organisation mart's recruiter keys are member ids and stay in the default
+extraction, stated in `WAREHOUSE_EXTRACTION.md` as personal data under the
+same residency decision (L13).
 
 ## Alternatives considered
 

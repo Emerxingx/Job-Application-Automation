@@ -291,6 +291,7 @@ export function computeDailyRevenueRows(
         row.payingCustomers = closing.subscriptions;
         row.newCustomers = movement.newSubscribers;
         row.churnedCustomers = movement.churnedSubscribers;
+        row.reactivatedCustomers = movement.reactivatedSubscribers;
         row.arpuCents =
           closing.subscriptions > 0 ? Math.round(closing.mrrCents / closing.subscriptions) : 0;
 
@@ -360,6 +361,7 @@ function emptyRevenueRow(day: string, currency: string): DailyRevenueRow {
     paymentsFailed: 0,
     paymentsPending: 0,
     failedPaymentCents: 0,
+    reactivatedCustomers: 0,
   };
 }
 

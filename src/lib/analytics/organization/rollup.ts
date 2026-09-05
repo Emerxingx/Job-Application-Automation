@@ -13,6 +13,8 @@ import { buildCaseRows, buildEmployerRows, buildStaffingRows, type MartRow, type
  * it so the read can suppress a small cohort (ADR-0012).
  */
 export const ORGANIZATION_ROLLUP_JOB = 'organization_reporting';
+/** The RollupRun job name of a single-organisation run: it never counts as a rebuild of the mart. */
+export const SCOPED_ROLLUP_JOB = 'organization_reporting:scoped';
 
 export interface OrganizationRollupDeps {
   loadEmployer(range: DateRange, organizationId?: string): Promise<{ subs: SubmissionFact[]; moves: { organizationId: string; actorId: string; at: Date }[] }>;
@@ -67,12 +69,13 @@ export const prismaOrganizationDeps: OrganizationRollupDeps = {
   },
   async replaceRows(scope, rows) {
     if (scope.days.length === 0) return 0;
+    // Review M9: a whole-platform replace outgrows Prisma's 5 s default; the Stage 13 rollup sets the same ceiling.
     return db.$transaction(async (tx) => {
       await tx.organizationDailyMart.deleteMany({ where: { day: { in: scope.days }, ...(scope.organizationId ? { organizationId: scope.organizationId } : {}) } });
       let written = 0;
       for (let i = 0; i < rows.length; i += 100) written += (await tx.organizationDailyMart.createMany({ data: rows.slice(i, i + 100) })).count;
       return written;
-    });
+    }, { timeout: 60_000 });
   },
   async startRun(job, range) {
     return (await db.rollupRun.create({ data: { job, windowStart: range.start, windowEnd: range.end, status: 'running' }, select: { id: true } })).id;
@@ -87,14 +90,18 @@ export async function rollupOrganizations(range: DateRange, options: { deps?: Or
   const window = snapToUtcDays(range);
   const deps = options.deps ?? prismaOrganizationDeps;
   const days = eachDayKey(window);
-  const runId = (await deps.startRun?.(ORGANIZATION_ROLLUP_JOB, window)) ?? null;
+  const daySet = new Set(days);
+  // A run scoped to ONE organisation is recorded under its own job name so the
+  // freshness line (the latest success of `organization_reporting`) counts
+  // full sweeps only (review L11).
+  const runId = (await deps.startRun?.(options.organizationId ? SCOPED_ROLLUP_JOB : ORGANIZATION_ROLLUP_JOB, window)) ?? null;
   try {
     const [employer, staffing, cases] = await Promise.all([deps.loadEmployer(window, options.organizationId), deps.loadStaffing(window, options.organizationId), deps.loadCases(window, options.organizationId)]);
     // A fact outside the window (a stage reached later than the creation day
     // is still attributed to the creation day, which IS in the window) never
     // lands on a day outside the scope: every builder attributes to a fact
     // date the loader bounded.
-    const rows = [...buildEmployerRows(employer.subs, employer.moves), ...buildStaffingRows(staffing), ...buildCaseRows(cases)].filter((r) => days.includes(r.day));
+    const rows = [...buildEmployerRows(employer.subs, employer.moves), ...buildStaffingRows(staffing), ...buildCaseRows(cases)].filter((r) => daySet.has(r.day));
     const written = await deps.replaceRows({ days, organizationId: options.organizationId }, rows);
     const rowsRead = employer.subs.length + employer.moves.length + staffing.engagements.length + staffing.representations.length + staffing.placements.length + staffing.invoices.length + cases.cases.length + cases.outcomes.length + cases.followUps.length;
     await deps.finishRun?.(runId, { status: 'succeeded', rowsRead, rowsWritten: written });

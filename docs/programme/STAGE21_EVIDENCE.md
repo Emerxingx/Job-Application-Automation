@@ -102,7 +102,7 @@ recipe and states the limits.
 
 ## 7. Database proof - `PASS` (`tests/reporting-marts.test.ts`, 10 tests)
 
-Against `jobpilot_test21` (55 migrations): the organisation rollup writes what
+Against `jobpilot_test21` (56 migrations): the organisation rollup writes what
 the fixture makes true and the employer report reads it on the tenant path
 (funnel 2/2/2/1/0/1/1/0, mean days 4/7/17, source cuts, recruiter activity
 excluding the candidates' own events); a second run changes nothing and each
@@ -110,12 +110,15 @@ run is recorded; a member of another organisation sees only their own rows
 under RLS and a cross-organisation read returns nothing; the cohort mart is
 invisible on the tenant path; staffing productivity with and without fees,
 filtered to one recruiter, and the invoice summary; the caseload summary
-withholds three clients' outcomes, shows the total at five and still
-withholds a four-client kind; the platform rollup zero-fills 31 days, writes
+withholds a three-client day and a one-client day (a second outcome of the
+same client - never counted once per day), shows a five-client day and
+still withholds a four-client kind; the platform rollup zero-fills 31 days, writes
 six snapshot rows on the as-of day only and is idempotent (31 x 11 rows);
 the mart revenue summary equals the live computation on totals, revenue
 series, movement, opening MRR and subscribers, churn, subscriber series and
-payment health (succeeded, failed, pending, rate, per-bucket amounts);
+payment health (succeeded, failed, pending, rate, per-bucket amounts) with a
+reactivation in the fixture; a USD view carries no base-currency MRR; an
+uncovered opening day is reported as unavailable;
 freshness reports the older of two jobs' successes; the extraction writes the
 documented CSV per mart per day, none for an empty day, and refuses an
 unknown mart; EXPLAIN with sequential scans disabled shows the organisation,
@@ -127,9 +130,9 @@ metric and cohort reads on their indexes.
 | --- | --- |
 | `npm run lint:ci` | 0 errors, 7 warnings (baseline 8) |
 | `npx tsc --noEmit` | 0 errors |
-| `npm test` (CI=true, both URLs on `jobpilot_test21`) | 1276 / 1276, 0 skipped (32 new: 22 static, 10 database) |
+| `npm test` (CI=true, both URLs on `jobpilot_test21`) | 1277 / 1277, 0 skipped after the review (33 new: 23 static, 10 database) |
 | `npm run build` | run in the main tree at the squashed commit (recorded in the status-sync commit) |
-| Migration rehearsal | 55 migrations applied to an empty database; `prisma migrate diff --exit-code` clean |
+| Migration rehearsal | 56 migrations applied to an empty database; `prisma migrate diff --exit-code` clean |
 
 A Stage 20 static assertion (`tests/enterprise-static.test.ts`) was found
 failing on PR #32 during this stage's full run: it still expected the
@@ -155,7 +158,32 @@ this branch was rebased onto it.
 - No industry dimension exists (unchanged from Stage 13).
 - Staging rehearsal NOT VERIFIED (R-34).
 
-## 10. Independent review
+## 10. Independent review - processed
 
-Pending; recorded in AUTONOMOUS_STATUS.json `stage_21_progress.independent_review`
-when processed.
+An independent adversarial review (read-only, against the squashed commit)
+returned 1 HIGH, 9 MEDIUM and 7 LOW findings. Disposition, all in this PR:
+
+| # | Severity | Finding | Fix |
+| --- | --- | --- | --- |
+| 1 | HIGH | `people` summed across days let a client count once per day; a small cohort could be shown and differenced | Per-day suppression in `readCaseloadSummary` (a day under five clients contributes nothing; `withheldDays` shown); dictionary and ADR §7 corrected; DB test with a second-day outcome of the same client |
+| 2 | MEDIUM | Freshness reported a date when the second job of a mart had never run | `oldestSuccess` (null when any job never succeeded); pure test with `[D, null]` and `[null, D]` |
+| 3 | MEDIUM | CSV neutraliser corrupted negative numbers | Only string cells are neutralised; test with `-7`/`-1500` |
+| 4 | MEDIUM | USD view showed CAD MRR under a USD label | MRR block filled for the base currency only; page says where MRR is reported; DB test |
+| 5 | MEDIUM | Trialing/past-due/canceled zero except on the sweep day, shown as current | Read from the latest row and shown with its day (`subscriberSnapshotDay`); dictionary text corrected |
+| 6 | MEDIUM | Documented `--from/--to/--marts` did not exist; no audit of an export | Script implements them (validated with `Object.hasOwn`), writes `analytics.exported`; document matches |
+| 7 | MEDIUM | Benchmark and candidate mart contracts carried keys only | Every scalar column listed; static test that every scalar column of every mart model is extracted |
+| 8 | MEDIUM | Reactivated subscribers silently zero from the mart | `reactivatedCustomers` column (migration `20260905210300_revenue_reactivations`), fold, summary; a reactivation in the parity fixture |
+| 9 | MEDIUM | Replace transactions on Prisma's 5 s default; O(rows x days) filter | 60 s ceiling on the three replaces (as Stage 13); a `Set` for the window; unindexed source scans recorded under NOT VERIFIED |
+| 10 | MEDIUM | Opening MRR from an older row, or zero, silently | The opening row must be the day before the window; otherwise `openingCovered: false` and the page says so; DB test |
+| 11 | LOW | A one-organisation run marked the whole mart fresh | Scoped runs recorded as `organization_reporting:scoped`; freshness counts full sweeps only; tests |
+| 12 | LOW | `in` accepted prototype keys as mart names | `Object.hasOwn` |
+| 13 | LOW | Member ids in the default extraction not stated | Stated in `WAREHOUSE_EXTRACTION.md` under ADR-0015; not hashed (a loader needs the key to join; a destination outside the decision must hash or drop it) |
+| 14 | LOW | Boundary allow-lists narrower than the fields to refuse | `employerName`, `clientUserId`, `caseManagerId`, `startDate`, `hoursPerWeek`, `candidateUserId`, `disclosureId`, `matchScore` and any `include:` refused |
+| 15 | LOW | A stale partition file was never removed | A day with an existing file and no rows is overwritten header-only; DB test |
+| 16 | LOW | Sweep and export windows included tomorrow | `rangeOfDays` in both scripts |
+| 17 | LOW | Plan breakdown and failure codes vanished rather than saying so | Visible notes on the revenue page |
+
+Checked and sound by the reviewer: RLS scoping of every tenant read, the
+case rollup's field set, the role gates on both routes, parity where the
+previous-day row exists, the replace scopes, the audit action names, the
+migrations, and every documented count.

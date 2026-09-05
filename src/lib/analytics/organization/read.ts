@@ -96,7 +96,7 @@ export async function readStaffingInvoices(tx: Client, organizationId: string, r
   return { issued: { count: sum(rs, 'invoices_issued'), cents: sumCents(rs, 'invoices_issued') }, paid: { count: sum(rs, 'invoices_paid'), cents: sumCents(rs, 'invoices_paid') }, credited: { count: sum(rs, 'invoices_credited'), cents: sumCents(rs, 'invoices_credited') } };
 }
 
-export type Suppressed = { suppressed: false; value: number } | { suppressed: true; reason: string };
+export type Suppressed = { suppressed: false; value: number; /** Days in the range withheld because fewer than five clients recorded an outcome that day. */ withheldDays: number } | { suppressed: true; reason: string };
 
 export interface CaseloadSummary {
   opened: number;
@@ -107,16 +107,30 @@ export interface CaseloadSummary {
   outcomesByKind: { kind: string; count: Suppressed }[];
 }
 
-const suppress = (count: number, people: number): Suppressed => (people > 0 && people < MIN_ORG_COHORT ? { suppressed: true, reason: `Fewer than ${MIN_ORG_COHORT} clients; not shown.` } : { suppressed: false, value: count });
+/**
+ * `people` on an outcome row is the distinct clients behind THAT DAY's row.
+ * Summing it across days would count a client once per day they recorded an
+ * outcome (Stage 21 review, H1), so the threshold is applied PER DAY, as the
+ * Stage 13 benchmark applies it: a day with fewer than five clients
+ * contributes nothing to any range that includes it, and differencing two
+ * ranges therefore reveals nothing about a small day. Over-suppression is the
+ * accepted cost; under-suppression is not.
+ */
+const suppressPerDay = (rs: Row[], metric: string, dimension = 'all', key = 'all'): Suppressed => {
+  const days = rs.filter((r) => r.metric === metric && r.dimension === dimension && r.key === key);
+  const shown = days.filter((r) => r.people >= MIN_ORG_COHORT);
+  if (days.length > 0 && shown.length === 0) return { suppressed: true, reason: `No day in the range had ${MIN_ORG_COHORT} or more clients with an outcome; not shown.` };
+  return { suppressed: false, value: shown.reduce((n, r) => n + r.valueInt, 0), withheldDays: days.length - shown.length };
+};
 
-/** The supervisor's employment-outcome summary: counts only, and an outcome figure is withheld under five clients (ADR-0012; a caseload cut by anything could re-identify a client). */
+/** The supervisor's employment-outcome summary: counts only, and an outcome figure is withheld for every day under five clients (ADR-0012; a caseload cut by anything could re-identify a client). */
 export async function readCaseloadSummary(tx: Client, organizationId: string, range: { from: Date; to: Date }): Promise<CaseloadSummary> {
   const rs = await rows(tx, organizationId, 'cases', range);
   return {
     opened: sum(rs, 'cases_opened'),
     closed: sum(rs, 'cases_closed'),
     followUps: { due: sum(rs, 'follow_ups_due'), completed: sum(rs, 'follow_ups_completed') },
-    outcomes: suppress(sum(rs, 'outcomes'), sumPeople(rs, 'outcomes')),
-    outcomesByKind: keysOf(rs, 'outcomes', 'kind').map((kind) => ({ kind, count: suppress(sum(rs, 'outcomes', 'kind', kind), sumPeople(rs, 'outcomes', 'kind', kind)) })),
+    outcomes: suppressPerDay(rs, 'outcomes'),
+    outcomesByKind: keysOf(rs, 'outcomes', 'kind').map((kind) => ({ kind, count: suppressPerDay(rs, 'outcomes', 'kind', kind) })),
   };
 }

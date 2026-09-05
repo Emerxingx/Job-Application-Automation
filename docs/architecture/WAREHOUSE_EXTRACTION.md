@@ -26,18 +26,20 @@ needs.
 | `DailyRevenueRollup` | system | `day` | one wide finance row per day per currency (cash, MRR and movement, subscriber counts, payment outcomes) |
 | `SubscriptionCohortMart` | system | `day` (as-of) | `day, currency, cohortMonth, monthOffset, subscribers, retained` |
 | `OrganizationDailyMart` | org | `day` | `day, organizationId, product, metric, dimension, key, valueInt, valueCents, people` |
-| `CandidateBenchmarkMart` | system | `day` | `day, dimension, key` (+ the benchmark counts) |
-| `CandidateOutcomeMart` | user | `day` | opt-in only — see residency below |
-| `CandidateMatchMart` | user | `day` | opt-in only — see residency below |
+| `CandidateBenchmarkMart` | system | `day` | `day, dimension, key, users, applications, sent, responded, interviews, offers, hires` |
+| `CandidateOutcomeMart` | user | `day` | opt-in only — see residency below; every count column of the model |
+| `CandidateMatchMart` | user | `day` | opt-in only — see residency below; every column of the model |
 
 The exact, ordered column list per mart is `MART_COLUMNS` in
 `src/lib/analytics/warehouse/export.ts`; a test checks each column is a real
-column of the model. Treat it as the contract: a loader may rely on it, and
+column of the model AND that every scalar column of the model (id and
+timestamps aside) is extracted, so a loader never gets a key-only file. Treat it as the contract: a loader may rely on it, and
 a change to it is an additive change to the document above plus the test.
 
 ## The extraction
 
-`npm run analytics:export -- --from 2026-08-01 --to 2026-08-31 [--marts A,B]`
+`npm run analytics:export` (last 30 days), `-- --days 90`,
+`-- --from 2026-08-01 --to 2026-08-31`, `-- --marts DailyMetric,CandidateOutcomeMart`
 (`scripts/analytics/export-marts.ts` → `exportMarts`) writes, for each mart
 and each day in the range that has rows, one CSV to the platform's object
 storage (the Stage 09 storage provider — local disk by default, S3 when
@@ -48,12 +50,17 @@ warehouse/<mart>/<day>.csv
 ```
 
 - CRLF line endings, a header row of the contract columns, RFC 4180
-  quoting, dates as ISO-8601 UTC, and **formula cells neutralised** (a cell
-  starting with `=`, `+`, `-` or `@` is prefixed with a quote) so an
-  export opened in a spreadsheet cannot execute anything.
+  quoting, dates as ISO-8601 UTC, and **formula cells neutralised** (a STRING
+  cell starting with `=`, `+`, `-`, `@` or a tab is prefixed with a quote;
+  a number is never touched, so `-1500` stays a number) so an export opened
+  in a spreadsheet cannot execute anything.
 - Idempotent: the same day re-exported overwrites the same key.
-- A day with no rows writes no file (a loader treats a missing file as an
-  empty partition, never as an error).
+- A day that never had rows writes no file (a loader treats a missing file
+  as an empty partition, never as an error). A day whose partition exists
+  and now has no rows (after a corrected re-rollup) is overwritten with a
+  header-only file, so a loader never keeps stale rows.
+- Every run writes an `analytics.exported` audit row naming the marts, the
+  range, the file count and whether a user-scoped mart was included.
 - The default mart set is the system- and organisation-scoped marts
   (`DEFAULT_EXPORT_MARTS`). The two user-scoped candidate marts are exported
   only when named with `--marts` — a per-person mart leaves the platform
@@ -91,4 +98,10 @@ and, later, whether a dashboard reads the warehouse or the mart.
   and is a Stage 23 item.
 - **No transactional table is ever extracted**, and no export carries a
   name, an email, a note or a case detail: the marts hold ids, kinds,
-  counts and cents.
+  counts and cents. The organisation mart's `recruiter` cut is keyed by
+  MEMBER user ids (`stage_moves` and every staffing metric); an id of a
+  natural person is personal data, so the default extraction is under the
+  same residency decision as the rest (ADR-0015) and a destination outside
+  that decision must hash or drop the `key` column for that dimension.
+- The window the sweep and the export use ends at the end of today, never
+  tomorrow.

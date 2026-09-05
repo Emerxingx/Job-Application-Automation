@@ -147,7 +147,7 @@ export default async function ConsoleOverviewPage() {
           hint={
             <>
               {count(summary.mrr.trialingSubscribers)} trialing ·{' '}
-              {count(summary.mrr.pastDueSubscribers)} past due
+              {count(summary.mrr.pastDueSubscribers)} past due{summary.subscriberSnapshotDay ? ` (as of ${summary.subscriberSnapshotDay})` : ' (no sweep yet)'}
             </>
           }
         />

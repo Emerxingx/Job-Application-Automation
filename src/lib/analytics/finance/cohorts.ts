@@ -71,7 +71,7 @@ export const prismaCohortDeps: CohortRollupDeps = {
     return db.$transaction(async (tx) => {
       await tx.subscriptionCohortMart.deleteMany({ where: { currency } });
       return rows.length ? (await tx.subscriptionCohortMart.createMany({ data: rows })).count : 0;
-    });
+    }, { timeout: 60_000 });
   },
   async startRun(job, range) {
     return (await db.rollupRun.create({ data: { job, windowStart: range.start, windowEnd: range.end, status: 'running' }, select: { id: true } })).id;

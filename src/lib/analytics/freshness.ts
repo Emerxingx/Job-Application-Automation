@@ -22,6 +22,16 @@ export interface MartFreshness {
   lastError: string | null;
 }
 
+/** Pure: the mart's as-of across the jobs that write it - the OLDEST latest success, and null when ANY job has never succeeded (review M2). */
+export function oldestSuccess(dates: readonly (Date | null)[]): Date | null {
+  let out: Date | undefined;
+  for (const d of dates) {
+    if (d === null) return null;
+    if (!out || d < out) out = d;
+  }
+  return out ?? null;
+}
+
 /** Pure: stale when never run or when the last success is older than the SLA. */
 export function isStale(asOf: Date | null, slaHours: number, now = new Date()): boolean {
   if (!asOf) return true;
@@ -36,15 +46,15 @@ export async function martFreshness(marts: readonly MartName[], now = new Date()
   ]);
   return marts.map((mart) => {
     const { jobs: martJobs, slaHours } = MART_REGISTRY[mart];
-    let asOf: Date | null | undefined;
     let lastError: string | null = null;
+    const latest: (Date | null)[] = [];
     for (const job of martJobs) {
       const ok = successes.find((r) => r?.job === job)?.finishedAt ?? null;
       const failed = failures.find((r) => r?.job === job) ?? null;
-      if (asOf !== null && (asOf === undefined || (ok !== null && ok < asOf))) asOf = ok;
+      latest.push(ok);
       if (failed && (!ok || (failed.finishedAt && failed.finishedAt > ok))) lastError = failed.error ?? 'failed';
     }
-    const resolved = asOf ?? null;
+    const resolved = oldestSuccess(latest);
     return { mart, jobs: martJobs, slaHours, asOf: resolved, stale: isStale(resolved, slaHours, now), lastError };
   });
 }

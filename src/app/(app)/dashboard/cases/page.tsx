@@ -86,7 +86,7 @@ export default async function CasesPage({ searchParams }: { searchParams: Promis
               <dl className="mt-3 grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
                 <div><dt className="text-muted">Cases opened</dt><dd className="text-lg font-semibold text-ink">{summary.opened}</dd></div>
                 <div><dt className="text-muted">Cases closed</dt><dd className="text-lg font-semibold text-ink">{summary.closed}</dd></div>
-                <div><dt className="text-muted">Employment outcomes</dt><dd className="text-lg font-semibold text-ink">{summary.outcomes.suppressed ? <span className="text-sm text-muted">{summary.outcomes.reason}</span> : summary.outcomes.value}</dd></div>
+                <div><dt className="text-muted">Employment outcomes</dt><dd className="text-lg font-semibold text-ink">{summary.outcomes.suppressed ? <span className="text-sm text-muted">{summary.outcomes.reason}</span> : <>{summary.outcomes.value}{summary.outcomes.withheldDays > 0 ? <span className="ml-1 text-xs font-normal text-muted">({summary.outcomes.withheldDays} day{summary.outcomes.withheldDays === 1 ? '' : 's'} under five clients withheld)</span> : null}</>}</dd></div>
                 <div><dt className="text-muted">Follow-ups completed</dt><dd className="text-lg font-semibold text-ink">{summary.followUps.completed} / {summary.followUps.due}</dd></div>
               </dl>
               {summary.outcomesByKind.length ? (

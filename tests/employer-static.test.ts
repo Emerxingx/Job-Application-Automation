@@ -114,7 +114,7 @@ describe('employer code - static boundaries', () => {
         if (rel === 'src/lib/analytics/organization/rollup.ts') {
           // Stage 21 (ADR-0036): the ONE analytics reader of submissions and their stage events (ids, source,
           // dates, member actor) for the employer's funnel; never a disclosure, a note, an interview or an offer.
-          if (/\b(requisition|disclosure|talentPool|employerNote|employerInterview|offer)\.\w+\(|\b(matchBreakdown|rejectedReason|note)\s*:\s*true\b/.test(text)) offenders.push(rel);
+          if (/\b(requisition|disclosure|talentPool|employerNote|employerInterview|offer)\.\w+\(|\b(matchBreakdown|rejectedReason|note|candidateUserId|disclosureId|matchScore)\s*:\s*true\b|\binclude\s*:/.test(text)) offenders.push(rel);
           continue;
         }
         if (/\b(requisition|disclosure|submission|talentPool|employerNote|employerInterview|offer)\.(findMany|findFirst|findUnique|create|update|count|aggregate|groupBy)\b/.test(text)) offenders.push(rel);

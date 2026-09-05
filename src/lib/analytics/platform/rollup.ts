@@ -126,7 +126,7 @@ export const prismaPlatformDeps: PlatformRollupDeps = {
       let written = 0;
       for (let i = 0; i < rows.length; i += 100) written += (await tx.dailyMetric.createMany({ data: rows.slice(i, i + 100) })).count;
       return written;
-    });
+    }, { timeout: 60_000 });
   },
   async startRun(job, range) {
     return (await db.rollupRun.create({ data: { job, windowStart: range.start, windowEnd: range.end, status: 'running' }, select: { id: true } })).id;

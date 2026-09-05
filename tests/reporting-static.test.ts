@@ -30,7 +30,7 @@ import { buildCaseRows, buildEmployerRows, buildStaffingRows, type SubmissionFac
 import { rollupOrganizations, type OrganizationRollupDeps } from '../src/lib/analytics/organization/rollup';
 import { cohortRowsOf, gridFromRows } from '../src/lib/analytics/finance/cohorts';
 import { buildCohortGrid } from '../src/lib/analytics/finance/cohort-grid';
-import { describeFreshness, isStale } from '../src/lib/analytics/freshness';
+import { describeFreshness, isStale, oldestSuccess } from '../src/lib/analytics/freshness';
 import { DEFAULT_EXPORT_MARTS, MART_COLUMNS, martCsv } from '../src/lib/analytics/warehouse/export';
 import { RLS_TABLES } from '../src/lib/tenancy/rls-tables';
 
@@ -96,12 +96,15 @@ describe('Stage 21 - the mart registry is one truth', () => {
     for (const mart of MART_NAMES) if (MART_REGISTRY[mart].scope !== 'user') assert.ok(DEFAULT_EXPORT_MARTS.includes(mart), `${mart} is not extracted`);
   });
 
-  it('the extraction columns are real columns of the model', () => {
+  it('the extraction columns are real columns of the model, and every scalar column of the model is extracted (review M7)', () => {
     const schema = read('prisma', 'schema.prisma');
+    const bookkeeping = new Set(['id', 'createdAt', 'updatedAt']);
     for (const mart of MART_NAMES) {
       const block = schema.slice(schema.indexOf(`model ${mart} {`));
       const body = block.slice(0, block.indexOf('\n}'));
       for (const col of MART_COLUMNS[mart]) assert.ok(new RegExp(`^\\s+${col}\\s`, 'm').test(body), `${mart}.${col} is not a column`);
+      const scalars = [...body.matchAll(/^\s+(\w+)\s+(String|Int|Boolean|DateTime|Float|BigInt|Decimal)\b/gm)].map((m) => m[1]!).filter((c) => !bookkeeping.has(c));
+      for (const col of scalars) assert.ok(MART_COLUMNS[mart].includes(col), `${mart}.${col} is a column the extraction drops - a loader would get nothing to aggregate`);
     }
   });
 });
@@ -281,7 +284,7 @@ describe('Stage 21 - the pure organisation builders', () => {
     assert.equal(calls[0]!.scope.organizationId, 'o1');
     assert.equal(calls[0]!.scope.days.length, 31);
     assert.ok(calls[0]!.rows > 0);
-    assert.deepEqual(runs, ['start:organization_reporting', 'succeeded:run1']);
+    assert.deepEqual(runs, ['start:organization_reporting:scoped', 'succeeded:run1'], 'a single-organisation run is recorded under the scoped job name');
     // The September fact never lands in an August scope.
     assert.equal(result.organizations, 1);
 
@@ -357,6 +360,16 @@ describe('Stage 21 - freshness', () => {
     assert.equal(isStale(new Date('2026-09-04T09:59:00Z'), 26, now), true);
   });
 
+  it('a mart written by two jobs is as fresh as the older success, and never rebuilt while either job has never run (review M2)', () => {
+    const d1 = new Date('2026-09-05T03:00:00Z');
+    const d2 = new Date('2026-09-05T04:00:00Z');
+    assert.equal(oldestSuccess([d1, null]), null);
+    assert.equal(oldestSuccess([null, d1]), null);
+    assert.equal(oldestSuccess([d2, d1])?.getTime(), d1.getTime());
+    assert.equal(oldestSuccess([d1]), d1);
+    assert.equal(oldestSuccess([]), null);
+  });
+
   it('describes the state in words a founder can act on', () => {
     assert.match(describeFreshness({ mart: 'DailyMetric', jobs: ['platform_metrics'], slaHours: 26, asOf: null, stale: true, lastError: null }), /never rebuilt - run npm run analytics:rollup/);
     assert.equal(describeFreshness({ mart: 'DailyMetric', jobs: ['platform_metrics'], slaHours: 26, asOf: new Date('2026-09-05T03:10:00Z'), stale: false, lastError: null }), 'DailyMetric: data as of 2026-09-05 03:10 UTC');
@@ -376,6 +389,10 @@ describe('Stage 21 - the warehouse extraction boundary', () => {
     assert.equal(dated.split('\r\n')[1], '2026-09-05,CAD,2026-08,0,3,3');
     const nulls = martCsv('DailyMetric', [{ day: '2026-09-05', metric: 'x', dimension: 'all', valueInt: null, valueCents: undefined, valueParts: 0 }]);
     assert.equal(nulls.split('\r\n')[1], '2026-09-05,x,all,,,0');
+    // Review M3: a negative number is a number, never a "formula".
+    const negative = martCsv('DailyMetric', [{ day: '2026-09-05', metric: 'x', dimension: 'all', valueInt: -7, valueCents: -1500, valueParts: 0 }]);
+    assert.equal(negative.split('\r\n')[1], '2026-09-05,x,all,-7,-1500,0');
+    assert.equal(martCsv('DailyMetric', []), MART_COLUMNS.DailyMetric.join(',') + '\r\n', 'an empty partition is a header-only file');
   });
 
   it('the recipe document names every mart and the key layout', () => {

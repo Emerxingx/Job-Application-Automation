@@ -22,30 +22,52 @@ export interface MartRevenueOptions {
   horizonMonths?: number;
 }
 
-export async function loadRevenueSummaryFromMarts(options: MartRevenueOptions): Promise<RevenueSummary & { asOfDay: string | null }> {
+export interface MartRevenueNotes {
+  /** The day whose row supplied the closing MRR figures, or null when the window has no base-currency row. */
+  asOfDay: string | null;
+  /** True when the mart holds the day before the window, which the opening MRR and churn need; false means those figures are unavailable, not zero. */
+  openingCovered: boolean;
+  /** The sweep day whose row supplied the trialing / past-due / canceled counts (a snapshot the rollup can only take on its own day). */
+  subscriberSnapshotDay: string | null;
+  /** The MRR block is base-currency only; on another currency it is left empty and the page says so. */
+  mrrReportedIn: string;
+}
+
+export async function loadRevenueSummaryFromMarts(options: MartRevenueOptions): Promise<RevenueSummary & MartRevenueNotes> {
   const range = normalizeRange(options.range);
   const granularity = options.granularity ?? 'day';
   const currency = options.currency ?? BASE_CURRENCY;
   const days = eachDayKey(range);
   const openingDay = dayKey(addUtcDays(range.start, -1));
-  const [rows, opening] = await Promise.all([
+  const [rows, opening, snapshot] = await Promise.all([
     db.dailyRevenueRollup.findMany({ where: { day: { in: days }, currency: { in: [currency, BASE_CURRENCY] } }, orderBy: { day: 'asc' } }),
-    db.dailyRevenueRollup.findFirst({ where: { day: { lte: openingDay }, currency: BASE_CURRENCY }, orderBy: { day: 'desc' } }),
+    // Review M10: the opening row must be THE day before the window; an older
+    // row would silently misstate churn, and a missing one is reported as such.
+    db.dailyRevenueRollup.findFirst({ where: { day: openingDay, currency: BASE_CURRENCY } }),
+    // Review M5: trialing / past-due / canceled are only known on the day the
+    // sweep ran (the rollup cannot reconstruct a past day's status mix), so they
+    // are read from the latest row up to today and shown with that day.
+    db.dailyRevenueRollup.findFirst({ where: { day: { lte: dayKey(new Date()) }, currency: BASE_CURRENCY }, orderBy: { day: 'desc' }, select: { day: true, trialingSubscriptions: true, pastDueSubscriptions: true, canceledSubscriptions: true } }),
   ]);
   const base = rows.filter((r) => r.currency === BASE_CURRENCY);
   const cash = rows.filter((r) => r.currency === currency);
   const last = base[base.length - 1] ?? null;
 
   const mrr = emptyMrrSnapshot(currency);
-  if (last) {
+  // Review M4: the wide row's MRR columns are base-currency only; copying them
+  // under another currency's label would show CAD figures as USD. On another
+  // currency the block stays empty and the page says where MRR is reported.
+  if (last && currency === BASE_CURRENCY) {
     mrr.mrrCents = last.mrrCents;
     mrr.arrCents = last.arrCents;
     mrr.arpuCents = last.arpuCents;
     mrr.activeSubscribers = last.activeSubscriptions;
-    mrr.trialingSubscribers = last.trialingSubscriptions;
-    mrr.pastDueSubscribers = last.pastDueSubscriptions;
-    mrr.canceledSubscribers = last.canceledSubscriptions;
     mrr.payingSubscribers = last.payingCustomers;
+    if (snapshot) {
+      mrr.trialingSubscribers = snapshot.trialingSubscriptions;
+      mrr.pastDueSubscribers = snapshot.pastDueSubscriptions;
+      mrr.canceledSubscribers = snapshot.canceledSubscriptions;
+    }
   }
   const movement: MrrMovement = { newMrrCents: 0, expansionMrrCents: 0, contractionMrrCents: 0, churnedMrrCents: 0, reactivationMrrCents: 0, netNewMrrCents: 0, newSubscribers: 0, churnedSubscribers: 0, reactivatedSubscribers: 0 };
   for (const r of base) {
@@ -56,6 +78,7 @@ export async function loadRevenueSummaryFromMarts(options: MartRevenueOptions): 
     movement.reactivationMrrCents += r.reactivationMrrCents;
     movement.newSubscribers += r.newCustomers;
     movement.churnedSubscribers += r.churnedCustomers;
+    movement.reactivatedSubscribers += r.reactivatedCustomers;
   }
   movement.netNewMrrCents = movement.newMrrCents + movement.expansionMrrCents + movement.reactivationMrrCents - movement.contractionMrrCents - movement.churnedMrrCents;
   const openingMrrCents = opening?.mrrCents ?? 0;
@@ -94,6 +117,7 @@ export async function loadRevenueSummaryFromMarts(options: MartRevenueOptions): 
     if (!r) return;
     p.newSubscribers += r.newCustomers;
     p.churnedSubscribers += r.churnedCustomers;
+    p.reactivatedSubscribers += r.reactivatedCustomers;
     p.netSubscribers = p.newSubscribers + p.reactivatedSubscribers - p.churnedSubscribers;
     p.newMrrCents += r.newMrrCents;
     p.expansionMrrCents += r.expansionMrrCents;
@@ -134,5 +158,8 @@ export async function loadRevenueSummaryFromMarts(options: MartRevenueOptions): 
     subscribersOverTime,
     paymentHealth,
     asOfDay: last?.day ?? cash[cash.length - 1]?.day ?? null,
+    openingCovered: opening !== null,
+    subscriberSnapshotDay: snapshot?.day ?? null,
+    mrrReportedIn: BASE_CURRENCY,
   };
 }

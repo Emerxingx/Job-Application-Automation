@@ -183,19 +183,19 @@ export default async function ConsoleRevenuePage({ searchParams }: { searchParam
               movement.netNewMrrCents > 0 ? 'up' : movement.netNewMrrCents < 0 ? 'down' : 'flat',
             good: movement.netNewMrrCents >= 0,
           }}
-          hint={`Opened the period at ${money(summary.openingMrrCents, currency)}`}
+          hint={summary.mrrReportedIn !== currency ? `MRR, ARR, ARPU and lifetime value are reported in ${summary.mrrReportedIn} only; select ${summary.mrrReportedIn} to see them.` : summary.openingCovered ? `Opened the period at ${money(summary.openingMrrCents, currency)}` : 'Opening MRR unavailable: the mart lacks the day before this period - run npm run analytics:rollup over a longer window.'}
         />
         <Kpi
           label="Annual run rate"
           value={money(summary.mrr.arrCents, currency)}
           icon={CircleDollarSign}
-          hint="MRR × 12. A projection of today's book, not booked revenue."
+          hint={summary.mrrReportedIn !== currency ? `Reported in ${summary.mrrReportedIn} only.` : `MRR × 12. A projection of the book at the end of ${summary.asOfDay ?? 'the period'}, not booked revenue.`}
         />
         <Kpi
           label="ARPU"
           value={money(summary.mrr.arpuCents, currency)}
           icon={Users}
-          hint={`Across ${count(summary.mrr.payingSubscribers)} paying subscribers — trials excluded.`}
+          hint={summary.mrrReportedIn !== currency ? `Reported in ${summary.mrrReportedIn} only.` : `Across ${count(summary.mrr.payingSubscribers)} paying subscribers — trials excluded.`}
         />
         <Kpi
           label="Predicted lifetime value"
@@ -327,6 +327,9 @@ export default async function ConsoleRevenuePage({ searchParams }: { searchParam
           />
         </div>
 
+        {summary.mrr.byPlan.length === 0 && (
+          <p className="mt-4 text-xs text-muted">The plan breakdown is not held in the revenue mart (ADR-0036: the wide row carries totals, not a per-plan split), so it is not shown rather than read live from subscriptions.</p>
+        )}
         {summary.mrr.byPlan.length > 0 && (
           <Card className="mt-4 overflow-hidden p-0">
             <div className="scroll-x">
@@ -422,6 +425,9 @@ export default async function ConsoleRevenuePage({ searchParams }: { searchParam
           />
         </div>
 
+        {summary.paymentHealth.topFailureCodes.length === 0 && (
+          <p className="mt-4 text-xs text-muted">Failure codes are not held in the revenue mart, so the reasons are not shown here; the failed-payments queue on the overview names each one.</p>
+        )}
         {summary.paymentHealth.topFailureCodes.length > 0 && (
           <Card className="mt-4 p-4">
             <h3 className="mb-3 text-sm font-semibold text-ink">Why payments failed</h3>

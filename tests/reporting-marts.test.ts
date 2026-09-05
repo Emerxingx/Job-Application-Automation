@@ -109,7 +109,9 @@ describe('Stage 21 - reporting marts against the database', { skip: SKIP }, () =
     // --- cases in A: three clients, one closed, two follow-ups -------------------
     for (let i = 1; i <= 3; i += 1) {
       const c = await db.case.create({ data: { organizationId: A, invitedEmail: `rm-client-${i}-${S}@rm.test`, status: i === 3 ? 'closed' : 'open', openedAt: d('2025-01-05T10:00:00Z'), closedAt: i === 3 ? d('2025-01-28T10:00:00Z') : null, createdById: O.id } });
-      const outcome = await db.caseOutcome.create({ data: { caseId: c.id, organizationId: A, kind: i === 3 ? 'training' : 'employed', recordedById: O.id, recordedAt: d(`2025-01-1${4 + i}T10:00:00Z`) } });
+      const outcome = await db.caseOutcome.create({ data: { caseId: c.id, organizationId: A, kind: i === 3 ? 'training' : 'employed', recordedById: O.id, recordedAt: d('2025-01-15T10:00:00Z') } });
+      // One client records a second outcome on another day: `people` is per day, and that day alone must be withheld (review H1).
+      if (i === 1) await db.caseOutcome.create({ data: { caseId: c.id, organizationId: A, kind: 'employed', recordedById: O.id, recordedAt: d('2025-01-16T10:00:00Z') } });
       if (i <= 2) await db.caseFollowUp.create({ data: { caseId: c.id, organizationId: A, outcomeId: outcome.id, dueAt: d('2025-01-25T10:00:00Z'), completedAt: i === 1 ? d('2025-01-26T10:00:00Z') : null, status: i === 1 ? 'completed' : 'pending' } });
     }
 
@@ -123,6 +125,11 @@ describe('Stage 21 - reporting marts against the database', { skip: SKIP }, () =
     await db.payment.create({ data: { userId: O.id, provider: 'manual', externalId: `rm-ok-${S}`, status: 'succeeded', amountCents: 2900, currency: 'CAD', feeCents: 114, netCents: 2786, succeededAt: d('2025-01-05T11:00:00Z'), createdAt: d('2025-01-05T11:00:00Z') } });
     await db.payment.create({ data: { userId: O.id, provider: 'manual', externalId: `rm-failed-${S}`, status: 'failed', amountCents: 2900, currency: 'CAD', failureCode: 'card_declined', failedAt: d('2025-01-09T10:00:00Z'), createdAt: d('2025-01-09T10:00:00Z') } });
     await db.supportTicket.create({ data: { number: `TKT-T21-${S}`, userId: O.id, email: O.email, subject: 'mart', status: 'open', breachedSla: true } });
+    // A second subscriber who churned in December and came back in January: the movement's reactivation column (review M8).
+    const subR = await db.subscription.create({ data: { userId: R.id, planId: plan.id, status: 'active', currency: 'CAD', mrrCents: 2900, startedAt: d('2024-11-01T10:00:00Z'), renewsAt: d('2025-02-18T10:00:00Z'), periodStart: d('2025-01-18T10:00:00Z'), periodEnd: d('2025-02-18T10:00:00Z') } });
+    await db.subscriptionEvent.create({ data: { userId: R.id, subscriptionId: subR.id, type: 'created', toPlanCode: plan.code, toStatus: 'active', mrrBeforeCents: 0, mrrAfterCents: 2900, deltaMrrCents: 2900, movement: 'new', occurredAt: d('2024-11-01T10:00:00Z') } });
+    await db.subscriptionEvent.create({ data: { userId: R.id, subscriptionId: subR.id, type: 'status_changed', fromStatus: 'active', toStatus: 'canceled', mrrBeforeCents: 2900, mrrAfterCents: 0, deltaMrrCents: -2900, movement: 'churn', occurredAt: d('2024-12-20T10:00:00Z') } });
+    await db.subscriptionEvent.create({ data: { userId: R.id, subscriptionId: subR.id, type: 'status_changed', fromStatus: 'canceled', toStatus: 'active', mrrBeforeCents: 0, mrrAfterCents: 2900, deltaMrrCents: 2900, movement: 'reactivation', occurredAt: d('2025-01-18T10:00:00Z') } });
   });
 
   after(async () => {
@@ -130,8 +137,8 @@ describe('Stage 21 - reporting marts against the database', { skip: SKIP }, () =
     await db.supportTicket.deleteMany({ where: { number: `TKT-T21-${S}` } });
     await db.payment.deleteMany({ where: { userId: O.id } });
     await db.invoice.deleteMany({ where: { userId: O.id } });
-    await db.subscriptionEvent.deleteMany({ where: { userId: O.id } });
-    await db.subscription.deleteMany({ where: { userId: O.id } });
+    await db.subscriptionEvent.deleteMany({ where: { userId: { in: [O.id, R.id] } } });
+    await db.subscription.deleteMany({ where: { userId: { in: [O.id, R.id] } } });
     if (planId) await db.plan.deleteMany({ where: { id: planId } });
     const days = Array.from({ length: 32 }, (_, i) => `2025-01-${String(i).padStart(2, '0')}`).concat(['2024-12-31']);
     await db.dailyMetric.deleteMany({ where: { day: { in: days }, metric: { in: [...dict.PLATFORM_ACTIVITY_METRICS, ...dict.PLATFORM_SNAPSHOT_METRICS] } } });
@@ -160,7 +167,9 @@ describe('Stage 21 - reporting marts against the database', { skip: SKIP }, () =
     const afterRows = await db.organizationDailyMart.findMany({ where: { organizationId: A }, orderBy: [{ day: 'asc' }, { product: 'asc' }, { metric: 'asc' }, { dimension: 'asc' }, { key: 'asc' }], select: { day: true, product: true, metric: true, dimension: true, key: true, valueInt: true, valueCents: true, people: true } });
     assert.deepEqual(afterRows, before);
     const runs = await db.rollupRun.findMany({ where: { job: orgRollup.ORGANIZATION_ROLLUP_JOB, status: 'succeeded', windowStart: RANGE.start } });
-    assert.ok(runs.length >= 2);
+    assert.ok(runs.length >= 1);
+    // A single-organisation run is recorded under its own job name and never counts as a rebuild of the mart (review L11).
+    assert.ok((await db.rollupRun.count({ where: { job: orgRollup.SCOPED_ROLLUP_JOB, status: 'succeeded', windowStart: RANGE.start } })) >= 1);
     // A single-organisation run leaves the other organisation's rows alone.
     assert.ok((await db.organizationDailyMart.count({ where: { organizationId: B } })) > 0);
   });
@@ -191,21 +200,21 @@ describe('Stage 21 - reporting marts against the database', { skip: SKIP }, () =
     assert.deepEqual(invoices, { issued: { count: 1, cents: 1_800_000 }, paid: { count: 1, cents: 1_800_000 }, credited: { count: 0, cents: 0 } });
   });
 
-  it('the caseload summary withholds outcomes under five clients and shows them at five', async () => {
+  it('the caseload summary withholds every day under five clients, shows a five-client day, and never counts a client once per day', async () => {
     const small = await ctx.withTenant({ userId: O.id, organizationId: A }, (tx) => orgRead.readCaseloadSummary(tx, A, READ));
     assert.equal(small.opened, 3);
     assert.equal(small.closed, 1);
     assert.deepEqual(small.followUps, { due: 2, completed: 1 });
-    assert.equal(small.outcomes.suppressed, true, 'three clients: no number');
+    assert.equal(small.outcomes.suppressed, true, 'three clients on the 15th and one on the 16th: four outcomes, no number');
     assert.ok(small.outcomesByKind.every((k) => k.count.suppressed));
     for (let i = 4; i <= 5; i += 1) {
       const c = await db.case.create({ data: { organizationId: A, invitedEmail: `rm-client-${i}-${S}@rm.test`, status: 'open', openedAt: d('2025-01-05T10:00:00Z'), createdById: O.id } });
-      await db.caseOutcome.create({ data: { caseId: c.id, organizationId: A, kind: 'employed', recordedById: O.id, recordedAt: d('2025-01-20T10:00:00Z') } });
+      await db.caseOutcome.create({ data: { caseId: c.id, organizationId: A, kind: 'employed', recordedById: O.id, recordedAt: d('2025-01-15T10:00:00Z') } });
     }
     await orgRollup.rollupOrganizations(RANGE, { organizationId: A });
     const five = await ctx.withTenant({ userId: O.id, organizationId: A }, (tx) => orgRead.readCaseloadSummary(tx, A, READ));
-    assert.deepEqual(five.outcomes, { suppressed: false, value: 5 });
-    assert.equal(five.outcomesByKind.find((k) => k.kind === 'employed')!.count.suppressed, true, 'four employed clients: still withheld by kind');
+    assert.deepEqual(five.outcomes, { suppressed: false, value: 5, withheldDays: 1 }, 'the 15th (five clients) is shown; the 16th (one client, a second outcome of client 1) is withheld, so the sixth outcome never appears');
+    assert.equal(five.outcomesByKind.find((k) => k.kind === 'employed')!.count.suppressed, true, 'four employed clients on the 15th: still withheld by kind');
     assert.equal(five.outcomesByKind.find((k) => k.kind === 'training')!.count.suppressed, true);
   });
 
@@ -247,6 +256,19 @@ describe('Stage 21 - reporting marts against the database', { skip: SKIP }, () =
     assert.deepEqual(mart.subscribersOverTime, live.subscribersOverTime);
     assert.deepEqual({ succeeded: mart.paymentHealth.succeeded, failed: mart.paymentHealth.failed, pending: mart.paymentHealth.pending, failureRate: mart.paymentHealth.failureRate, overTime: mart.paymentHealth.overTime }, { succeeded: live.paymentHealth.succeeded, failed: live.paymentHealth.failed, pending: live.paymentHealth.pending, failureRate: live.paymentHealth.failureRate, overTime: live.paymentHealth.overTime });
     assert.ok(mart.totals.paidCents >= 2900 && mart.paymentHealth.failed >= 1, 'the fixture is in the numbers');
+    assert.equal(live.movement.reactivatedSubscribers, 1, 'the parity on movement is not vacuous: a reactivation is in the fixture (review M8)');
+    assert.equal(mart.openingCovered, true);
+    assert.equal(mart.subscriberSnapshotDay, '2025-01-31');
+    assert.equal(mart.mrrReportedIn, 'CAD');
+    // Review M4: another currency never shows base-currency MRR under its own label.
+    const usd = await summary.loadRevenueSummaryFromMarts({ range: RANGE, currency: 'USD' });
+    assert.equal(usd.mrr.mrrCents, 0);
+    assert.equal(usd.mrr.payingSubscribers, 0);
+    assert.equal(usd.mrrReportedIn, 'CAD');
+    // Review M10: a window whose previous day was never rolled up says so instead of using an older row or zero silently.
+    const uncovered = await summary.loadRevenueSummaryFromMarts({ range: { start: d('2024-12-31T00:00:00Z'), end: RANGE.end }, currency: 'CAD' });
+    assert.equal(uncovered.openingCovered, false);
+    assert.equal(uncovered.openingMrrCents, 0);
     // What the mart cannot say, it says plainly rather than reading a transactional table.
     assert.deepEqual(mart.paymentHealth.topFailureCodes, []);
   });
@@ -273,7 +295,7 @@ describe('Stage 21 - reporting marts against the database', { skip: SKIP }, () =
 
   it('the extraction writes one documented CSV per mart per day with rows', async () => {
     const files = new Map<string, string>();
-    const result = await exporter.exportMarts(RANGE, { marts: ['OrganizationDailyMart', 'SubscriptionCohortMart'], put: async (key, body) => { files.set(key, body); } });
+    const result = await exporter.exportMarts(RANGE, { marts: ['OrganizationDailyMart', 'SubscriptionCohortMart'], put: async (key, body) => { files.set(key, body); }, exists: async (key) => key === 'warehouse/OrganizationDailyMart/2025-01-01.csv' });
     assert.equal(result.days, 31);
     const key = 'warehouse/OrganizationDailyMart/2025-01-06.csv';
     assert.ok(files.has(key), 'the submissions\' creation day is a file');
@@ -282,7 +304,9 @@ describe('Stage 21 - reporting marts against the database', { skip: SKIP }, () =
     const rowsThatDay = await db.organizationDailyMart.count({ where: { day: '2025-01-06' } });
     assert.equal(lines.length - 1, rowsThatDay);
     assert.ok(lines.some((l) => l.startsWith(`2025-01-06,${A},employer,submissions,all,all,2,0,0`)));
-    assert.ok(!files.has('warehouse/OrganizationDailyMart/2025-01-01.csv'), 'a day without rows writes no file');
+    assert.equal(files.get('warehouse/OrganizationDailyMart/2025-01-01.csv'), exporter.MART_COLUMNS.OrganizationDailyMart.join(',') + '\r\n', 'a day that had a partition and now has no rows is overwritten header-only (review L15)');
+    assert.ok(result.files.some((f) => f.key.endsWith('/2025-01-01.csv') && f.rows === 0));
+    assert.ok(!files.has('warehouse/OrganizationDailyMart/2025-01-30.csv'), 'a day that never had rows writes no file');
     assert.ok(files.has('warehouse/SubscriptionCohortMart/2025-01-31.csv'));
     assert.ok([...files.keys()].every((k) => /^warehouse\/[A-Za-z]+\/\d{4}-\d{2}-\d{2}\.csv$/.test(k)));
     await assert.rejects(exporter.exportMarts(RANGE, { marts: ['Submission' as never], put: async () => {} }), /Unknown mart/);

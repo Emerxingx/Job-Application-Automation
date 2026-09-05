@@ -583,6 +583,7 @@ export interface DailyRevenueRow {
   paymentsFailed: number;
   paymentsPending: number;
   failedPaymentCents: number;
+  reactivatedCustomers: number;
 }
 
 /** What a rollup job reports back. Mirrors the `RollupRun` model. */

@@ -125,7 +125,7 @@ describe('case data - static: RESTRICTED rows reach no recommendation, matching,
         if (rel === 'src/lib/analytics/organization/rollup.ts') {
           // Stage 21 (ADR-0036): the ONE analytics reader of case rows - ids, kinds and dates for the
           // supervisor's caseload counts, never a note, an assessment, a barrier or a recommendation.
-          if (/\b(caseNote|caseAssessment|caseRecommendation|caseTask)\.\w+\(|\bCaseNote\b|\bCaseAssessment\b|\b(note|barriers?|assessment|employmentGoal|invitedName|invitedEmail)\s*:\s*true\b/.test(text)) offenders.push(rel);
+          if (/\b(caseNote|caseAssessment|caseRecommendation|caseTask)\.\w+\(|\bCaseNote\b|\bCaseAssessment\b|\b(note|barriers?|assessment|employmentGoal|invitedName|invitedEmail|employerName|clientUserId|caseManagerId|startDate|hoursPerWeek)\s*:\s*true\b|\binclude\s*:/.test(text)) offenders.push(rel);
           continue;
         }
         if (/\b(case|caseNote|caseAssessment|caseRecommendation|caseTask)\.(findMany|findFirst|findUnique|create|update|count|aggregate|groupBy)\b|\bCaseNote\b|\bCaseAssessment\b/.test(text)) offenders.push(rel);

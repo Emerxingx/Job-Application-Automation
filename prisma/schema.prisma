@@ -2033,6 +2033,7 @@ model DailyRevenueRollup {
   paymentsFailed    Int @default(0)
   paymentsPending   Int @default(0)
   failedPaymentCents Int @default(0) // Stage 21: the amount of that day's failed payments (payment health reads the mart)
+  reactivatedCustomers Int @default(0) // Stage 21 review: reactivations on the day, so the movement from the mart is complete
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

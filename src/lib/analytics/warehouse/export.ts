@@ -28,17 +28,22 @@ export const WAREHOUSE_PREFIX = 'warehouse';
 /** The columns each mart is extracted with: the stable contract a loader can rely on. */
 export const MART_COLUMNS: Record<MartName, readonly string[]> = {
   DailyMetric: ['day', 'metric', 'dimension', 'valueInt', 'valueCents', 'valueParts'],
-  DailyRevenueRollup: ['day', 'currency', 'invoicedCents', 'discountCents', 'taxCents', 'paidCents', 'refundedCents', 'creditedCents', 'feeCents', 'netCents', 'mrrCents', 'arrCents', 'newMrrCents', 'expansionMrrCents', 'contractionMrrCents', 'churnedMrrCents', 'reactivationMrrCents', 'arpuCents', 'activeSubscriptions', 'trialingSubscriptions', 'pastDueSubscriptions', 'canceledSubscriptions', 'payingCustomers', 'newCustomers', 'churnedCustomers', 'logoChurnParts', 'grossMrrChurnParts', 'netRevenueRetentionParts', 'dunningRecoveryParts', 'invoicesBilled', 'paymentsSucceeded', 'paymentsFailed', 'paymentsPending', 'failedPaymentCents'],
+  DailyRevenueRollup: ['day', 'currency', 'invoicedCents', 'discountCents', 'taxCents', 'paidCents', 'refundedCents', 'creditedCents', 'feeCents', 'netCents', 'mrrCents', 'arrCents', 'newMrrCents', 'expansionMrrCents', 'contractionMrrCents', 'churnedMrrCents', 'reactivationMrrCents', 'arpuCents', 'activeSubscriptions', 'trialingSubscriptions', 'pastDueSubscriptions', 'canceledSubscriptions', 'payingCustomers', 'newCustomers', 'churnedCustomers', 'logoChurnParts', 'grossMrrChurnParts', 'netRevenueRetentionParts', 'dunningRecoveryParts', 'invoicesBilled', 'paymentsSucceeded', 'paymentsFailed', 'paymentsPending', 'failedPaymentCents', 'reactivatedCustomers'],
   SubscriptionCohortMart: ['day', 'currency', 'cohortMonth', 'monthOffset', 'subscribers', 'retained'],
   OrganizationDailyMart: ['day', 'organizationId', 'product', 'metric', 'dimension', 'key', 'valueInt', 'valueCents', 'people'],
-  CandidateOutcomeMart: ['day', 'userId', 'dimension', 'key'],
-  CandidateMatchMart: ['day', 'userId'],
-  CandidateBenchmarkMart: ['day', 'dimension', 'key'],
+  CandidateOutcomeMart: ['day', 'userId', 'dimension', 'key', 'applications', 'sent', 'responded', 'screens', 'interviews', 'offers', 'hires', 'rejected', 'withdrawn', 'ghosted', 'expired', 'failed', 'sumMatchScore', 'responseSamples', 'sumResponseHrs'],
+  CandidateMatchMart: ['day', 'userId', 'matches', 'sumMatchScore', 'band0to49', 'band50to69', 'band70to84', 'band85to100', 'matchedKeywords', 'missingKeywords'],
+  CandidateBenchmarkMart: ['day', 'dimension', 'key', 'users', 'applications', 'sent', 'responded', 'interviews', 'offers', 'hires'],
 };
 
+// A number is never neutralised (review M3: `-1500` must stay a number for a
+// typed loader); only a STRING cell that starts like a formula gets the quote.
 const cell = (v: unknown): string => {
-  const s = v === null || v === undefined ? '' : v instanceof Date ? v.toISOString() : String(v);
-  const safe = /^[=+\-@]/.test(s) ? `'${s}` : s;
+  if (v === null || v === undefined) return '';
+  if (v instanceof Date) return v.toISOString();
+  if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+  const s = String(v);
+  const safe = /^[=+\-@\t\r]/.test(s) ? `'${s}` : s;
   return /[",\n\r]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
 };
 
@@ -75,17 +80,27 @@ export interface ExportResult {
   days: number;
 }
 
-export async function exportMarts(range: DateRange, options: { marts?: readonly MartName[]; put?: (key: string, body: string) => Promise<void> } = {}): Promise<ExportResult> {
+export async function exportMarts(range: DateRange, options: { marts?: readonly MartName[]; put?: (key: string, body: string) => Promise<void>; exists?: (key: string) => Promise<boolean> } = {}): Promise<ExportResult> {
   const days = eachDayKey(normalizeRange(range));
   const marts = options.marts ?? DEFAULT_EXPORT_MARTS;
-  for (const m of marts) if (!(m in MART_REGISTRY)) throw new Error(`Unknown mart: ${m}`);
+  for (const m of marts) if (!Object.hasOwn(MART_REGISTRY, m)) throw new Error(`Unknown mart: ${m}`);
   const put = options.put ?? (async (key: string, body: string) => (await getStorageProvider()).put(key, body));
+  const exists = options.exists ?? (async (key: string) => (await (await getStorageProvider()).get(key)) !== null);
   const files: ExportResult['files'] = [];
   for (const mart of marts) {
     for (const day of days) {
       const rows = await loadMartDay(mart, day);
-      if (rows.length === 0) continue;
       const key = `${WAREHOUSE_PREFIX}/${mart}/${day}.csv`;
+      if (rows.length === 0) {
+        // A day that never had rows writes no file; a day whose rows a corrected
+        // re-rollup removed must not leave the old partition behind (review L15):
+        // it is overwritten with a header-only file, which a loader reads as empty.
+        if (await exists(key)) {
+          await put(key, martCsv(mart, []));
+          files.push({ key, rows: 0 });
+        }
+        continue;
+      }
       await put(key, martCsv(mart, rows));
       files.push({ key, rows: rows.length });
     }

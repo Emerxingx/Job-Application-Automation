@@ -703,10 +703,13 @@ never occurred.
   whole-day sums with the people behind them, member stage moves, fall-off
   inside the guarantee only, credits on the issue day, distinct clients per
   outcome; determinism; the organisation rollup's replace scope, window
-  filter and failed-run record; the platform rollup's ownership (never the
+  filter, scoped job name and failed-run record; the oldest-success rule
+  (null while any job never ran); the platform rollup's ownership (never the
   Stage 13 three), zero-filling, snapshot for the as-of day only, separate
   replace scopes; freshness thresholds and wording; the CSV contract (order,
-  CRLF, quoting, formula neutralisation, ISO dates, nulls); the recipe names
+  CRLF, quoting, formula neutralisation of strings only, negative numbers
+  untouched, ISO dates, nulls, a header-only empty partition); every scalar
+  column of every mart model is in the extraction contract; the recipe names
   every mart; the cohort mart round-trips the grid.
 - **Database (`tests/reporting-marts.test.ts`):** a fixture in a window no
   other suite writes into (January 2025): two submissions with histories and
@@ -719,13 +722,17 @@ never occurred.
   nothing and each run is recorded; a member of another organisation sees
   none of it under RLS and the cohort mart is invisible to tenants; staffing
   productivity with and without fees and the invoice summary; the caseload
-  summary withholds outcomes under five clients and shows the total at five
-  while a four-client kind stays withheld; the platform rollup zero-fills the
+  summary withholds a three-client day and a one-client day (a second
+  outcome of the same client), shows a five-client day and keeps a
+  four-client kind withheld; the platform rollup zero-fills the
   window, writes the snapshot on the as-of day only and is idempotent; the
   mart revenue summary agrees with the live computation on totals, series,
-  movement, opening figures, churn, subscribers and payment health; freshness
+  movement (with a reactivation in the fixture), opening figures, churn,
+  subscribers and payment health; a USD view carries no base-currency MRR;
+  an uncovered opening day is reported, not zeroed; freshness
   is the older of two jobs' successes; the extraction writes the documented
-  CSV per mart per day and refuses an unknown mart; EXPLAIN shows the mart
+  CSV per mart per day, overwrites an emptied partition header-only, and
+  refuses an unknown mart; EXPLAIN shows the mart
   reads use their indexes.
 - **NOT covered, by honesty:** any warehouse loader (none adopted); rollup or
   extraction throughput at production volume; the browser rendering of the

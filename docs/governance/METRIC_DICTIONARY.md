@@ -157,7 +157,7 @@ day cannot be reconstructed from today's state.
 | `overdue_invoice_cents` | Overdue amount | snapshot | Amount due on overdue open invoices at the end of the as-of day, in cents, any currency (a count of money owed, not a sum to be converted). | `DailyMetric.overdue_invoice_cents` |
 | `mrr` | Monthly recurring revenue | cents | Normalised contracted monthly revenue at the end of the day, base currency only. | `DailyRevenueRollup.mrrCents` |
 | `mrr_movement` | MRR movement | cents | New, expansion, contraction, churned and reactivation MRR on the day, from subscription events. | `DailyRevenueRollup.newMrrCents` |
-| `subscribers` | Subscribers | snapshot | Active, trialing, past-due and canceled subscriptions at the end of the day. | `DailyRevenueRollup.activeSubscriptions` |
+| `subscribers` | Subscribers | snapshot | Active subscriptions at the end of the day, reconstructed from events; the trialing, past-due and canceled counts are the sweep-day snapshot and are read from the latest row, stated with its day. | `DailyRevenueRollup.activeSubscriptions` |
 | `cash` | Cash | cents | Invoiced, paid, refunded, fees and net on the day, per currency, never summed across currencies. | `DailyRevenueRollup.paidCents` |
 | `payment_outcomes` | Payment outcomes | count | Payments succeeded, failed and pending on the day, per currency. | `DailyRevenueRollup.paymentsSucceeded` |
 | `logo_churn` | Logo churn | rate | Customers churned in the period over customers at its start. | `DailyRevenueRollup.churnedCustomers` |
@@ -223,7 +223,7 @@ day cannot be reconstructed from today's state.
 | --- | --- | --- | --- | --- |
 | `cases_opened` | Cases opened | count | Cases opened (openedAt) that day. No cut: a caseload cut by anything could re-identify a client. | `OrganizationDailyMart.cases.cases_opened` |
 | `cases_closed` | Cases closed | count | Cases closed (closedAt) that day. | `OrganizationDailyMart.cases.cases_closed` |
-| `outcomes` | Employment outcomes | count | Outcomes recorded that day; cut by kind (employed, self_employed, training, other). Distinct clients in people; suppressed under five. | `OrganizationDailyMart.cases.outcomes` |
+| `outcomes` | Employment outcomes | count | Outcomes recorded that day; cut by kind (employed, self_employed, training, other). people is the distinct clients behind that day's row, and a day under five clients is withheld from every range that includes it. | `OrganizationDailyMart.cases.outcomes` |
 | `follow_ups_due` | Follow-ups due | count | Retention follow-ups due that day. | `OrganizationDailyMart.cases.follow_ups_due` |
 | `follow_ups_completed` | Follow-ups completed | count | Retention follow-ups due that day that were completed. | `OrganizationDailyMart.cases.follow_ups_completed` |
 
@@ -235,8 +235,11 @@ and `stage_moves` by `recruiter` (the member id); the staffing product cuts
 every count and the fee by `recruiter` (`unassigned` when none); the cases
 product cuts `outcomes` by `kind` and nothing else, and every outcome row
 carries `people` - the distinct clients behind it - so the supervisor's summary
-withholds an outcome figure under 5 clients (`MIN_ORG_COHORT`, the same threshold as
-the candidate benchmark). Placement fees are read by finance and admin roles only;
+withholds every DAY on which fewer than 5 clients recorded an outcome (`MIN_ORG_COHORT`, the same
+threshold as the candidate benchmark, applied per day as the benchmark applies it): a
+withheld day contributes nothing to the total or to any kind over any range that includes
+it, so differencing two ranges reveals nothing about a small day, and a client who records
+outcomes on several days is never counted once per day. Placement fees are read by finance and admin roles only;
 a recruiter sees their own row without the fee.
 
 `days_to_*` are sums with the count of submissions behind them; the page derives
