@@ -780,7 +780,7 @@
       "Retention/erasure review across Stages 17–19 (NOT DONE)",
       "Staging rehearsal (NOT VERIFIED — R-34)"
     ],
-    "verdict": "Stage 20 engineering PASS for the controls built; the plan's exit gate PARTIAL; SSO and SCIM IMPLEMENTED-NOT-VALIDATED. Independent review pending."
+    "verdict": "Stage 20 engineering PASS for the controls built; the plan's exit gate PARTIAL; SSO and SCIM IMPLEMENTED-NOT-VALIDATED. Independent review processed (3 HIGH / 7 MEDIUM / 12 LOW; all but two stated LOWs fixed with tests)."
   },
   "stage_21_progress": {
     "dictionary": "DONE — src/lib/analytics/platform/dictionary.ts: PLATFORM_METRIC_DICTIONARY (53 metrics across platform, financial, ai, connectors, career, employer, staffing, cases), MART_REGISTRY (7 marts: scope, partition, jobs, 26h SLA), MIN_ORG_COHORT; docs/governance/METRIC_DICTIONARY.md mirrors it (generated, parity test)",
@@ -832,6 +832,7 @@
     "operations": "DONE (local) — scripts/db/backup.sh + restore.sh rehearsed twice (the review found the first dump dropped the RLS grants; privileges now kept, role membership granted, tenant and sensitive paths proven in the script, tenancy suite 31/31 on the restored copy); docs/operations/BACKUP_RESTORE.md, DISASTER_RECOVERY.md (proposed RPO/RTO), INCIDENT_RESPONSE.md; provider PITR NOT VERIFIED",
     "audit": "DONE — PRODUCTION_READINESS_GATES.md re-measured row by row (G1–G7) against Stages 00–23; SECURITY_PRIVACY_ARCHITECTURE \"not yet assessed\" resolved item by item",
     "tests": "DONE — tests/hardening-static.test.ts (17), tests/privacy.test.ts (8), storage-provider paging (1); sensitive-segregation allow-lists the erasure module by name; 1302/1302 on a fresh database (1325 at the Stage 24 head)",
+    "independent_review": "DONE — 3 HIGH / 7 MEDIUM / 11 LOW / 5 INFO (2026-09-05); every HIGH and MEDIUM fixed with tests, every LOW fixed or stated (sweep batching not done); two false PASSes in the stage's own evidence corrected (a restore rehearsal that had dropped the RLS grants; the hash-chained audit claim); STAGE23_EVIDENCE.md §10",
     "not_done": "STATED — penetration test (external action PEN-TEST), nonce CSP, shared rate-limit store, provider PITR and production-size restore, monitoring/on-call/SLOs/status page, production performance and Core Web Vitals, dark-theme and interaction accessibility, retention automation for employer pipelines and staffing records, staging rehearsal (R-34)"
   },
   "stage_24_progress": {
@@ -841,7 +842,8 @@
     "env_check": "DONE — src/lib/ops/env-check.ts + npm run env:check: 20+ shape checks, PASS/WARN/FAIL, no value printed; 17 failing shapes tested",
     "smoke": "DONE — src/lib/ops/smoke.ts + npm run smoke -- <origin>: health words, every header, the nonce policy, deny-by-default, both envelopes, CSRF refusal, CMS up, 404 without a trace; fake-fetch tests; runs in CI against the built app",
     "runbooks": "DONE — DEPLOYMENT.md rewritten (the deploy sequence), RUNBOOKS.md index, SLOS.md (objectives + 11 alert rules + status-page decision), ROLLBACK.md (rehearsed locally: pre-migration dump restored, two migrations pending from the new code, previous version's tenant path 17/17), BREAK_GLASS.md + npm run ops:break-glass (audited), SUPPORT.md; DEPLOYMENT_ARCHITECTURE updated",
-    "gates": "DONE — PRODUCTION_READINESS_GATES.md re-measured: response headers PASS, rate limiting PASS, background processing / monitoring / SLOs / rollback / DR PARTIAL (no FAIL left in G4); overall NOT READY, reasons named",
+    "gates": "DONE — PRODUCTION_READINESS_GATES.md re-measured: response headers PASS for the script policy (browser-verified) and PARTIAL for the other directives; rate limiting PARTIAL (a mechanism, opt-in, never run with two instances - Stage 24 review M10); background processing / monitoring / SLOs / rollback / DR PARTIAL (no FAIL left in G4); overall NOT READY, reasons named",
+    "independent_review": "DONE — 2 HIGH / 10 MEDIUM / 14 LOW / 7 INFO (2026-09-05); every HIGH and MEDIUM fixed with tests, every LOW fixed or stated: a hung job is timed out and a late result never overwrites a recorded failure (H1); the health check's budgets are per instance and a forwarded non-address shares the anonymous bucket, long keys digested (H2); colon-safe bucket ids, the store SERVING requests reported, rate limiting downgraded to PARTIAL (M1, M2, M10); STAGE24_EVIDENCE.md §11",
     "not_done": "STATED — no production environment, deploy, canary, CDN, monitor, alert, status page, on-call, support address (founder actions); provider PITR and production-size restore; production latency and Core Web Vitals; a queue with retries and a DLQ; the audit hash chain; staging rehearsal (R-34); penetration test; consent wording (L-5); jurisdiction answers (L-4); every live integration"
   },
   "stage_24_exit_gate": {
@@ -853,8 +855,7 @@
     "not_met": [
       "Live: no production environment exists (EXTERNAL ACTION)",
       "Monitored: no monitor is connected and nobody is on call (EXTERNAL ACTION)",
-      "Rollback rehearsed on the provider with PITR (EXTERNAL ACTION; rehearsed locally only)",
-      "Live, monitored and rehearsed on the provider stay EXTERNAL ACTIONS; the review is processed"
+      "Rollback rehearsed on the provider with PITR (EXTERNAL ACTION; rehearsed locally only)"
     ]
   },
   "stage_23_exit_gate": {
@@ -868,9 +869,9 @@
     ],
     "not_met": [
       "Third-party penetration test (EXTERNAL ACTION)",
-      "Every §20 item PASS or accepted-with-compensating-control: G4 background processing, monitoring, SLOs, rollback remain FAIL (Stage 24 items); provider PITR NOT VERIFIED; production performance NOT MEASURED",
+      "Every §20 item PASS or accepted-with-compensating-control: G4 background processing, monitoring, SLOs, rollback were FAIL at the Stage 23 head and are PARTIAL since Stage 24; provider PITR NOT VERIFIED; production performance NOT MEASURED",
       "Staging rehearsal (R-34)"
     ],
-    "verdict": "Stage 23 engineering PASS; the plan's exit gate PARTIAL on the stated items. Independent review pending."
+    "verdict": "Stage 23 engineering PASS; the plan's exit gate PARTIAL on the stated items. Independent review processed (3 HIGH / 7 MEDIUM / 11 LOW; every HIGH and MEDIUM fixed, every LOW fixed or stated)."
   }
 }
