@@ -137,7 +137,7 @@ export function slugify(name: string): string {
  * because a user has exactly one and it is created at signup.
  */
 /** Organisation types that only staff create, after verification (an impersonated company name is the harm). */
-export const VERIFIED_TYPES: ReadonlySet<string> = new Set(['employer', 'service_provider']);
+export const VERIFIED_TYPES: ReadonlySet<string> = new Set(['employer', 'service_provider', 'staffing_agency']);
 
 export async function createOrganization(
   actorUserId: string,
@@ -153,9 +153,11 @@ export async function createOrganization(
   // receives identities through "Apply through JobPilot" (ADR-0033) - so
   // neither is self-serve. JobPilot staff set them up once the organisation
   // is verified; the caller says whether that verification happened (the
-  // route passes the console's two-lock decision).
+  // route passes the console's two-lock decision). Stage 19 review: a
+  // staffing agency asks people, by email, to be represented (ADR-0034) -
+  // the same reach into a person's Settings - so it is verified too.
   if (VERIFIED_TYPES.has(input.type) && !options.verifiedOrganization) {
-    throw new OrganizationAccessError('An employer or service-provider organisation is set up by JobPilot staff once it is verified. Contact support.', 403);
+    throw new OrganizationAccessError('An employer, service-provider or staffing-agency organisation is set up by JobPilot staff once it is verified. Contact support.', 403);
   }
   const slug = input.slug ?? slugify(input.name);
   if (!SLUG_SHAPE.test(slug)) {

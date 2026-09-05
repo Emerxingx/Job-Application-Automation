@@ -210,12 +210,16 @@ candidates; reporting from the organisation's own events. No candidate is
 disclosed in production until counsel records the consent wording (L-5): the
 draft version is refused there. Placement (fees, representation) is G-18.
 
-### G-18 — Staffing / Placement OS · NOT IMPLEMENTED
-No client contract, engagement, fee structure, guarantee period, recruiter
-ownership, representation consent or placement invoicing. The brief's warning is
-apt: candidate-paid consulting and employer-paid placement must not share a
-commercial model. The existing billing layer models **candidate subscriptions
-only**.
+### G-18 — Staffing / Placement OS · IMPLEMENTED (Stage 19, ADR-0034) — invoicing BLOCKED on L-4, production representation BLOCKED on L-5
+Client contracts, fee structures (the client is the only describable payer),
+engagements with recruiter ownership, representation as the candidate's
+per-engagement consent, placements with a frozen fee and guarantee period,
+placement invoicing in its own `PL` book with no candidate on it and no
+relation to candidate billing (proven statically and in the database), a
+guarantee credit, recruiter productivity, and jurisdiction rules as
+staff-recorded data evaluated by a pure engine. No invoice issues under a
+jurisdiction counsel has not recorded; the consent wording is a draft refused
+in production.
 
 ### G-19 — Employment Services / WorkBC OS · RESOLVED in engineering at Level 0 (Stage 17, ADR-0032); public-sector deployment BLOCKED on L-1
 No service provider, centre, case manager, caseload, assessment, action plan,

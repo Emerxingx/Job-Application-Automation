@@ -58,6 +58,10 @@ to that organisation.
 | Placement invoicing | F | W | — | — | F |
 | Recruiter productivity | F | F | R (own) | R | R |
 
+"Own" is the engagement's `ownerRecruiterId`. An engagement with NO owner is
+writable by every recruiter of the agency (stated deliberately; ADR-0034).
+A staffing agency is a verified organisation type: staff create it.
+
 ## Service provider (P3 — WorkBC)
 
 | Resource | Admin | Supervisor | Case manager | Viewer |

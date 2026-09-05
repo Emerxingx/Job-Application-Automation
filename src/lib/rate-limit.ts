@@ -66,6 +66,9 @@ export const LIMITS = {
   caseInviteOrganization: { limit: 200, windowSeconds: 60 * 60 * 24 },
   /** Stage 18 review: candidate sourcing scores up to a hundred résumés per call; bounded per requisition. */
   employerSourcing: { limit: 6, windowSeconds: 60 * 10 },
+  /** Stage 19 review: representation requests per recruiter and per agency - a request is a row a person sees under Settings, so volume is bounded as case invitations are. */
+  representationRequest: { limit: 30, windowSeconds: 60 * 60 },
+  representationRequestOrganization: { limit: 200, windowSeconds: 60 * 60 * 24 },
 } as const satisfies Record<string, RateLimitRule>;
 
 /**

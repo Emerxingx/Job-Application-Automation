@@ -46,7 +46,7 @@ import type { Prisma } from '@prisma/client';
  * "optimise" the counter into a nextval() sequence — that reintroduces gaps.
  */
 
-export type DocumentScope = 'invoice' | 'credit_note' | 'ticket';
+export type DocumentScope = 'invoice' | 'credit_note' | 'ticket' | 'placement_invoice';
 
 /** The persisted shape of a `DocumentSequence` row, narrowed to what we use. */
 export interface SequenceRow {
@@ -84,6 +84,10 @@ export const SEQUENCE_STYLES: Record<DocumentScope, SequenceStyle> = {
   invoice: { series: 'JP', prefix: 'INV-', padding: 6 },
   credit_note: { series: 'JP-CN', prefix: 'CN-', padding: 6 },
   ticket: { series: 'TKT', prefix: 'TKT-', padding: 6 },
+  // Stage 19: an agency's invoice to its CLIENT. Its own book: the counter
+  // table is shared numbering infrastructure, not a billing path - a
+  // placement invoice never becomes an `Invoice` row.
+  placement_invoice: { series: 'PL', prefix: 'PL-', padding: 6 },
 };
 
 /**
