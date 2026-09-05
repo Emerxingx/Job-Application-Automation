@@ -5,7 +5,7 @@
   "current_stage": 23,
   "last_completed_stage": 22,
   "current_branch": "claude/stage-23-hardening",
-  "current_head": "f4e3fb907e84f75d1054e2d63c4baa32ec2dbd29",
+  "current_head": "d073ad40df4174f4b881d82eabef3a213fff6c4c",
   "current_head_meaning": "SHA of the last commit whose full gate set was verified locally (lint, typecheck, tests, build). Set by the status-sync commit that immediately follows it, so it names a real, verified commit rather than the one it is written in.",
   "current_pr": "https://github.com/Emerxingx/Job-Application-Automation/pull/35",
   "main_head": "d6ae8b3a9180b529abe06f23417515432c0a7f0e",
