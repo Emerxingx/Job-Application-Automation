@@ -26,7 +26,7 @@ remediation has begun.**
 npm ci                # install from the lockfile
 npm run dev           # http://localhost:3000
 npx tsc --noEmit      # typecheck  — PASSES
-npm test              # 1152 tests  — PASSES with the two database URLs below set; the
+npm test              # 1179 tests  — PASSES with the two database URLs below set; the
                       #   database suites skip WITH A REASON without them and THROW
                       #   when CI=true, so CI cannot pass by skipping them
 npm run build         # production — PASSES
@@ -57,7 +57,7 @@ npm run cms:types          # regenerate payload-types.ts
 ## Things that will surprise you
 
 1. **The database is PostgreSQL with a versioned migration history** since
-   Stage 01 (`ADR-0002`). Forty-four migrations under `prisma/migrations/`; CI applies
+   Stage 01 (`ADR-0002`). Forty-six migrations under `prisma/migrations/`; CI applies
    them to an empty database and fails on drift. `DATABASE_URL` is the
    transaction pooler, `DIRECT_URL` the session endpoint for migrations. The RLS
    migration is **generated** from `src/lib/tenancy/rls-tables.ts` — regenerate
@@ -398,6 +398,31 @@ npm run cms:types          # regenerate payload-types.ts
     case rows out of matching, analytics, career and the gateway. Retention
     is per organisation, thins CLOSED cases only (from closure), and NO
     policy means NO purge (`npm run cases:retention`). Never add a WorkBC client, mock or screen.
+
+29. **No employer sees a candidate who has not granted disclosure to THAT
+    employer** (Stage 18, ADR-0033). `src/lib/employer/`: the hiring roles
+    are a named set over the ladder (`roles.ts`, the matrix row); a
+    requisition is a draft until opened, and opening publishes it through
+    `requireEnabledSource('employer')` and the Stage 06 pipeline as a
+    canonical `Job` (`source: employer`; closure is what the requisition's
+    status says) - the publishing writes run on the SYSTEM client because
+    the pipeline must see the committed row (never inside `run()`).
+    Sourcing (`candidate-view.ts`) returns anonymised cards scored by
+    `scoreCompatibility` honouring `recruiterVisibility` (hidden is never
+    sourced nor askable). `Disclosure` is the candidate's per-employer
+    consent: granted in one transaction with its `ConsentRecord`
+    (`employer_disclosure`), declined is final, revoked withdraws every
+    disclosed submission and pool membership; every employer-visible read
+    asks `grantedDisclosure()` (the row's OWN consent record), and the
+    profile reaches the employer only through `readDisclosedCandidate`
+    (audited). The stage machine (`stage-machine.ts`) refuses any stage at
+    or past `consented` without it; `consented` is the candidate's stage.
+    `Disclosure` is SELECT-only for the candidate under RLS. The consent
+    version is `2026-09-05-draft`: `grantConsent` REFUSES a `-draft`
+    purpose in production until counsel records the wording (L-5) - do not
+    bump the version by hand. Nothing under `src/lib/employer` may touch
+    the sensitive path, the gateway or a case record (static test). No
+    notification is sent to anyone.
 
 ## Conventions worth preserving
 

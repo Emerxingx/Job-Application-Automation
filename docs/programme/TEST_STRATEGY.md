@@ -449,6 +449,57 @@ never occurred.
   recorded), the UI beyond compile and lint, and any claim about what an
   employer accepts.
 
+## Stage 18 — employer hiring (talent acquisition)
+
+- **Pure (`tests/employer-static.test.ts`):** the stage machine (forward
+  only; hired, rejected and withdrawn terminal; nothing skips the consent
+  stages; consent is not an employer's move; every stage at or past consent
+  requires a disclosure); the roles as a named set (owner/admin → admin,
+  unknown → viewer; who sources, creates, writes, interviews, decides
+  offers); the `employer_disclosure` consent is a draft version, not
+  self-service, and CANNOT be recorded when `NODE_ENV` is production
+  (asserted). Static: nothing under `src/lib/employer` reaches the sensitive
+  schema, the AI gateway, a provider, the mailbox or a case record; sourcing
+  is built on `scoreCompatibility`; nothing under matching, eligibility,
+  analytics or the gateway names an employer table. The connector contract
+  suite runs the `employer` connector over an in-memory catalogue (only an
+  OPEN requisition is discoverable; closure is what the status says; the
+  apply route is this platform).
+- **Database (`tests/employer.test.ts`):** the actor resolves only from an
+  employer organisation's accepted membership; a viewer cannot set roles; a
+  requisition is a draft (nothing published), a viewer and an interviewer
+  cannot create one, an inverted salary band is refused, a hiring manager
+  edits their own, opening publishes a `Job` (`source: employer`, the
+  organisation's name, a snapshot) and re-editing re-publishes to the same
+  job, another employer sees none of it under RLS; sourcing never returns a
+  hidden candidate, an anonymous card carries no name, headline or city, a
+  visible card carries name and headline, the run is audited, a viewer
+  cannot search, the hidden candidate cannot be asked; a disclosure request
+  (interviewer refused; duplicate refused) puts the submission at
+  `consent_requested`, the candidate sees it on their own tenant path and
+  can neither update nor delete it there, sees none of the pipeline, and
+  before the grant the profile is refused and no stage past consent is
+  possible (nor is `consented` an employer's move); granting writes one
+  consent record and moves the submission; the profile is readable by that
+  employer (audited) and refused to another; applying through the platform
+  grants by the candidate's act (a non-employer job is refused; applying
+  twice is refused); a pool takes consented candidates only; revocation
+  revokes the record, withdraws the submission, empties the pool membership
+  and refuses the profile, and withdrawn is terminal; a declined request is
+  final for that employer; the pipeline runs screening → interview (only a
+  named interviewer or the owner records it; the interviewer cannot
+  schedule, note or offer; a recruiter cannot extend or decide an offer) →
+  offer → accepted → hired, filling the requisition and closing the posting,
+  with four audited moves and the full event history; reporting counts the
+  funnel, sources, medians and activity with no identity, another
+  employer's is empty and an interviewer is refused; isolation: another
+  employer cannot load, move or read E's rows and its tenant path returns
+  none, the candidates' tenant paths return none, and the audit trail
+  carries no name, email or feedback.
+- **NOT covered, by honesty:** the UI beyond compile and lint; route-level
+  status codes; any production disclosure (refused by design until L-5);
+  notifications (none are sent); calendar or email for interviews.
+
 ## Stage 17 — employment services / case management (Level 0)
 
 - **Pure (`tests/cases-copilot.test.ts`):** a healthy search draws no

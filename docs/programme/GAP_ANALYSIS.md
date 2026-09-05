@@ -200,9 +200,15 @@ version* is immutably retained.
 
 ## Part 3 — Products 2, 3, 4
 
-### G-17 — Corporate / Talent Acquisition OS · NOT IMPLEMENTED
-No employer org, hiring manager, recruiter, requisition, talent pool, submission,
-pipeline, offer or placement model. Blocked on G-04.
+### G-17 — Corporate / Talent Acquisition OS · IMPLEMENTED (Stage 18, ADR-0033) — production disclosure BLOCKED on L-5
+Employer organisations with the matrix's roles as a named set; requisitions
+published as first-party postings through the connector gate; anonymised,
+scored sourcing honouring recruiter visibility; disclosure as the candidate's
+per-employer consent; a pipeline (stage machine, interviews, notes, offers,
+hires) that cannot pass consent without it; talent pools of consented
+candidates; reporting from the organisation's own events. No candidate is
+disclosed in production until counsel records the consent wording (L-5): the
+draft version is refused there. Placement (fees, representation) is G-18.
 
 ### G-18 — Staffing / Placement OS · NOT IMPLEMENTED
 No client contract, engagement, fee structure, guarantee period, recruiter
