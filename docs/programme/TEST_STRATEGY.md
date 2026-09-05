@@ -363,3 +363,49 @@ never occurred.
   store, VoiceOver / TalkBack, dynamic type, a network drop mid-tap, deep
   links, the store build. Detox / Maestro remain the plan for a device
   matrix once one exists.
+
+## Stage 15 — payments, subscriptions and entitlements
+
+- **Pure:** the capability registry is well-formed; a plan's grants are
+  deterministic and complete (the two quantities from the plan row, the rest
+  from the matrix column of the plan code's family; a versioned code is its
+  family); the merge rule (max quantity, any boolean, free baseline, revoked
+  and expired rows ignored, a zero grant never lowers the baseline);
+  `resolvePrice` in the customer currency from `PlanPrice` with the CAD
+  fallback stated; a `cap` row is the only thing that lowers (lowest cap
+  after every grant, a boolean cap blocks, an expired cap does not, a cap
+  above the answer changes nothing); `resolvePrice` under
+  `requireExternalPriceId` skips a cell with no gateway price id.
+- **Database (`tests/entitlements.test.ts`):** a grant without a payment is
+  what the quota reads and a revoke without a refund removes it, both
+  audited without an amount, the same grant twice one row; activating a plan
+  grants its rows, a replayed activation writes no audit row and hands out
+  no second allowance, an upgrade revokes the old rows as `plan_changed` and
+  the quota and the agent ceiling follow; past due keeps access, suspension
+  revokes as `payment_lapsed` (the free baseline remains), recovery
+  re-grants, cancel-at-period-end keeps access until the period end and the
+  baseline after, a refund recorded from the gateway changes no row,
+  immediate cancel revokes as `canceled`; a trial grants with the trial's
+  expiry, the sweep records expiry, converting to a paid plan retires the
+  trial rows; an organization's licence reaches accepted members and not
+  removed ones or strangers; a staff revocation of a plan row holds across
+  a plan re-sync and a recovered payment (`blocked: staff_revoked`) until
+  staff grant it back; a non-plan grant without a `sourceRef` is refused; a
+  cap lowers the quota and lifting it restores the grants; buying the same
+  plan again after cancel-at-period-end clears the flag and lifts the
+  rows' expiry; a second trial of a plan is refused on the trail; an
+  account with no subscription row has a quota from its entitlement against
+  the month's application rows, with nothing to consume; `quantitiesForMany`
+  answers for many at once without organization rows; the rows are visible
+  on the tenant path to the owner only.
+- **Static (`tests/entitlements-static.test.ts`):** no feature module
+  branches on `Subscription.status` or reads `plan.maxAgents` /
+  `plan.applicationsPerMonth` / plan feature flags (payment-state readers
+  named and allowed); `canApply` never reads status and the limit is the
+  entitlement; the refund handler calls nothing that changes access and
+  nothing under `src/lib/billing` can revoke.
+- **NOT covered, by honesty:** any call to Stripe (no test-mode key here):
+  checkout, the signed webhook end to end, Smart Retries, Stripe Tax. The
+  entitlement consequences are proven against the functions the webhook
+  dispatches to; the Stage 01 replay and ordering tests stand.
+

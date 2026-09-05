@@ -245,7 +245,7 @@ target shape. **Stage 05 (2026-09-03) built the target shape** — `JobSourceCon
 
 ## Part 4 — Platform capability gaps
 
-### G-23 — Entitlement is quota-only; payment and entitlement state are fused · PARTIAL
+### G-23 — Entitlement is quota-only; payment and entitlement state are fused · RESOLVED in engineering (Stage 15, ADR-0030); Stripe validation BLOCKED on a test-mode key
 The brief requires payment state and product entitlement state to be separate.
 Currently `Subscription` + a monthly application counter serve both. There is no
 `entitlement` concept, so feature access cannot be granted independently of a

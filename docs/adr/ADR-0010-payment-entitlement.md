@@ -1,6 +1,6 @@
 # ADR-0010 — Separate payment state from entitlement state
 
-**Status:** Proposed · **Date:** 2026-09-02
+**Status:** Accepted · **Date:** 2026-09-02 · **Implemented:** Stage 15, 2026-09-05, by ADR-0030 (`src/lib/entitlements/`, migration `20260905120000_entitlements`); Stripe remains IMPLEMENTED-NOT-VALIDATED (no test-mode key in the build environment), so the entitlement consequences of gateway events are proven against the functions the webhook calls, not against Stripe
 
 ## Context
 The existing commercial layer is substantial and sound: invoicing (1,385 lines),

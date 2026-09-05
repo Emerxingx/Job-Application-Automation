@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation';
 import { requireTenant } from '@/lib/tenancy/request';
+import { quantityFor } from '@/lib/entitlements/service';
 import { PageHeader } from '@/components/ui';
 import { AgentForm } from '@/components/agent-form';
 
@@ -9,7 +10,7 @@ export default async function NewAgentPage() {
   const { user, run } = await requireTenant();
 
   // Don't render a form the plan won't accept.
-  const maxAgents = user.subscription?.plan.maxAgents ?? 1;
+  const maxAgents = await run((tx) => quantityFor(tx, user.id, 'agents'));
   const count = await run((tx) => tx.agent.count({ where: { userId: user.id } }));
   if (count >= maxAgents) redirect('/dashboard/billing');
 

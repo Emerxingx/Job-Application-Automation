@@ -1,13 +1,13 @@
 {
   "$comment": "Machine-readable controller for the autonomous build programme. Authoritative over any chat transcript: if this file and a conversation disagree, this file wins. Updated at every stage checkpoint.",
   "schema_version": 1,
-  "updated_at": "2026-09-05T11:00:00Z",
-  "current_stage": "14",
-  "last_completed_stage": "00",
-  "current_branch": "claude/stage-14-candidate-api-contract",
-  "current_head": "70577bfd776f669d51c45e55ef15d5a51f01d9b7",
+  "updated_at": "2026-09-05T12:55:00Z",
+  "current_stage": "15",
+  "last_completed_stage": "14",
+  "current_branch": "claude/stage-15-payments-entitlements",
+  "current_head": "669aae8a1bacf1bfd341d6256a4ca80e6345db03",
   "current_head_meaning": "SHA of the last commit whose full gate set was verified locally (lint, typecheck, tests, build). Set by the status-sync commit that immediately follows it, so it names a real, verified commit rather than the one it is written in.",
-  "current_pr": "https://github.com/Emerxingx/Job-Application-Automation/pull/26",
+  "current_pr": "https://github.com/Emerxingx/Job-Application-Automation/pull/27",
   "main_head": "d6ae8b3a9180b529abe06f23417515432c0a7f0e",
   "run_complete": false,
   "stage_status": {
@@ -26,7 +26,7 @@
     "12": "PASS_ENGINEERING_EXIT_BLOCKED_CREDENTIALS",
     "13": "PASS_ENGINEERING_EXIT_PARTIAL",
     "14": "PASS_ENGINEERING_EXIT_PARTIAL",
-    "15": "NOT_STARTED",
+    "15": "PASS_ENGINEERING_EXIT_BLOCKED_CREDENTIAL",
     "16": "NOT_STARTED",
     "17": "NOT_STARTED",
     "18": "NOT_STARTED",
@@ -83,7 +83,7 @@
     ],
     "verdict": "Stage 01 is PARTIAL, not PASS. Every unmet item traces to the staging project being unreachable from the build environment, except tenant-path adoption, which is engineering and continues in Stage 02 alongside the schema work that touches those handlers."
   },
-  "next_requirement": "Stage 14 engineering is complete; its exit is PARTIAL on device-level proofs (NOT VERIFIED here) and push (NOT IMPLEMENTED, ADR-0011). Independent work continues: Stage 15 (payments, subscriptions, entitlements) begins on a branch stacked on Stage 14 — an explicit entitlement layer per ADR-0010, PlanPrice and BillingProfile wired, webhook idempotency and ordering proven, refund never silently revokes; Stripe stays IMPLEMENTED-NOT-VALIDATED without a test-mode key (CREDENTIAL blocker), so the Stage 15 exit will be BLOCKED on SANDBOX-VALIDATED.",
+  "next_requirement": "Stage 15 engineering is complete; its exit is BLOCKED on the Stripe test-mode credential (STRIPE-TEST-KEY). Independent work continues: Stage 16 (career transition, learning and certification OS) begins on a branch stacked on Stage 15 — the transactional graph (skills, competencies, occupations, career paths, courses, programs, credentials, institutions, providers), the transition engine (current occupation → transferable skills → candidate occupations → gaps → learning pathway → target jobs), a counterfactual test proving a completed credential measurably changes eligibility, provenance on every recommendation, no fabricated recognition or outcome claims.",
   "blockers": [
     {
       "id": "ATS-SANDBOX-CREDENTIAL",
@@ -164,6 +164,15 @@
         "One health check and one discovery run from the console, with the redacted JobSourceRun row pasted into the PR"
       ],
       "effect": "Blocks the Stage 05 exit conditions '≥2 lawful sources live' and 'Adzuna PRODUCTION-VALIDATED'. Blocks nothing else: the framework, the gate, the pipeline and the contract suite are proven on the synthetic source and a recorded-shape fixture."
+    },
+    {
+      "id": "STRIPE-TEST-KEY",
+      "type": "CREDENTIAL",
+      "issue": "No Stripe test-mode secret key or webhook signing secret exists in this environment, so checkout, the signed webhook, replay, failure, refund and Stripe Tax have never been exercised against Stripe",
+      "owner": "Founder / operator",
+      "latest_blocking_stage": "15",
+      "status": "OPEN",
+      "effect": "Stage 15 exit BLOCKED on 'Stripe SANDBOX-VALIDATED minimum'. The entitlement layer, the webhook dispatch and its replay/ordering guards, and every entitlement consequence of every event type are proven locally."
     }
   ],
   "external_actions": [
@@ -219,6 +228,13 @@
       "stage": "14",
       "type": "FOUNDER_PRODUCT_DECISION / EXTERNAL_SERVICE",
       "action": "Run mobile/ on iOS and Android (Expo Go: cd mobile && EXPO_PUBLIC_API_BASE_URL=https://<deployment> npm start); confirm sign-in, the Keychain / Keystore write, VoiceOver / TalkBack on the folder screen, a network drop mid-tap; then decide on a store build (Apple Developer and Google Play accounts, paid).",
+      "status": "OPEN"
+    },
+    {
+      "id": "STRIPE-TEST-KEY",
+      "stage": "15",
+      "type": "CREDENTIAL",
+      "action": "Provide a Stripe TEST-mode secret key and webhook signing secret in the deployment environment (never in the repository); run checkout → webhook → entitlement end to end, replay an event, fail a payment, refund one; record the traces in STAGE15_EVIDENCE.md §7. Then decide the matrix-versus-seed quantities (30/100/300 vs 25/120/400) and USD PlanPrice rows.",
       "status": "OPEN"
     }
   ],
@@ -573,5 +589,32 @@
       "Staging rehearsal (NOT VERIFIED — R-34)"
     ],
     "verdict": "Stage 14 is PASS on engineering — contract, backend proof, and an app that consumes only the contract — and PARTIAL as a stage: what a device would prove is NOT VERIFIED and push is NOT IMPLEMENTED. Merge posture inherited from the stack."
+  },
+  "stage_15_progress": {
+    "entitlement_layer": "DONE — Entitlement table (migration 20260905120000_entitlements; RLS userOrOrg generated in 20260905120100_rls_entitlements), capability registry (14 capabilities, free baseline), service (grant idempotent by dedupeKey, revoke with reason, resolve by max across person + organizations, plan sync, access on payment state, expiry sweep), audit rows without amounts",
+    "feature_checks": "DONE — getQuota reads applications_per_month + bonus and canApply never reads status; agent ceiling = agents entitlement on the tenant path (API + pages); public analytics summary and CRM customer detail read the entitlement read-only; static test refuses status branches and plan-column reads in feature modules",
+    "transitions": "DONE — activatePlan (sync + plan_changed revocation; replay is a no-op that keeps the window), startTrial (source trial with expiry), cancelSubscription (period end → expiry; immediate → canceled), setSubscriptionStatus (past_due keeps, canceled revokes, active re-syncs), suspendSubscription (payment_lapsed); webhook handles invoice.paid recovery and charge.refunded as a record only",
+    "console": "DONE — /console/entitlements (billing_ops see, admin change) and /api/console/entitlements (grant without payment; revoke without refund; step-up; reasons; audit)",
+    "pricing": "DONE — resolvePrice from PlanPrice in the customer currency with the CAD fallback stated; ensureBillingProfile before checkout; provider contract carries currency + gateway price id; Stripe provider prefers the PlanPrice id",
+    "stripe_validation": "BLOCKED (CREDENTIAL) — no test-mode key in this environment; never called live or test; Stripe Tax NOT IMPLEMENTED",
+    "independent_review": "DONE — adversarial review of the Stage 15 diff: 4 HIGH / 4 MEDIUM / 4 LOW; every HIGH and MEDIUM fixed on the branch (cap source that lowers; staff revocations persist through plan re-syncs and recovered payments; re-purchase after cancel-at-period-end is a new term; quota never null without a subscription row; one trial per plan; gateway price-id rule in resolvePrice + Stripe provider refusal; CRM list reads entitlements via quantitiesForMany; charge.refunded updates the Payment ledger), LOWs fixed (unique-violation convergence, sourceRef required) or recorded (121 = public schema; matrix vs plan quantities is a product decision); 6 new tests; table in STAGE15_EVIDENCE.md §11"
+  },
+  "stage_15_exit_gate": {
+    "met": [
+      "Entitlement layer live",
+      "Entitlement grantable without payment and revocable without refund (tested)",
+      "No feature check reads Subscription.status (static test)",
+      "Webhook idempotency and ordering (Stage 01, tests stand)",
+      "Refunds never silently revoke (static + database tests)",
+      "PlanPrice and BillingProfile wired",
+      "Full gate set green: lint 0/7, typecheck 0, tests 1109 / 1109 (0 skipped), build 0; rehearsal 38 migrations, drift clean, 121 forced tables",
+      "Independent adversarial review: every HIGH and MEDIUM finding fixed and re-verified (evidence §11)"
+    ],
+    "not_met": [
+      "Stripe SANDBOX-VALIDATED — BLOCKED (CREDENTIAL): STRIPE-TEST-KEY",
+      "Stripe Tax — NOT IMPLEMENTED (needs the Stripe validation first)",
+      "Staging rehearsal (NOT VERIFIED — R-34)"
+    ],
+    "verdict": "Stage 15 engineering is complete; its exit is BLOCKED on a Stripe test-mode credential. Everything provable without Stripe is proven. Merge posture inherited from the stack."
   }
 }

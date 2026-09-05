@@ -35,6 +35,11 @@ export type SecurityEvent =
   // by password change, or by "sign out everywhere else".
   | 'auth.device.issued'
   | 'auth.device.revoked'
+  // Stage 15: entitlement state changes - capability, source and reason, never an amount.
+  | 'entitlement.granted'
+  | 'entitlement.revoked'
+  // Stage 15: a refund is recorded as money moving; it never revokes on its own.
+  | 'billing.refund.recorded'
   // Stage 03: step-up re-authentication for prompt governance (failures only;
   // a success is implied by the prompt.* audit row that follows it).
   | 'auth.step_up.failed'

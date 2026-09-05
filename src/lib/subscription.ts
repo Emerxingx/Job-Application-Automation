@@ -1,4 +1,21 @@
+/**
+ * Subscriptions: the PAYMENT side of an account - which plan, which interval,
+ * which gateway, the monthly usage window - and the transitions a gateway or
+ * a checkout drives.
+ *
+ * Stage 15 (ADR-0010, ADR-0030): what the account MAY DO is no longer read
+ * from here. `getQuota` reads the applications allowance from the entitlement
+ * layer (src/lib/entitlements) and `canApply` no longer looks at
+ * `Subscription.status`: a past-due account in its grace window keeps
+ * applying, a suspended one has had its plan entitlements revoked, and a
+ * comp account with no payment at all applies on its grant. Every transition
+ * here - activate, change, trial, cancel, status from a gateway - ends by
+ * syncing entitlements, so the two states move together and only through
+ * this module.
+ */
 import { db } from './db';
+import { applySubscriptionAccess, expirePlanEntitlementsAt, quantityFor, syncPlanEntitlements } from './entitlements/service';
+import type { RequestMeta } from './security-audit';
 import type { BillingInterval } from './types';
 
 export interface QuotaStatus {
@@ -9,8 +26,9 @@ export interface QuotaStatus {
   planName: string;
   planCode: string;
   interval: string;
+  /** Payment state, for display. Never the reason an application is refused. */
   status: string;
-  /** True when the applicant can submit at least one more application. */
+  /** True when the applicant can submit at least one more application - from entitlements, not from status. */
   canApply: boolean;
 }
 
@@ -19,7 +37,7 @@ export function intervalMonths(interval: BillingInterval): number {
   return interval === 'annual' ? 12 : interval === 'quarterly' ? 3 : 1;
 }
 
-/** Price for a plan at a given interval, in cents. */
+/** Price for a plan at a given interval, in cents, from the plan row's CAD columns. */
 export function priceFor(
   plan: { monthlyPriceCents: number; quarterlyPriceCents: number; annualPriceCents: number },
   interval: BillingInterval,
@@ -27,6 +45,50 @@ export function priceFor(
   if (interval === 'annual') return plan.annualPriceCents;
   if (interval === 'quarterly') return plan.quarterlyPriceCents;
   return plan.monthlyPriceCents;
+}
+
+export interface PlanPriceRow {
+  currency: string;
+  interval: string;
+  amountCents: number;
+  externalPriceId: string | null;
+  active: boolean;
+}
+
+export interface ResolvedPrice {
+  amountCents: number;
+  currency: string;
+  /** The gateway's own price id for this cell, when a PlanPrice row carries one. */
+  externalPriceId: string | null;
+  /** `plan_price` when a PlanPrice row answered; `plan_columns` when the CAD defaults did (and the currency is then CAD). */
+  source: 'plan_price' | 'plan_columns';
+}
+
+/**
+ * Stage 15: the price a customer is charged, in THEIR currency, from
+ * `PlanPrice` when a row for (currency, interval) is active, else the plan
+ * row's CAD columns. A USD customer with no USD row is charged CAD - stated
+ * in the checkout response, never silently converted. Pure.
+ */
+export function resolvePrice(
+  plan: { monthlyPriceCents: number; quarterlyPriceCents: number; annualPriceCents: number },
+  interval: BillingInterval,
+  currency: string,
+  prices: readonly PlanPriceRow[] = [],
+  options: {
+    /**
+     * A real gateway charges by ITS price id, so a PlanPrice cell without one
+     * cannot be charged in its currency - it is skipped and the CAD default
+     * applies (stated in the response), rather than a CAD amount being sent
+     * to the gateway labelled as the customer's currency. The mock and manual
+     * providers charge the amount and need no id.
+     */
+    requireExternalPriceId?: boolean;
+  } = {},
+): ResolvedPrice {
+  const cell = prices.find((p) => p.active && p.currency === currency && p.interval === interval && (!options.requireExternalPriceId || Boolean(p.externalPriceId)));
+  if (cell) return { amountCents: cell.amountCents, currency, externalPriceId: cell.externalPriceId, source: 'plan_price' };
+  return { amountCents: priceFor(plan, interval), currency: 'CAD', externalPriceId: null, source: 'plan_columns' };
 }
 
 /** Effective monthly cost, used to show the savings on longer commitments. */
@@ -45,14 +107,16 @@ export function formatPrice(cents: number): string {
  * Read the user's quota, rolling the window forward if the month has elapsed.
  *
  * The application allowance is monthly even on quarterly and annual plans, so
- * the counter resets every month regardless of billing interval.
+ * the counter resets every month regardless of billing interval. The LIMIT
+ * is the `applications_per_month` entitlement (the plan's grant, a comp, a
+ * pilot - whichever is highest) plus the subscription's bonus applications.
  */
 export async function getQuota(userId: string): Promise<QuotaStatus | null> {
   const subscription = await db.subscription.findUnique({
     where: { userId },
     include: { plan: true },
   });
-  if (!subscription) return null;
+  if (!subscription) return baselineQuota(userId);
 
   let { applicationsUsed, periodStart, periodEnd } = subscription;
 
@@ -71,8 +135,10 @@ export async function getQuota(userId: string): Promise<QuotaStatus | null> {
     periodStart = nextStart;
     periodEnd = nextEnd;
   }
+  void periodStart;
 
-  const limit = subscription.plan.applicationsPerMonth;
+  const entitled = await quantityFor(db, userId, 'applications_per_month');
+  const limit = entitled + Math.max(0, subscription.bonusApplications);
   const remaining = Math.max(0, limit - applicationsUsed);
 
   return {
@@ -84,8 +150,34 @@ export async function getQuota(userId: string): Promise<QuotaStatus | null> {
     planCode: subscription.plan.code,
     interval: subscription.interval,
     status: subscription.status,
-    canApply: subscription.status !== 'canceled' && remaining > 0,
+    canApply: remaining > 0,
   };
+}
+
+/** Calendar-month window for an account with no subscription row (UTC). */
+function calendarMonth(now: Date): { periodStart: Date; periodEnd: Date } {
+  const periodStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  const periodEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
+  return { periodStart, periodEnd };
+}
+
+/**
+ * Stage 15 review fix: an account with NO subscription row - a comp or a
+ * pilot granted before any checkout, or an account whose row was never
+ * created - still has an answer. The limit is its `applications_per_month`
+ * entitlement (the free baseline when it holds no row); the usage is the
+ * count of its Application rows in the current calendar month, read rather
+ * than kept, so there is nothing to consume or refund. Never null: a null
+ * quota used to read as "unlimited" on some pages.
+ */
+async function baselineQuota(userId: string, now: Date = new Date()): Promise<QuotaStatus> {
+  const { periodStart, periodEnd } = calendarMonth(now);
+  const [limit, used] = await Promise.all([
+    quantityFor(db, userId, 'applications_per_month'),
+    db.application.count({ where: { userId, createdAt: { gte: periodStart, lt: periodEnd } } }),
+  ]);
+  const remaining = Math.max(0, limit - used);
+  return { used, limit, remaining, periodEnd, planName: 'No plan', planCode: 'none', interval: 'none', status: 'none', canApply: remaining > 0 };
 }
 
 /**
@@ -100,6 +192,10 @@ export async function consumeQuota(userId: string, count: number): Promise<numbe
 
   const granted = Math.min(count, quota.remaining);
   if (granted <= 0) return 0;
+
+  // No subscription row: the usage is counted from Application rows (see
+  // baselineQuota), so there is no counter to move.
+  if (quota.planCode === 'none') return granted;
 
   await db.subscription.update({
     where: { userId },
@@ -121,14 +217,28 @@ export async function refundQuota(userId: string, count: number): Promise<void> 
   });
 }
 
-/** Activate or switch a plan, resetting the quota window. */
+export interface ActivateOptions {
+  /** Gateway identifiers, when a real payment provider processed the checkout. */
+  external?: { customerId?: string; subscriptionId?: string };
+  /** Who drove it, for the entitlement trail: `system`, `staff:<id>`, `webhook:stripe`. */
+  by?: string;
+  meta?: RequestMeta;
+}
+
+/**
+ * Activate or switch a plan, resetting the quota window, then sync the plan's
+ * entitlements (the previous plan's rows are revoked as plan_changed; an
+ * upgrade or a downgrade takes effect now). Idempotent: activating the same
+ * plan twice - a replayed checkout webhook - changes nothing the second time.
+ */
 export async function activatePlan(
   userId: string,
   planCode: string,
   interval: BillingInterval,
-  /** Gateway identifiers, when a real payment provider processed the checkout. */
-  external?: { customerId?: string; subscriptionId?: string },
+  externalOrOptions?: ActivateOptions['external'] | ActivateOptions,
 ): Promise<void> {
+  const options: ActivateOptions = externalOrOptions && ('external' in externalOrOptions || 'by' in externalOrOptions || 'meta' in externalOrOptions) ? (externalOrOptions as ActivateOptions) : { external: externalOrOptions as ActivateOptions['external'] };
+  const external = options.external;
   const plan = await db.plan.findUnique({ where: { code: planCode } });
   if (!plan) throw new Error(`Unknown plan: ${planCode}`);
 
@@ -139,7 +249,12 @@ export async function activatePlan(
   const periodEnd = new Date(now);
   periodEnd.setMonth(periodEnd.getMonth() + 1);
 
-  await db.subscription.upsert({
+  const existing = await db.subscription.findUnique({ where: { userId }, select: { planId: true, status: true, interval: true, cancelAtPeriodEnd: true } });
+  // A plan cancelled at period end and bought again is a NEW term, not a replay:
+  // the flag must clear and the entitlements' expiry must lift.
+  const samePlanAlreadyActive = existing !== null && existing.planId === plan.id && existing.status === 'active' && existing.interval === interval && !existing.cancelAtPeriodEnd;
+
+  const subscription = await db.subscription.upsert({
     where: { userId },
     create: {
       userId,
@@ -153,28 +268,93 @@ export async function activatePlan(
       externalCustomerId: external?.customerId ?? null,
       externalSubId: external?.subscriptionId ?? null,
     },
-    update: {
-      planId: plan.id,
-      interval,
-      status: 'active',
-      renewsAt,
-      periodStart: now,
-      periodEnd,
-      applicationsUsed: 0,
-      canceledAt: null,
-      // Preserve existing identifiers when a call omits them.
-      ...(external?.customerId ? { externalCustomerId: external.customerId } : {}),
-      ...(external?.subscriptionId ? { externalSubId: external.subscriptionId } : {}),
-    },
+    update: samePlanAlreadyActive
+      ? {
+          // A replay of the same activation keeps the window and the usage: resetting
+          // them would hand a customer a second allowance for one payment.
+          ...(external?.customerId ? { externalCustomerId: external.customerId } : {}),
+          ...(external?.subscriptionId ? { externalSubId: external.subscriptionId } : {}),
+        }
+      : {
+          planId: plan.id,
+          interval,
+          status: 'active',
+          renewsAt,
+          periodStart: now,
+          periodEnd,
+          applicationsUsed: 0,
+          canceledAt: null,
+          cancelAtPeriodEnd: false,
+          trialEndsAt: null,
+          suspendedAt: null,
+          // Preserve existing identifiers when a call omits them.
+          ...(external?.customerId ? { externalCustomerId: external.customerId } : {}),
+          ...(external?.subscriptionId ? { externalSubId: external.subscriptionId } : {}),
+        },
   });
+
+  await syncPlanEntitlements(db, { userId, subscriptionId: subscription.id, plan, source: 'plan', expiresAt: null, grantedBy: options.by, meta: options.meta });
 }
 
-/** Mark a subscription's lifecycle state from a gateway event. */
+/**
+ * Stage 15: start a trial of a plan - the plan's entitlements, source `trial`,
+ * expiring when the trial does, on a subscription in status `trialing` with
+ * no payment. Refused when the account already holds a paid, active plan.
+ */
+export async function startTrial(userId: string, planCode: string, days: number, options: { by?: string; meta?: RequestMeta } = {}): Promise<{ trialEndsAt: Date }> {
+  if (!Number.isInteger(days) || days < 1 || days > 90) throw new Error('A trial runs between 1 and 90 days.');
+  const plan = await db.plan.findUnique({ where: { code: planCode } });
+  if (!plan) throw new Error(`Unknown plan: ${planCode}`);
+  const existing = await db.subscription.findUnique({ where: { userId }, select: { status: true, externalSubId: true } });
+  if (existing && existing.status === 'active' && existing.externalSubId) throw new Error('This account already has a paid plan; a trial is not needed.');
+  // One trial of a plan per account, ever: a trial row for this plan - active,
+  // expired or revoked - means it has been had. The rows are the trail (ADR-0030).
+  const trialled = await db.entitlement.findFirst({ where: { userId, source: 'trial', sourceRef: { endsWith: `:${plan.code}` } }, select: { id: true } });
+  if (trialled) throw new Error('This account has already had a trial of that plan.');
+  const now = new Date();
+  const trialEndsAt = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
+  const periodEnd = new Date(now);
+  periodEnd.setMonth(periodEnd.getMonth() + 1);
+  const subscription = await db.subscription.upsert({
+    where: { userId },
+    create: { userId, planId: plan.id, interval: 'monthly', status: 'trialing', renewsAt: trialEndsAt, periodStart: now, periodEnd, applicationsUsed: 0, trialEndsAt, provider: 'manual' },
+    update: { planId: plan.id, status: 'trialing', renewsAt: trialEndsAt, trialEndsAt, canceledAt: null, cancelAtPeriodEnd: false },
+  });
+  await syncPlanEntitlements(db, { userId, subscriptionId: subscription.id, plan, source: 'trial', expiresAt: trialEndsAt, grantedBy: options.by, meta: options.meta });
+  return { trialEndsAt };
+}
+
+/**
+ * Stage 15: cancel. At period end (the default): payment stops renewing and
+ * the plan's entitlements EXPIRE at the period end - access until then, then
+ * the free baseline. Immediately: status canceled and the rows revoked now.
+ * A refund is a separate act and is never implied by either.
+ */
+export async function cancelSubscription(userId: string, options: { immediately?: boolean; by?: string; meta?: RequestMeta } = {}): Promise<{ status: string; accessUntil: Date | null }> {
+  const subscription = await db.subscription.findUnique({ where: { userId } });
+  if (!subscription) throw new Error('No subscription to cancel.');
+  if (options.immediately) {
+    await db.subscription.update({ where: { id: subscription.id }, data: { status: 'canceled', canceledAt: new Date(), cancelAtPeriodEnd: false } });
+    await applySubscriptionAccess(db, { userId, subscriptionId: subscription.id, state: 'canceled', by: options.by, meta: options.meta });
+    return { status: 'canceled', accessUntil: null };
+  }
+  const until = subscription.renewsAt;
+  await db.subscription.update({ where: { id: subscription.id }, data: { cancelAtPeriodEnd: true } });
+  await expirePlanEntitlementsAt(db, userId, subscription.id, until);
+  return { status: subscription.status, accessUntil: until };
+}
+
+/**
+ * Mark a subscription's lifecycle state from a gateway event, then apply the
+ * access consequence: active (a recovered payment) re-syncs the plan's rows;
+ * past_due keeps them (dunning runs); canceled revokes them.
+ */
 export async function setSubscriptionStatus(
   externalSubId: string,
   status: 'active' | 'past_due' | 'canceled',
+  options: { by?: string; meta?: RequestMeta } = {},
 ): Promise<void> {
-  const subscription = await db.subscription.findFirst({ where: { externalSubId } });
+  const subscription = await db.subscription.findFirst({ where: { externalSubId }, include: { plan: true } });
   if (!subscription) {
     console.warn(`[subscription] no local record for external subscription ${externalSubId}`);
     return;
@@ -184,6 +364,26 @@ export async function setSubscriptionStatus(
     data: {
       status,
       canceledAt: status === 'canceled' ? new Date() : null,
+      ...(status === 'past_due' ? { pastDueAt: subscription.pastDueAt ?? new Date() } : {}),
+      ...(status === 'active' ? { pastDueAt: null, suspendedAt: null } : {}),
     },
   });
+  if (status === 'active') {
+    await syncPlanEntitlements(db, { userId: subscription.userId, subscriptionId: subscription.id, plan: subscription.plan, source: 'plan', expiresAt: subscription.cancelAtPeriodEnd ? subscription.renewsAt : null, grantedBy: options.by, meta: options.meta });
+  } else {
+    await applySubscriptionAccess(db, { userId: subscription.userId, subscriptionId: subscription.id, state: status, by: options.by, meta: options.meta });
+  }
+}
+
+/**
+ * Stage 15: dunning exhausted - the account is suspended: the plan's rows are
+ * revoked as payment_lapsed and the account falls to the free baseline (a
+ * read-only-ish account: the vault, the folder and eligibility stay; new
+ * applications beyond the free allowance do not).
+ */
+export async function suspendSubscription(userId: string, options: { by?: string; meta?: RequestMeta } = {}): Promise<void> {
+  const subscription = await db.subscription.findUnique({ where: { userId } });
+  if (!subscription) return;
+  await db.subscription.update({ where: { id: subscription.id }, data: { status: 'suspended', suspendedAt: new Date() } });
+  await applySubscriptionAccess(db, { userId, subscriptionId: subscription.id, state: 'suspended', by: options.by, meta: options.meta });
 }

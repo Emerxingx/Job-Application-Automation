@@ -76,6 +76,8 @@ credential guidance. Purchasable by an individual or funded by an organisation;
 the entitlement attaches to the **person** either way.
 
 ## Enforcement
+**Stage 15 (ADR-0030):** implemented. `src/lib/entitlements/service.ts` answers every question from `Entitlement` rows (resolved by max across the person and their organizations, free baseline otherwise); `tests/entitlements-static.test.ts` refuses a feature module that branches on `Subscription.status` or reads a plan column; the seeded plans' quantities (25 / 120 / 400 applications) are what the rows carry — this table's 30 / 100 / 300 are the target and reconciling them is a product decision (recorded in `STAGE15_EVIDENCE.md`).
+
 1. One entitlement service answers "may this account do X". No feature reads a
    subscription row.
 2. Every grant and revocation is audited with actor, reason and timestamp.

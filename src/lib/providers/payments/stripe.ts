@@ -54,9 +54,18 @@ export class StripePaymentProvider implements PaymentProvider {
     planCode: string;
     interval: BillingInterval;
     amountCents: number;
+    currency?: string;
+    externalPriceId?: string | null;
   }): Promise<CheckoutSession> {
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-    const price = priceIdFor(input.planCode, input.interval);
+    // Stage 15: a PlanPrice row's own price id wins over the environment map.
+    // The environment map is CAD-denominated (the plan row's columns), so a
+    // non-CAD checkout without its own price id is refused rather than charged
+    // a CAD price under another currency's label.
+    if (!input.externalPriceId && input.currency && input.currency.toUpperCase() !== 'CAD') {
+      throw new Error(`No Stripe price is configured for ${input.planCode}/${input.interval} in ${input.currency}; add a PlanPrice row with its Stripe price id.`);
+    }
+    const price = input.externalPriceId ?? priceIdFor(input.planCode, input.interval);
 
     if (!price) {
       throw new Error(
