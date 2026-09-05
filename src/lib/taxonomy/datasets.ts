@@ -1,5 +1,6 @@
 import type { Prisma, TaxonomyDataset } from '@prisma/client';
 import { db } from '../db';
+import { withdrawLearningDataset } from '@/lib/career/withdraw';
 import type { StaffContext } from '../crm/auth';
 
 /**
@@ -197,7 +198,9 @@ async function purgeDataset(tx: Prisma.TransactionClient, dataset: TaxonomyDatas
   const occupations = await tx.occupation.deleteMany({ where: { datasetId: dataset.id } });
   const codes = await tx.occupationCode.deleteMany({ where: { scheme: dataset.scheme, version: dataset.version } });
   await tx.occupationSkill.deleteMany({ where: { datasetId: dataset.id } });
-  // Stage 16: a learning-graph dataset's credentials, providers, offerings and requirements go with it.
+  // Stage 16: a learning-graph dataset's credentials, providers, offerings and requirements go with it -
+  // and the plans that cited them are marked withdrawn BEFORE the rows go (review finding M4).
+  await withdrawLearningDataset(tx, { id: dataset.id, key: dataset.key });
   await tx.occupationCredential.deleteMany({ where: { datasetId: dataset.id } });
   await tx.learningOffering.deleteMany({ where: { datasetId: dataset.id } });
   await tx.learningProvider.deleteMany({ where: { datasetId: dataset.id } });
@@ -212,6 +215,10 @@ async function purgeDataset(tx: Prisma.TransactionClient, dataset: TaxonomyDatas
  * `prohibited`, or `recorded` without approval — purges loaded rows.
  */
 export async function recordDatasetLicence(key: string, record: LicenceRecord, actor: StaffContext, reason: string): Promise<LicenceDecision> {
+  // A test fixture is never a licensed dataset in production (review finding M6).
+  if (process.env.NODE_ENV === 'production' && /fixture/.test(key) && record.status === 'recorded') {
+    throw new TaxonomyLicenceError('A test fixture cannot be recorded as licensed in production.', 422);
+  }
   if (record.status === 'recorded' && (!record.licenceName.trim() || !record.attribution.trim())) {
     throw new TaxonomyLicenceError('A recorded licence needs its name and the attribution text the product must display.', 422);
   }

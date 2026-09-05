@@ -1,7 +1,7 @@
 {
   "$comment": "Machine-readable controller for the autonomous build programme. Authoritative over any chat transcript: if this file and a conversation disagree, this file wins. Updated at every stage checkpoint.",
   "schema_version": 1,
-  "updated_at": "2026-09-05T15:05:00Z",
+  "updated_at": "2026-09-05T16:30:00Z",
   "current_stage": "16",
   "last_completed_stage": "15",
   "current_branch": "claude/stage-16-career-transition",
@@ -624,14 +624,15 @@
     "plans": "DONE — versioned CareerPlan (refresh supersedes, archive), milestones with the approved-evidence rule, /dashboard/career and /dashboard/career/[planId], /api/career/plans, /api/career/plans/[planId], /api/career/milestones/[id]; nav entry",
     "entitlements": "DONE — career_transition_per_month bounds new analyses (30-day window; refresh does not count); learning_recommendations decides whether offerings are shown, gaps always shown",
     "licences": "BLOCKED (LEGAL, L-2) — no learning dataset recorded; graph empty outside a test database; pages say so",
-    "independent_review": "PENDING"
+    "independent_review": "DONE — adversarial review of the Stage 16 diff: 1 HIGH / 5 MEDIUM / 10 LOW; every HIGH and MEDIUM fixed (withheld-not-absent stored plans; advisory lock + unique supersedesId; cross-dataset conflicts reported not re-parented; withdrawal from stored plans on prohibition; not-yet-held certifications in both engines with RULES_VERSION bump; loader script + production fixture refusal), every LOW fixed or recorded; table in STAGE16_EVIDENCE.md §11"
   },
   "stage_16_exit_gate": {
     "met": [
       "Graph queryable (eight tables, reference RLS, loaded through the licence gate, read by the engine on the tenant path)",
       "Counterfactual demonstrated (pure and against the database)",
       "Gap computation correctness tested (pure engine suite)",
-      "Full gate set green: lint 0/7, typecheck 0, tests 1126 / 1126 (0 skipped), build 0; rehearsal 40 migrations, drift clean, 129 forced tables"
+      "Full gate set green: lint 0/7, typecheck 0, tests 1130 / 1130 (0 skipped), build 0; rehearsal 41 migrations, drift clean, 129 forced tables",
+      "Independent adversarial review: every HIGH and MEDIUM finding fixed and re-verified (evidence §11)"
     ],
     "not_met": [
       "Provider / credential terms recorded — BLOCKED (LEGAL, L-2): every learning dataset is unrecorded, the graph is empty outside a test database",

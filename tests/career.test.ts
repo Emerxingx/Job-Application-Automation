@@ -171,6 +171,15 @@ describe('career - graph, engine on the tenant path, plans, budget, RLS, counter
     assert.match(v.offeringsNote ?? '', /not included in your plan/);
     assert.equal(v.analysis.gaps.skills.length, 6);
     assert.ok(v.analysis.pathway.every((p) => p.offeringId === null));
+    assert.equal(v.analysis.offeringsWithheld, true, 'withheld, not absent');
+    assert.ok(v.analysis.pathway.some((p) => p.kind === 'withheld'));
+    assert.ok(!v.analysis.pathway.some((p) => /No licensed offering/.test(p.title)), 'never claims the graph holds nothing');
+    assert.ok(v.analysis.gaps.skills.every((g) => g.coveredBy === null));
+    // an expired certification is not held (review L14)
+    await db.certification.create({ data: { profileId: profileIdFor(U.id), userId: U.id, name: 'CISSP', expiresAt: '2020-01' } });
+    const facts = await tenant(U.id, (tx) => svc.loadCandidateFacts(tx, U.id, new Date('2026-09-05')));
+    assert.deepEqual(facts.certifications, []);
+    await db.certification.deleteMany({ where: { userId: U.id } });
     await assert.rejects(() => tenant(V.id, (tx) => svc.analyseFor(tx, V.id, { targetOccupationId: 'nope' })), (e: Error & { status: number }) => e.status === 404);
   });
 
@@ -206,6 +215,58 @@ describe('career - graph, engine on the tenant path, plans, budget, RLS, counter
     assert.equal(await tenant(U.id, (tx) => svc.archiveCareerPlan(tx, U.id, p3.id)), false);
   });
 
+  it("an unentitled person's STORED plan says the options were withheld, and loses the analysis once the entitlement is gone (review H1, L13)", async () => {
+    await ent.grantEntitlement(db, { subject: { userId: V.id }, capability: 'career_transition_per_month', quantity: 1, source: 'comp', sourceRef: `car-v-${S}`, grantedBy: 'staff:test' });
+    const p = await tenant(V.id, (tx) => svc.createCareerPlan(tx, V.id, { targetOccupationId: occ['21211']! }));
+    const view = (await tenant(V.id, (tx) => svc.loadPlan(tx, V.id, p.id)))!;
+    assert.equal(view.analysis.offeringsWithheld, true);
+    assert.ok(view.milestones.some((m) => /not shown under your plan/.test(m.title)));
+    assert.ok(!view.milestones.some((m) => /No licensed offering/.test(m.title) || /no ingested provider/.test(m.note)), 'the stored milestones never claim the graph is empty');
+    // a refresh needs the entitlement to exist, even though it spends no unit
+    const rows = await db.entitlement.findMany({ where: { userId: V.id, capability: 'career_transition_per_month', revokedAt: null } });
+    for (const r of rows) await ent.revokeEntitlement(db, r.id, { reason: 'staff', revokedBy: 'staff:test' });
+    await assert.rejects(() => tenant(V.id, (tx) => svc.refreshCareerPlan(tx, V.id, p.id)), (e: Error & { status: number }) => e.status === 403);
+    // reference tables are readable, never writable, on the tenant path
+    await assert.rejects(() => tenant(V.id, (tx) => tx.credential.create({ data: { slug: `x-${S}`, name: 'X', kind: 'badge', issuer: 'me' } })));
+    await assert.rejects(() => tenant(V.id, (tx) => tx.learningOffering.updateMany({ data: { active: false } })).then((r) => { if (r.count > 0) throw new Error('updated'); return Promise.reject(new Error('refused')); }));
+  });
+
+  it('a second dataset cannot take over rows the first loaded: conflicts are reported, nothing is re-parented (review M3)', async () => {
+    // A synthetic second dataset row (never a real registered key: the taxonomy suite asserts those stay unrecorded).
+    const other = `learning-other-${S}`;
+    await db.taxonomyDataset.create({ data: { key: other, name: 'Other learning dataset (test)', publisher: 'test', scheme: 'LEARNING', version: 'test', licenceName: 'Test', attribution: 'Other attribution', licenceStatus: 'recorded', ingestionApproved: true, publisherTerms: 'test' } });
+    try {
+      const file: LearningGraphFile = {
+        credentials: [{ slug: 'cpa-ca', name: 'CPA renamed', kind: 'licence', issuer: 'someone else' }],
+        providers: [{ slug: 'fixture-academy', name: 'Hijacked', kind: 'private' }, { slug: `other-${S}`, name: 'Other provider', kind: 'college' }],
+        offerings: [{ slug: 'fa-sql-for-analysts', provider: `other-${S}`, title: 'Hijacked SQL' }, { slug: `other-off-${S}`, provider: `other-${S}`, title: 'A course of the other dataset', skills: ['sql'] }],
+        occupationCredentials: [{ noc: '21211', credential: 'cpa-ca', requirement: 'preferred' }],
+        occupationSkills: [{ noc: '21211', skill: 'sql', importance: 1 }],
+      };
+      const report = await loader.loadLearningGraph(file, other);
+      assert.ok(report.conflicts.includes('credential:cpa-ca'));
+      assert.ok(report.conflicts.includes('provider:fixture-academy'));
+      assert.ok(report.conflicts.includes('offering:fa-sql-for-analysts'));
+      assert.ok(report.conflicts.some((c) => c.startsWith('occupationSkill:21211/sql')));
+      assert.ok(report.conflicts.some((c) => c.startsWith('occupationCredential:21211/cpa-ca')));
+      assert.equal(report.credentials, 0);
+      assert.equal(report.providers, 1);
+      assert.equal(report.offerings, 1);
+      const cpa = await db.credential.findUniqueOrThrow({ where: { slug: 'cpa-ca' } });
+      assert.equal(cpa.datasetId, datasetId, 'still the first dataset\'s row');
+      assert.equal(cpa.name, 'Chartered Professional Accountant (CPA)');
+      const sql = await db.offeringSkill.count({ where: { offering: { slug: 'fa-sql-for-analysts' } } });
+      assert.equal(sql, 1, 'the first dataset\'s links untouched');
+      const otherRow = await db.taxonomyDataset.findUniqueOrThrow({ where: { key: other } });
+      assert.equal(otherRow.rowCount, 2, 'rowCount is a recount: one provider, one offering');
+    } finally {
+      const o = await db.taxonomyDataset.findUniqueOrThrow({ where: { key: other } });
+      await db.learningOffering.deleteMany({ where: { datasetId: o.id } });
+      await db.learningProvider.deleteMany({ where: { datasetId: o.id } });
+      await db.taxonomyDataset.delete({ where: { id: o.id } });
+    }
+  });
+
   it("a completed milestone may cite the person's own APPROVED evidence and nothing else; another tenant sees and touches none of it (RLS)", async () => {
     const plan = (await tenant(U.id, (tx) => svc.listPlans(tx, U.id)))[0]!;
     const view = (await tenant(U.id, (tx) => svc.loadPlan(tx, U.id, plan.id)))!;
@@ -216,6 +277,14 @@ describe('career - graph, engine on the tenant path, plans, budget, RLS, counter
     const done = await tenant(U.id, (tx) => svc.updateMilestone(tx, U.id, m.id, { status: 'done', evidenceId: approved.id }));
     assert.equal(done.evidenceId, approved.id);
     assert.ok(done.completedAt);
+    // review L12: evidence only with done; leaving done clears it; an archived version is not edited
+    await assert.rejects(() => tenant(U.id, (tx) => svc.updateMilestone(tx, U.id, m.id, { status: 'in_progress', evidenceId: approved.id })), (e: Error & { status: number }) => e.status === 422);
+    const back = await tenant(U.id, (tx) => svc.updateMilestone(tx, U.id, m.id, { status: 'in_progress' }));
+    assert.equal(back.evidenceId, null);
+    await tenant(U.id, (tx) => svc.updateMilestone(tx, U.id, m.id, { status: 'done', evidenceId: approved.id }));
+    const archivedPlan = await db.careerPlan.findFirst({ where: { userId: U.id, status: 'archived' }, include: { milestones: { take: 1 } } });
+    assert.ok(archivedPlan && archivedPlan.milestones[0]);
+    await assert.rejects(() => tenant(U.id, (tx) => svc.updateMilestone(tx, U.id, archivedPlan!.milestones[0]!.id, { status: 'dropped' })), (e: Error & { status: number }) => e.status === 409);
     const theirs = await db.careerEvidence.create({ data: { userId: V.id, kind: 'skill', sourceType: 'manual', claim: 'Theirs', status: 'approved', approvedAt: new Date() } });
     await assert.rejects(() => tenant(U.id, (tx) => svc.updateMilestone(tx, U.id, m.id, { status: 'done', evidenceId: theirs.id })), (e: Error & { status: number }) => e.status === 422, "another person's evidence is not visible, so not citable");
     // RLS: V sees nothing of U's plans and cannot move U's milestone
@@ -243,7 +312,7 @@ describe('career - graph, engine on the tenant path, plans, budget, RLS, counter
     await assert.rejects(() => tenant(U.id, (tx) => svc.credentialWhatIf(tx, 'nope', candidate, job)), (e: Error & { status: number }) => e.status === 404);
   });
 
-  it('a prohibition purges the graph the dataset loaded and the plans keep their stored analysis with the offering links detached', async () => {
+  it('a prohibition purges the graph the dataset loaded and WITHDRAWS its content from every stored plan and milestone (review M4)', async () => {
     const plans = await db.careerPlan.findMany({ where: { userId: U.id } });
     assert.ok(plans.length >= 2);
     const linked = await db.careerPlanMilestone.count({ where: { userId: U.id, offeringId: { not: null } } });
@@ -253,8 +322,18 @@ describe('career - graph, engine on the tenant path, plans, budget, RLS, counter
     assert.equal(await db.learningProvider.count({ where: { datasetId } }), 0);
     assert.equal(await db.learningOffering.count({ where: { datasetId } }), 0);
     assert.equal(await db.occupationCredential.count({ where: { datasetId } }), 0);
+    assert.equal(await db.occupationSkill.count({ where: { datasetId } }), 0);
     assert.equal(await db.careerPlan.count({ where: { userId: U.id } }), plans.length, 'the person keeps their plans');
     assert.equal(await db.careerPlanMilestone.count({ where: { userId: U.id, offeringId: { not: null } } }), 0, 'the purged offerings are no longer cited');
+    const withdrawn = await db.careerPlanMilestone.findMany({ where: { userId: U.id, title: { contains: 'Withdrawn' } } });
+    assert.ok(withdrawn.length >= linked, 'every milestone that cited a purged offering or credential reads as withdrawn');
+    for (const p of await db.careerPlan.findMany({ where: { userId: U.id } })) {
+      const a = JSON.parse(p.analysis) as { withdrawn: string[]; provenance: { datasetKey: string }[]; pathway: { title: string; provenance: { datasetKey: string } | null }[] };
+      assert.ok(a.withdrawn.includes(KEY));
+      assert.ok(!a.provenance.some((x) => x.datasetKey === KEY));
+      assert.ok(!a.pathway.some((s) => s.provenance?.datasetKey === KEY));
+      assert.ok(!p.analysis.includes('Fixture attribution (Stage 16)'), 'the attribution string is gone from the stored JSON');
+    }
     // the Stage 04 rule: a prohibited dataset's occupations go with it, so the target is gone too
     assert.equal(await db.occupation.count({ where: { datasetId } }), 0);
     await assert.rejects(() => tenant(U.id, (tx) => svc.analyseFor(tx, U.id, { targetOccupationId: occ['21211']! })), (e: Error & { status: number }) => e.status === 404);

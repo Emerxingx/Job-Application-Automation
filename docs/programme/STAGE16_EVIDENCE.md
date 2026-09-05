@@ -59,11 +59,14 @@ kind (skill with importance and which offerings cover it; credential with
 requirement, regulated flag and recognition as stated), difficulty as named
 factors summing to a banded score (skills 4-20 by importance; credentials
 30 regulated / 15 required / 5 preferred; -5 for a lateral move at the same
-TEER), the market signal (postings THIS deployment holds, said so), a
+TEER when the dataset records no bridge role between the two), the market signal (postings THIS deployment holds, said so), a
 pathway - credentials first via an offering when one leads to it, then a
 deterministic greedy set cover of offerings over the remaining skill gaps,
 then an explicit "no licensed offering in the graph covers X yet" step with
-no provenance, then bridge roles from the dataset's `CareerPath` rows - and
+no provenance (or, for a person whose plan does not include learning
+recommendations, a "not shown under your plan" step - the stored plan says
+withheld, never absent), then bridge roles from the dataset's `CareerPath`
+rows - and
 the provenance of every step. Four honesty caveats travel with every
 stored analysis. A static test proves nothing under `src/lib/career`
 imports the AI gateway, a provider SDK, the mailbox or the sensitive path.
@@ -80,10 +83,12 @@ requires the CPA is **ineligible** (licensure fails); holding the regulated
 CPA (recognition `regulated`, provenance the fixture) the verdict is
 **eligible**, and exactly one rule changed (`licensure`: fail -> pass). A
 credential the posting does not ask for changes nothing and says so.
-Exposed on the job page ("what if I held it?", only for credentials the
-posting's occupation lists under a recorded licence) and as
-`POST /api/career/whatif`, where the candidate's facts are read with the
-audited Stage 07 read (`eligibility.profile.read`, reason `api`).
+Exposed on the job page ("what if I held it?" - the panel lists the
+credentials the posting's occupation carries under a recorded licence, for
+a person whose plan includes the analysis) and as `POST /api/career/whatif`
+(any servable credential against any posting; refused without the
+entitlement; rate-limited, because every call is the audited Stage 07 read
+of the candidate's facts, `eligibility.profile.read`, reason `api`).
 
 ## 5. Plans, milestones and access - `PASS`
 
@@ -117,7 +122,7 @@ validation and licence gate; an unmatched NOC reported; idempotent load;
 the engine on the tenant path for the entitled and the unentitled; plan
 versioning, the budget and its refusals; the evidence rule; RLS ownership
 and reference readability; the counterfactual on real rows with provenance;
-the purge on prohibition. Root suite: 1126 / 1126 (0 skipped).
+the purge on prohibition. The review round (§11) added: the withheld pathway (pure and the stored plan), the not-yet-held and dotted spellings, withdrawal from a stored analysis, conflicts between datasets, the milestone rules, an expired certification, a refresh without the entitlement, the tenant-path write refusal on reference tables, and the in-progress certification in the eligibility suite. Root suite: 1130 / 1130 (0 skipped).
 
 ## 7. What is NOT done, and why
 
@@ -143,9 +148,9 @@ the purge on prohibition. Root suite: 1126 / 1126 (0 skipped).
 | --- | --- |
 | Lint | 0 errors, 7 warnings (baseline ceiling 8) |
 | Typecheck | 0 |
-| Tests | **1126 / 1126**, 0 skipped (Stage 15: 1109) - new: `career-engine` 8, `career` 8 |
+| Tests | **1130 / 1130**, 0 skipped (Stage 15: 1109) - new: `career-engine` 10, `career` 10 |
 | Build | passes; `/dashboard/career`, `/dashboard/career/[planId]`, `/api/career/*` present |
-| Migrations | **forty** (two new, additive; RLS generated); fresh-database rehearsal: 40 applied, `migrate diff` clean, **129** forced-RLS tables in `public` |
+| Migrations | **forty-one** (three new, additive; RLS generated); fresh-database rehearsal: 41 applied, `migrate diff` clean, **129** forced-RLS tables in `public` |
 
 ## 9. Exit gate - verdict
 
@@ -169,4 +174,31 @@ recorded, and says so.** Merge posture inherited from the stack.
 
 ## 11. Independent review
 
-__REVIEW__
+An independent adversarial review of the Stage 16 diff (a separate agent
+with the whole tree, asked to break isolation, honesty, the entitlement and
+licence gates, the engine, the data model and the docs) returned 1 HIGH,
+5 MEDIUM and 10 LOW findings. Every HIGH and MEDIUM is fixed on the branch;
+every LOW is fixed or recorded here. Nothing was suppressed.
+
+| # | Severity | Finding | Outcome |
+| --- | --- | --- | --- |
+| H1 | HIGH | An unentitled person's STORED plan asserted "no licensed offering covers X" when the offerings were merely withheld, and the milestones repeated it. | Fixed: `offeringsWithheld` is an engine input and part of the stored analysis; coverage is `null` (unknown), the pathway carries a `withheld` step ("not shown under your plan"), one milestone says so, the plan page says so. Tested pure and on the stored plan. |
+| M2 | MEDIUM | The 30-day budget and the refresh chain were read-then-write races: two concurrent creates both saw the budget unspent; two refreshes both superseded one version. | Fixed: a transaction-scoped advisory lock per person in `createCareerPlan` and `refreshCareerPlan`; `CareerPlan.supersedesId` is unique (migration `20260905150000_career_plan_supersedes_unique`). |
+| M3 | MEDIUM | The loader upserted by global slug and overwrote `datasetId`, so a second dataset could take over another's rows and a prohibition would purge the wrong content; `OccupationSkill` rows of another source were overwritten. | Fixed: a row another dataset owns is reported as a `conflict` and left alone (credential, provider, offering, occupation-skill, occupation-credential); tested with a second dataset. |
+| M4 | MEDIUM | A prohibition left offering titles, provider names and the attribution string in every stored plan and milestone. | Fixed: `withdraw.ts` runs inside `purgeDataset` before the rows go - steps and coverage that cite the dataset read as withdrawn, the key is listed under `withdrawn`, milestones that cited a purged offering or credential are retitled; tested pure and on the database (the attribution string is gone from the stored JSON). |
+| M5 | MEDIUM | "CPA (in progress)" counted as holding the regulated CPA, in the career engine and in the Stage 07 licensure rule. | Fixed in both with one shared vocabulary (`NOT_YET_HELD`; a test asserts the two are identical); `RULES_VERSION` bumped so stored verdicts re-evaluate. |
+| M6 | MEDIUM | The docs said an operator loads a dataset; no load path existed, and nothing stopped a fixture being recorded in production. | Fixed: `npm run taxonomy:load-learning -- <file> <key>`; `recordDatasetLicence` refuses a `*fixture*` key in production. |
+| L7 | LOW | The two engines normalised certifications differently ("P. Eng"). | Fixed: `certificationTerm` matches the eligibility engine's normalisation; tested. |
+| L8 | LOW | `POST /api/career/whatif` wrote an audit row per call with no limit; the panel rendered for the unentitled. | Fixed: rate-limited (`careerWhatIf`, 20 per 10 minutes) and the job page renders the panel only for a person whose plan includes the analysis. |
+| L9 | LOW | `licensed()` failed open on a null dataset and differed from `loadOfferings`. | Fixed: one `isServable` predicate (recorded AND approved; null is not servable) for every reader, the job page included. |
+| L10 | LOW | `purgeLearningGraph` was dead and incomplete. | Fixed: deleted; `purgeDataset` is the one purge. |
+| L11 | LOW | A re-load incremented `rowCount` and left stale skill links. | Fixed: `rowCount` is recounted; links a file no longer lists are removed. |
+| L12 | LOW | Milestone rules were looser than documented. | Fixed: evidence only with `done`, cleared on leaving it, no edits on an archived version; tested. |
+| L13 | LOW | A refresh ran with no entitlement at all. | Fixed: a refresh needs the analysis to be included (limit > 0), still spends no unit; tested. ADR §5 says so. |
+| L14 | LOW | Certification expiry was ignored. | Fixed: a certification whose recorded expiry has passed is not held; tested. |
+| L15 | LOW | Doc claims: "ties break by id", the lateral condition, the what-if scope. | Fixed: the ordering is now total (importance, name, id) and the ADR and this document say exactly what the code does. |
+| L16 | LOW | Test gaps. | Partly fixed (see §6); no concurrency test - the advisory lock is the mechanism and is the same one Stage 12 relies on. A route-level suite is not added. |
+
+Verification after the fixes: typecheck 0, lint 0 errors / 7 warnings,
+`1130 / 1130` tests (0 skipped), build passes, fresh rehearsal 41
+migrations, drift clean, 129 forced tables.

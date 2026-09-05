@@ -71,12 +71,19 @@ function provenanceOf(datasetId: string | null | undefined, facts: DatasetFacts)
   return d ? { datasetKey: d.key, attribution: d.attribution || d.name } : null;
 }
 
-/** A credential or offering counts only under a licence that is recorded and approved for ingestion (the Stage 04 gate, read at query time). */
-function licensed(datasetId: string | null | undefined, facts: DatasetFacts): boolean {
-  if (!datasetId) return true;
+/**
+ * A credential or offering is servable only under a dataset whose licence is
+ * recorded AND approved for ingestion (the Stage 04 gate, read at query
+ * time). A row with no dataset - which the loader never writes, and which a
+ * deleted dataset row would leave behind (SetNull) - is NOT servable: the
+ * gate fails closed (review finding L9). One predicate for every reader.
+ */
+export function isServable(datasetId: string | null | undefined, facts: DatasetFacts): boolean {
+  if (!datasetId) return false;
   const d = facts.get(datasetId);
-  return d?.licenceStatus === 'recorded';
+  return d?.licenceStatus === 'recorded' && d.ingestionApproved === true;
 }
+const licensed = isServable;
 
 /** One occupation as the engine sees it: its labels, skills, credential requirements and provenance. */
 export async function loadOccupationNode(client: Client, occupationId: string, locale = 'en', facts?: DatasetFacts): Promise<OccupationNode | null> {
@@ -113,20 +120,29 @@ function parseSpellings(json: string): string[] {
   }
 }
 
-/** The person's skills and certifications from the structured profile (Stage 02), on the tenant path. */
-export async function loadCandidateFacts(tx: Client, userId: string): Promise<CandidateFacts> {
+/**
+ * The person's skills and certifications from the structured profile (Stage
+ * 02), on the tenant path. A certification whose recorded expiry ("YYYY-MM")
+ * has passed is not held (review finding L14): it is left out here, so the
+ * engine sees the gap and the plan can say the credential needs renewing.
+ */
+export async function loadCandidateFacts(tx: Client, userId: string, now = new Date()): Promise<CandidateFacts> {
   const [skills, certifications] = await Promise.all([
     tx.candidateSkill.findMany({ where: { userId }, select: { skillId: true, normalizedName: true, proficiency: true, yearsUsed: true } }),
-    tx.certification.findMany({ where: { userId }, select: { name: true } }),
+    tx.certification.findMany({ where: { userId }, select: { name: true, expiresAt: true } }),
   ]);
-  return { skills: skills.map((s) => ({ skillId: s.skillId, normalizedName: normalizeSkill(s.normalizedName), proficiency: s.proficiency, yearsUsed: s.yearsUsed })), certifications: certifications.map((c) => c.name) };
+  const month = now.toISOString().slice(0, 7);
+  return {
+    skills: skills.map((s) => ({ skillId: s.skillId, normalizedName: normalizeSkill(s.normalizedName), proficiency: s.proficiency, yearsUsed: s.yearsUsed })),
+    certifications: certifications.filter((c) => !c.expiresAt || !/^\d{4}-\d{2}$/.test(c.expiresAt) || c.expiresAt >= month).map((c) => c.name),
+  };
 }
 
 /** Offerings under a RECORDED licence that teach any of the skills or lead to any of the credentials. */
 export async function loadOfferings(client: Client, skillIds: string[], credentialIds: string[], facts?: DatasetFacts): Promise<OfferingNode[]> {
   if (skillIds.length === 0 && credentialIds.length === 0) return [];
   const f = facts ?? (await datasetFacts());
-  const recorded = [...f.values()].filter((d) => d.licenceStatus === 'recorded' && d.ingestionApproved).map((d) => d.id);
+  const recorded = [...f.values()].filter((d) => isServable(d.id, f)).map((d) => d.id);
   if (recorded.length === 0) return [];
   const rows = await client.learningOffering.findMany({
     where: {
@@ -158,7 +174,7 @@ export async function loadBridges(client: Client, currentOccupationId: string | 
   const mids = first.map((p) => p.toOccupationId).filter((id) => id !== targetOccupationId);
   if (mids.length === 0) return [];
   const second = await client.careerPath.findMany({ where: { fromOccupationId: { in: mids }, toOccupationId: targetOccupationId }, include: { from: { include: { labels: { where: { locale } } } } } });
-  return second.map((p) => ({ occupationId: p.fromOccupationId, title: p.from.labels[0]?.title ?? p.from.slug, kind: p.kind, provenance: provenanceOf(p.from.datasetId, f) })).sort((a, b) => a.title.localeCompare(b.title));
+  return second.map((p) => ({ occupationId: p.fromOccupationId, title: p.from.labels[0]?.title ?? p.from.slug, kind: p.kind, provenance: provenanceOf(p.from.datasetId, f) })).sort((a, b) => a.title.localeCompare(b.title, 'en') || a.occupationId.localeCompare(b.occupationId));
 }
 
 export interface AnalysisResult {
@@ -175,10 +191,11 @@ export async function analyseFor(tx: Client, userId: string, input: { targetOccu
   if (!target) throw new CareerError('No such occupation.', 404);
   const current = input.currentOccupationId ? await loadOccupationNode(tx, input.currentOccupationId, 'en', facts) : null;
   if (input.currentOccupationId && !current) throw new CareerError('No such current occupation.', 404);
-  const [candidate, market, bridges, set] = await Promise.all([loadCandidateFacts(tx, userId), marketSignal(tx, target.id, now), loadBridges(tx, current?.id ?? null, target.id, 'en', facts), entitlementsFor(tx, userId, now)]);
+  const [candidate, market, bridges, set] = await Promise.all([loadCandidateFacts(tx, userId, now), marketSignal(tx, target.id, now), loadBridges(tx, current?.id ?? null, target.id, 'en', facts), entitlementsFor(tx, userId, now)]);
   const showOfferings = allows(set, 'learning_recommendations');
   const offerings = showOfferings ? await loadOfferings(tx, target.skills.map((s) => s.skillId), target.credentials.map((c) => c.credentialId), facts) : [];
-  const analysis = analyseTransition({ current, target, candidate, offerings, market, bridges, now });
+  // Withheld, not absent: the stored analysis says so (review finding H1).
+  const analysis = analyseTransition({ current, target, candidate, offerings, market, bridges, now, offeringsWithheld: !showOfferings });
   return { analysis, offeringsShown: showOfferings, offeringsNote: showOfferings ? null : 'Learning recommendations are not included in your plan; the gaps above are complete, the offerings that address them are not shown.' };
 }
 
@@ -198,8 +215,20 @@ export interface CreatePlanInput {
   title?: string;
 }
 
+/**
+ * One person's plan writes are serialised on an advisory lock for the
+ * transaction: two concurrent creates would otherwise both read the budget as
+ * unspent, and two concurrent refreshes would both supersede the same
+ * version (review finding M2). The lock is transaction-scoped and released
+ * at commit; it holds a hash of the user id, never the id itself.
+ */
+async function lockPlans(tx: Client, userId: string): Promise<void> {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'career:' + userId}))`;
+}
+
 /** A new plan (version 1) with milestones from the pathway; refused when the window's budget is spent. */
 export async function createCareerPlan(tx: Client, userId: string, input: CreatePlanInput, now = new Date()) {
+  await lockPlans(tx, userId);
   const budget = await analysisBudget(tx, userId, now);
   if (budget.remaining <= 0) throw new CareerAccessError(budget.limit === 0 ? 'Career transition analysis is not included in your plan.' : `You have used the ${budget.limit} career analyses your plan includes in the last 30 days.`);
   const { analysis, offeringsShown } = await analyseFor(tx, userId, input, now);
@@ -213,6 +242,11 @@ export async function createCareerPlan(tx: Client, userId: string, input: Create
 async function writeMilestones(tx: Client, userId: string, planId: string, analysis: TransitionAnalysis, offeringsShown: boolean) {
   let sortOrder = 0;
   for (const step of analysis.pathway) {
+    if (step.kind === 'withheld') {
+      // One milestone that says the options were not shown - never one per skill claiming nothing covers it.
+      await tx.careerPlanMilestone.create({ data: { userId, planId, kind: 'learning', title: step.title, status: 'planned', sortOrder: sortOrder++, note: step.why } });
+      continue;
+    }
     if (step.kind === 'learning' && step.offeringId === null && step.closesSkillIds.length > 0) {
       // The "nothing licensed covers this yet" step becomes one milestone per skill: real experience closes it.
       for (const skillId of step.closesSkillIds) {
@@ -229,9 +263,13 @@ async function writeMilestones(tx: Client, userId: string, planId: string, analy
 
 /** Re-run the engine: a NEW version supersedes the current one (which is archived), milestones carried by title where still relevant. */
 export async function refreshCareerPlan(tx: Client, userId: string, planId: string, now = new Date()) {
+  await lockPlans(tx, userId);
   const previous = await tx.careerPlan.findFirst({ where: { id: planId, userId }, include: { milestones: true } });
   if (!previous) throw new CareerError('No such plan.', 404);
   if (previous.status === 'archived') throw new CareerError('This plan version is archived; refresh the current one.', 409);
+  // A refresh does not spend a budget unit, but it IS an analysis: an account whose
+  // entitlement is gone (revoked, lapsed) may keep its plan and not re-run it (review finding L13).
+  if ((await analysisBudget(tx, userId, now)).limit <= 0) throw new CareerAccessError('Career transition analysis is not included in your plan.');
   const { analysis, offeringsShown } = await analyseFor(tx, userId, { targetOccupationId: previous.targetOccupationId, currentOccupationId: previous.currentOccupationId }, now);
   const next = await tx.careerPlan.create({
     data: { userId, version: previous.version + 1, status: 'active', title: previous.title, currentOccupationId: previous.currentOccupationId, targetOccupationId: previous.targetOccupationId, analysis: JSON.stringify(analysis), engineVersion: ENGINE_VERSION, supersedesId: previous.id },
@@ -254,18 +292,26 @@ export async function archiveCareerPlan(tx: Client, userId: string, planId: stri
 export const MILESTONE_STATUSES = ['planned', 'in_progress', 'done', 'dropped'] as const;
 export type MilestoneStatus = (typeof MILESTONE_STATUSES)[number];
 
-/** Move a milestone; `done` may cite an APPROVED evidence row of the person's own vault - never a claim without one being at least stated. */
+/**
+ * Move a milestone. Only a `done` milestone cites evidence, and only an
+ * APPROVED claim of the person's own vault; leaving `done` clears the
+ * citation; a milestone of an archived plan version is not edited (review
+ * finding L12).
+ */
 export async function updateMilestone(tx: Client, userId: string, milestoneId: string, input: { status: MilestoneStatus; evidenceId?: string | null; note?: string }) {
-  const m = await tx.careerPlanMilestone.findFirst({ where: { id: milestoneId, userId } });
+  const m = await tx.careerPlanMilestone.findFirst({ where: { id: milestoneId, userId }, include: { plan: { select: { status: true } } } });
   if (!m) throw new CareerError('No such milestone.', 404);
-  let evidenceId: string | null = m.evidenceId;
-  if (input.evidenceId !== undefined) {
+  if (m.plan.status === 'archived') throw new CareerError('This plan version is archived; its milestones are the record and are not edited.', 409);
+  let evidenceId: string | null = input.status === 'done' ? m.evidenceId : null;
+  if (input.status === 'done' && input.evidenceId !== undefined) {
     if (input.evidenceId === null) evidenceId = null;
     else {
       const ev = await tx.careerEvidence.findFirst({ where: { id: input.evidenceId, userId, status: 'approved' }, select: { id: true } });
       if (!ev) throw new CareerError('Cite one of your own approved evidence claims, or none.', 422);
       evidenceId = ev.id;
     }
+  } else if (input.status !== 'done' && input.evidenceId) {
+    throw new CareerError('Only a completed milestone cites evidence.', 422);
   }
   return tx.careerPlanMilestone.update({ where: { id: m.id }, data: { status: input.status, completedAt: input.status === 'done' ? (m.completedAt ?? new Date()) : null, evidenceId, ...(input.note !== undefined ? { note: input.note } : {}) } });
 }

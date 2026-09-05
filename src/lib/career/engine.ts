@@ -95,6 +95,12 @@ export interface TransitionInput {
   offerings: OfferingNode[];
   market: MarketSignal;
   bridges: Bridge[];
+  /**
+   * True when the caller had offerings to give but the person's plan does not
+   * include learning recommendations: the pathway then says the offerings are
+   * WITHHELD, never that the graph holds nothing (review finding H1).
+   */
+  offeringsWithheld?: boolean;
   now?: Date;
 }
 
@@ -102,8 +108,8 @@ export interface SkillGap {
   skillId: string;
   name: string;
   importance: number | null;
-  /** Offerings in the graph that state they teach this skill. */
-  coveredBy: string[];
+  /** Offerings in the graph that state they teach this skill; null when offerings were withheld (unknown to this analysis, not absent). */
+  coveredBy: string[] | null;
 }
 
 export interface CredentialGap {
@@ -112,8 +118,8 @@ export interface CredentialGap {
   requirement: CredentialRequirement;
   regulated: boolean;
   recognition: string;
-  /** Offerings in the graph that lead to this credential. */
-  coveredBy: string[];
+  /** Offerings in the graph that lead to this credential; null when offerings were withheld. */
+  coveredBy: string[] | null;
 }
 
 export interface DifficultyFactor {
@@ -124,7 +130,7 @@ export interface DifficultyFactor {
 
 export interface PathwayStep {
   order: number;
-  kind: 'credential' | 'learning' | 'experience';
+  kind: 'credential' | 'learning' | 'experience' | 'withheld';
   title: string;
   why: string;
   offeringId: string | null;
@@ -149,6 +155,10 @@ export interface TransitionAnalysis {
   bridges: Bridge[];
   provenance: Provenance[];
   honesty: string[];
+  /** Stored with the analysis so a plan never later reads as "the graph holds nothing" when the offerings were merely not shown. */
+  offeringsWithheld: boolean;
+  /** Dataset keys whose content was withdrawn from this analysis after a licence was refused (see withdraw.ts). */
+  withdrawn: string[];
 }
 
 export const HONESTY = [
@@ -167,6 +177,24 @@ export function normalizeTerm(value: string): string {
     .trim();
 }
 
+/**
+ * The normalisation the ELIGIBILITY engine applies to a certification (every
+ * mark stripped, so "P. Eng" and "P.Eng." are one term). Credentials are
+ * matched with this one so the plan and the verdict cannot disagree about
+ * whether a designation is held (review finding L7).
+ */
+export function certificationTerm(value: string): string {
+  return value.toLowerCase().replace(/[^\p{L}\p{N} ]+/gu, ' ').replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * A recorded certification that says it is NOT yet held - "CPA (in
+ * progress)", "CPA candidate", "working towards P.Eng" - is not a
+ * credential the person holds, whatever else the string says (review
+ * finding M5). Shared vocabulary with the eligibility engine.
+ */
+export const NOT_YET_HELD = /\b(in progress|in-progress|candidate|student|pursuing|towards|toward|exam|prep|course|enrolled|studying|expected)\b/;
+
 function hasWholeWords(haystack: string, needle: string): boolean {
   if (!needle) return false;
   const re = new RegExp(`(^|\\s)${needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\s|$)`);
@@ -178,10 +206,10 @@ export function holdsSkill(candidate: CandidateFacts, skill: GraphSkill): boolea
   return candidate.skills.some((c) => (c.skillId && c.skillId === skill.skillId) || (c.normalizedName && c.normalizedName === skill.normalizedName));
 }
 
-/** Whether the candidate's certifications name the credential by any of its spellings (whole words). */
+/** Whether the candidate's certifications name the credential by any of its spellings (whole words), and do not say it is still in progress. */
 export function holdsCredential(candidate: CandidateFacts, credential: Pick<GraphCredential, 'name' | 'spellings'>): boolean {
-  const held = candidate.certifications.map(normalizeTerm).filter(Boolean);
-  const spellings = [normalizeTerm(credential.name), ...credential.spellings.map(normalizeTerm)].filter(Boolean);
+  const held = candidate.certifications.map(certificationTerm).filter((h) => h && !NOT_YET_HELD.test(h));
+  const spellings = [certificationTerm(credential.name), ...credential.spellings.map(certificationTerm)].filter(Boolean);
   return held.some((h) => spellings.some((sp) => h === sp || hasWholeWords(h, sp)));
 }
 
@@ -232,13 +260,15 @@ export function analyseTransition(input: TransitionInput): TransitionAnalysis {
   const target = input.target;
   const transferable = target.skills.filter((s) => holdsSkill(input.candidate, s));
   const missingSkills = target.skills.filter((s) => !holdsSkill(input.candidate, s));
+  const withheld = input.offeringsWithheld === true;
+  // Order: importance, then name (ICU, 'en'), then the id - so the output is total and stable.
   const skillGaps: SkillGap[] = missingSkills
-    .map((s) => ({ skillId: s.skillId, name: s.name, importance: s.importance, coveredBy: input.offerings.filter((o) => o.skillIds.includes(s.skillId)).map((o) => o.id).sort() }))
-    .sort((a, b) => (b.importance ?? IMPORTANCE_DEFAULT) - (a.importance ?? IMPORTANCE_DEFAULT) || a.name.localeCompare(b.name));
+    .map((s) => ({ skillId: s.skillId, name: s.name, importance: s.importance, coveredBy: withheld ? null : input.offerings.filter((o) => o.skillIds.includes(s.skillId)).map((o) => o.id).sort() }))
+    .sort((a, b) => (b.importance ?? IMPORTANCE_DEFAULT) - (a.importance ?? IMPORTANCE_DEFAULT) || a.name.localeCompare(b.name, 'en') || a.skillId.localeCompare(b.skillId));
   const credentialGaps: CredentialGap[] = target.credentials
     .filter((c) => !holdsCredential(input.candidate, c))
-    .map((c) => ({ credentialId: c.credentialId, name: c.name, requirement: c.requirement, regulated: c.regulated, recognition: c.recognition, coveredBy: input.offerings.filter((o) => o.credentialId === c.credentialId).map((o) => o.id).sort() }))
-    .sort((a, b) => credentialPoints(target.credentials.find((c) => c.credentialId === b.credentialId)!) - credentialPoints(target.credentials.find((c) => c.credentialId === a.credentialId)!) || a.name.localeCompare(b.name));
+    .map((c) => ({ credentialId: c.credentialId, name: c.name, requirement: c.requirement, regulated: c.regulated, recognition: c.recognition, coveredBy: withheld ? null : input.offerings.filter((o) => o.credentialId === c.credentialId).map((o) => o.id).sort() }))
+    .sort((a, b) => credentialPoints(target.credentials.find((c) => c.credentialId === b.credentialId)!) - credentialPoints(target.credentials.find((c) => c.credentialId === a.credentialId)!) || a.name.localeCompare(b.name, 'en') || a.credentialId.localeCompare(b.credentialId));
 
   const factors: DifficultyFactor[] = [];
   for (const g of skillGaps) factors.push({ factor: `skill:${g.name}`, points: skillPoints(g.importance), detail: `${g.name} is ${g.importance !== null ? `importance ${g.importance} of 5` : 'listed'} for the target and not on your profile.` });
@@ -282,7 +312,20 @@ export function analyseTransition(input: TransitionInput): TransitionAnalysis {
     });
   }
   const stillOpen = gapsNotClosedByCredentials.filter((g) => !pathway.some((p) => p.closesSkillIds.includes(g.skillId)));
-  if (stillOpen.length > 0) {
+  if (stillOpen.length > 0 && withheld) {
+    // The offerings exist for all we know; the person's plan does not show them. Say that, never "nothing covers this".
+    pathway.push({
+      order: order++,
+      kind: 'withheld',
+      title: `Learning options for ${stillOpen.map((g) => g.name).join(', ')} are not shown under your plan`,
+      why: 'Learning recommendations are not included in your plan. The gaps above are complete; the offerings that address them are not shown.',
+      offeringId: null,
+      credentialId: null,
+      occupationId: null,
+      closesSkillIds: stillOpen.map((g) => g.skillId),
+      provenance: null,
+    });
+  } else if (stillOpen.length > 0) {
     pathway.push({
       order: order++,
       kind: 'learning',
@@ -322,6 +365,8 @@ export function analyseTransition(input: TransitionInput): TransitionAnalysis {
     bridges: input.bridges,
     provenance,
     honesty: [...HONESTY],
+    offeringsWithheld: withheld,
+    withdrawn: [],
   };
 }
 

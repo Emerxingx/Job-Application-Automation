@@ -3395,6 +3395,7 @@ model CareerPlan {
   user       User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
   milestones CareerPlanMilestone[]
 
+  @@unique([supersedesId])
   @@index([userId, status, createdAt])
   @@index([targetOccupationId])
 }

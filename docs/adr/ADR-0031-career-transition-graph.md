@@ -34,8 +34,17 @@ never things the engine infers.
    recorded AND ingestion approved), matches occupations by NOC 2021 code
    through `OccupationCode` and **reports a code the spine does not hold
    rather than inventing an occupation**, and matches skills to the shared
-   `Skill` table by normalised name. A prohibition purges everything the
-   dataset loaded in the same transaction (`purgeDataset`, extended). Three
+   `Skill` table by normalised name. A row another dataset loaded (the same
+   slug, or the same occupation-skill pair) is never overwritten or
+   re-parented: it is reported as a conflict, so a later prohibition purges
+   exactly what each licence loaded. A prohibition purges everything the
+   dataset loaded in the same transaction (`purgeDataset`, extended) and
+   WITHDRAWS the dataset's content from every stored plan and milestone
+   first (`withdraw.ts`: the steps read as withdrawn, the attribution and
+   offering names leave the stored JSON, the key is listed under
+   `withdrawn`). An operator loads a file with
+   `npm run taxonomy:load-learning -- <file> <key>` after the licence is
+   recorded; a `*fixture*` key cannot be recorded in production. Three
    datasets are registered: `esdc-regulated-occupations`, `cicic-programs`
    (both `unrecorded`; counsel review L-2) and `learning-fixture` (tests
    only). The CMS collections stay as narrative; nothing in the graph reads
@@ -49,9 +58,16 @@ never things the engine infers.
    credential - required, preferred or regulated), a difficulty score with
    named factors and a band, a pathway (credentials first, then a greedy
    set cover of offerings over the remaining skill gaps, then an explicit
-   "no licensed offering covers X yet" step, then bridge roles) and the
-   provenance of every step. Ties break by id; the same input always yields
-   the same output. It never calls a model provider (static test) and never
+   "no licensed offering covers X yet" step - or, when the person's plan
+   does not include learning recommendations, a "not shown under your plan"
+   step, so a stored plan never reads as "the graph holds nothing" when the
+   offerings were merely withheld - then bridge roles) and the provenance
+   of every step. Ordering is total: importance, then name (ICU, `en`),
+   then the id; the same input always yields the same output. A
+   certification recorded as not yet held ("in progress", "candidate", …)
+   is not held, and one whose recorded expiry has passed is not held - the
+   same vocabulary the eligibility engine uses, so the plan and the verdict
+   agree. It never calls a model provider (static test) and never
    reads the sensitive schema (ADR-0007; the Stage 02 allowlist test covers
    it). The market signal is what THIS deployment holds and says so.
 3. **The counterfactual is the Stage 07 engine run twice.** `credentialCounterfactual`

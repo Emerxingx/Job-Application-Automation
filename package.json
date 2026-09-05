@@ -19,6 +19,7 @@
     "db:push": "node scripts/db/with-encoded-env.mjs prisma db push",
     "db:seed": "tsx prisma/seed.ts",
     "jobs:freshness": "node scripts/db/with-encoded-env.mjs tsx scripts/jobs/freshness.ts",
+    "taxonomy:load-learning": "node scripts/db/with-encoded-env.mjs tsx scripts/taxonomy/load-learning.ts",
     "jobs:canonicalize": "node scripts/db/with-encoded-env.mjs tsx scripts/jobs/canonicalize.ts",
     "mailbox:sync": "tsx scripts/mailbox/sync.ts",
     "analytics:rollup": "tsx scripts/analytics/rollup-candidates.ts",

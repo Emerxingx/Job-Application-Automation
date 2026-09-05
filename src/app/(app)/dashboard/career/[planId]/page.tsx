@@ -85,7 +85,7 @@ export default async function CareerPlanPage({ params }: { params: Promise<{ pla
                   <li key={s.skillId}>
                     <span className="text-ink">{s.name}</span>
                     {s.importance !== null ? <span className="ml-1 text-xs text-muted">importance {s.importance}/5</span> : null}
-                    <span className="ml-1 text-xs text-faint">{s.coveredBy.length === 0 ? '· no licensed offering covers it yet' : `· ${s.coveredBy.length} offering${s.coveredBy.length === 1 ? '' : 's'}`}</span>
+                    <span className="ml-1 text-xs text-faint">{s.coveredBy === null ? '· offerings not shown under your plan' : s.coveredBy.length === 0 ? '· no licensed offering covers it yet' : `· ${s.coveredBy.length} offering${s.coveredBy.length === 1 ? '' : 's'}`}</span>
                   </li>
                 ))}
               </ul>
@@ -94,6 +94,8 @@ export default async function CareerPlanPage({ params }: { params: Promise<{ pla
 
           <Card className="p-5">
             <h2 className="text-base font-semibold text-ink">Pathway</h2>
+            {a.offeringsWithheld ? <p className="mt-1 text-xs text-warning">Learning recommendations are not included in your plan: the gaps are complete, the courses and credentials that address them are not shown.</p> : null}
+            {a.withdrawn && a.withdrawn.length > 0 ? <p className="mt-1 text-xs text-warning">A dataset this plan drew on is no longer licensed; its steps read as withdrawn. Re-run the plan for a current pathway.</p> : null}
             <ol className="mt-2 space-y-2 text-sm">
               {a.pathway.map((step) => (
                 <li key={step.order} className="rounded-md border border-line p-3">

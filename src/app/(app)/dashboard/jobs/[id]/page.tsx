@@ -6,7 +6,8 @@ import { sourceNamesFor } from '@/lib/connectors/registry';
 import { eligibilityForPage } from '@/lib/eligibility/page';
 import { EligibilityPanel } from '@/components/eligibility-panel';
 import { CredentialWhatIf } from '@/components/credential-whatif';
-import { datasetFacts } from '@/lib/career/service';
+import { datasetFacts, isServable } from '@/lib/career/service';
+import { quantityFor } from '@/lib/entitlements/service';
 import { attributionFor } from '@/lib/taxonomy/datasets';
 import { getQuota } from '@/lib/subscription';
 import { parseJson } from '@/lib/types';
@@ -66,7 +67,8 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
   // recorded licence, for the "what if I held it?" comparison in the sidebar.
   // (`TaxonomyDataset` is system-only, so the licence state is read through
   // `datasetFacts()` on the system client, never as a relation on the tenant path.)
-  const occupationCredentials = job.occupationId
+  // Only for a person whose plan includes the analysis at all (the route refuses the rest).
+  const occupationCredentials = job.occupationId && (await run((tx) => quantityFor(tx, user.id, 'career_transition_per_month'))) > 0
     ? await (async () => {
         const facts = await datasetFacts();
         const rows = await run((tx) =>
@@ -76,7 +78,7 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
             orderBy: [{ requirement: 'asc' }, { credential: { name: 'asc' } }],
           }),
         );
-        return rows.filter((r) => r.credential.datasetId === null || facts.get(r.credential.datasetId)?.licenceStatus === 'recorded');
+        return rows.filter((r) => isServable(r.credential.datasetId, facts));
       })()
     : [];
   // Likewise the source register: display names only, keyed by id.

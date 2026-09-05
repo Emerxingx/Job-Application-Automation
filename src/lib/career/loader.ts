@@ -64,6 +64,13 @@ export interface LearningLoadReport {
   occupationSkills: number;
   /** NOC codes the taxonomy does not hold; their requirements were NOT loaded. */
   unmatchedNoc: string[];
+  /**
+   * Rows another dataset owns (same slug, or the same occupation+skill pair)
+   * that this file also carries; they were NOT overwritten or re-parented,
+   * so a later prohibition purges exactly what each licence loaded
+   * (review finding M3).
+   */
+  conflicts: string[];
 }
 
 const CREDENTIAL_KINDS = new Set(['certification', 'licence', 'degree', 'diploma', 'microcredential', 'badge']);
@@ -113,21 +120,35 @@ export async function loadLearningGraph(file: LearningGraphFile, datasetKey: str
   validateLearningGraph(file);
   const dataset = await requireIngestible(client, datasetKey);
   const created = { n: 0 };
+  const conflicts: string[] = [];
+  const owned = (kind: string, slug: string, existing: { datasetId: string | null } | null): boolean => {
+    if (existing && existing.datasetId !== null && existing.datasetId !== dataset.id) {
+      conflicts.push(`${kind}:${slug}`);
+      return false;
+    }
+    return true;
+  };
   const credentialIds = new Map<string, string>();
   for (const c of file.credentials) {
+    if (!owned('credential', c.slug, await client.credential.findUnique({ where: { slug: c.slug }, select: { datasetId: true } }))) continue;
     const row = await client.credential.upsert({
       where: { slug: c.slug },
       create: { slug: c.slug, name: c.name, kind: c.kind, issuer: c.issuer, issuerUrl: c.issuerUrl ?? '', jurisdiction: c.jurisdiction ?? 'CA', recognition: c.recognition ?? 'unverified', regulated: c.regulated ?? false, validityMonths: c.validityMonths ?? null, renewal: c.renewal ?? '', spellings: JSON.stringify((c.spellings ?? []).map((s) => s.toLowerCase())), datasetId: dataset.id },
       update: { name: c.name, kind: c.kind, issuer: c.issuer, issuerUrl: c.issuerUrl ?? '', jurisdiction: c.jurisdiction ?? 'CA', recognition: c.recognition ?? 'unverified', regulated: c.regulated ?? false, validityMonths: c.validityMonths ?? null, renewal: c.renewal ?? '', spellings: JSON.stringify((c.spellings ?? []).map((s) => s.toLowerCase())), datasetId: dataset.id },
     });
     credentialIds.set(c.slug, row.id);
+    const keep: string[] = [];
     for (const skillName of c.skills ?? []) {
       const skillId = await ensureSkill(client, skillName, created);
+      keep.push(skillId);
       await client.credentialSkill.upsert({ where: { credentialId_skillId: { credentialId: row.id, skillId } }, create: { credentialId: row.id, skillId, datasetId: dataset.id }, update: { datasetId: dataset.id } });
     }
+    // A skill the file no longer lists is no longer stated (review finding L11).
+    await client.credentialSkill.deleteMany({ where: { credentialId: row.id, skillId: { notIn: keep } } });
   }
   const providerIds = new Map<string, string>();
   for (const p of file.providers) {
+    if (!owned('provider', p.slug, await client.learningProvider.findUnique({ where: { slug: p.slug }, select: { datasetId: true } }))) continue;
     const row = await client.learningProvider.upsert({
       where: { slug: p.slug },
       create: { slug: p.slug, name: p.name, kind: p.kind, country: p.country ?? 'CA', region: p.region ?? '', url: p.url ?? '', datasetId: dataset.id },
@@ -135,13 +156,24 @@ export async function loadLearningGraph(file: LearningGraphFile, datasetKey: str
     });
     providerIds.set(p.slug, row.id);
   }
+  let offerings = 0;
   for (const o of file.offerings) {
-    const data = { providerId: providerIds.get(o.provider)!, credentialId: o.credential ? credentialIds.get(o.credential) ?? null : null, title: o.title, deliveryMode: o.deliveryMode ?? 'online', durationHours: o.durationHours ?? null, durationWeeks: o.durationWeeks ?? null, costCents: o.costCents ?? null, currency: o.currency ?? 'CAD', prerequisites: o.prerequisites ?? '', jurisdiction: o.jurisdiction ?? 'CA', url: o.url ?? '', active: true, datasetId: dataset.id };
+    const providerId = providerIds.get(o.provider);
+    if (!providerId) {
+      conflicts.push(`offering:${o.slug} (provider ${o.provider} belongs to another dataset)`);
+      continue;
+    }
+    if (!owned('offering', o.slug, await client.learningOffering.findUnique({ where: { slug: o.slug }, select: { datasetId: true } }))) continue;
+    const data = { providerId, credentialId: o.credential ? credentialIds.get(o.credential) ?? null : null, title: o.title, deliveryMode: o.deliveryMode ?? 'online', durationHours: o.durationHours ?? null, durationWeeks: o.durationWeeks ?? null, costCents: o.costCents ?? null, currency: o.currency ?? 'CAD', prerequisites: o.prerequisites ?? '', jurisdiction: o.jurisdiction ?? 'CA', url: o.url ?? '', active: true, datasetId: dataset.id };
     const row = await client.learningOffering.upsert({ where: { slug: o.slug }, create: { slug: o.slug, ...data }, update: data });
+    offerings += 1;
+    const keep: string[] = [];
     for (const skillName of o.skills ?? []) {
       const skillId = await ensureSkill(client, skillName, created);
+      keep.push(skillId);
       await client.offeringSkill.upsert({ where: { offeringId_skillId: { offeringId: row.id, skillId } }, create: { offeringId: row.id, skillId }, update: {} });
     }
+    await client.offeringSkill.deleteMany({ where: { offeringId: row.id, skillId: { notIn: keep } } });
   }
   const unmatchedNoc: string[] = [];
   let occupationCredentials = 0;
@@ -151,7 +183,11 @@ export async function loadLearningGraph(file: LearningGraphFile, datasetKey: str
       if (!unmatchedNoc.includes(r.noc)) unmatchedNoc.push(r.noc);
       continue;
     }
-    const credentialId = credentialIds.get(r.credential)!;
+    const credentialId = credentialIds.get(r.credential);
+    if (!credentialId) {
+      conflicts.push(`occupationCredential:${r.noc}/${r.credential} (credential belongs to another dataset)`);
+      continue;
+    }
     const jurisdiction = r.jurisdiction ?? 'CA';
     await client.occupationCredential.upsert({
       where: { occupationId_credentialId_jurisdiction: { occupationId: code.occupationId, credentialId, jurisdiction } },
@@ -168,6 +204,13 @@ export async function loadLearningGraph(file: LearningGraphFile, datasetKey: str
       continue;
     }
     const skillId = await ensureSkill(client, r.skill, created);
+    // An occupation-skill row another source wrote (a Stage 04 OaSIS load, another learning
+    // dataset) is neither overwritten nor re-parented; it is reported.
+    const existingSkill = await client.occupationSkill.findUnique({ where: { occupationId_skillId: { occupationId: code.occupationId, skillId } }, select: { datasetId: true, source: true } });
+    if (existingSkill && (existingSkill.datasetId ?? null) !== dataset.id) {
+      conflicts.push(`occupationSkill:${r.noc}/${r.skill} (source ${existingSkill.source})`);
+      continue;
+    }
     await client.occupationSkill.upsert({
       where: { occupationId_skillId: { occupationId: code.occupationId, skillId } },
       create: { occupationId: code.occupationId, skillId, importance: r.importance ?? null, level: r.level ?? null, source: datasetKey, datasetId: dataset.id },
@@ -175,17 +218,14 @@ export async function loadLearningGraph(file: LearningGraphFile, datasetKey: str
     });
     occupationSkills += 1;
   }
-  await client.taxonomyDataset.update({ where: { id: dataset.id }, data: { ingestedAt: new Date(), rowCount: { increment: file.credentials.length + file.providers.length + file.offerings.length + occupationCredentials + occupationSkills } } });
-  return { datasetKey, credentials: file.credentials.length, providers: file.providers.length, offerings: file.offerings.length, skillsCreated: created.n, occupationCredentials, occupationSkills, unmatchedNoc };
-}
-
-/** Everything a dataset loaded, gone: the Stage 04 prohibition rule extended to this graph. */
-export async function purgeLearningGraph(datasetId: string, client: Client = db): Promise<{ credentials: number; providers: number; offerings: number }> {
-  const [offerings, providers, credentials] = await Promise.all([
-    client.learningOffering.deleteMany({ where: { datasetId } }),
-    client.learningProvider.deleteMany({ where: { datasetId } }),
-    client.credential.deleteMany({ where: { datasetId } }),
+  // rowCount is what the dataset holds NOW, recounted, so a re-load is idempotent (review finding L11).
+  const [nc, np, no, noc, nos] = await Promise.all([
+    client.credential.count({ where: { datasetId: dataset.id } }),
+    client.learningProvider.count({ where: { datasetId: dataset.id } }),
+    client.learningOffering.count({ where: { datasetId: dataset.id } }),
+    client.occupationCredential.count({ where: { datasetId: dataset.id } }),
+    client.occupationSkill.count({ where: { datasetId: dataset.id } }),
   ]);
-  await client.occupationCredential.deleteMany({ where: { datasetId } });
-  return { credentials: credentials.count, providers: providers.count, offerings: offerings.count };
+  await client.taxonomyDataset.update({ where: { id: dataset.id }, data: { ingestedAt: new Date(), rowCount: nc + np + no + noc + nos } });
+  return { datasetKey, credentials: credentialIds.size, providers: providerIds.size, offerings, skillsCreated: created.n, occupationCredentials, occupationSkills, unmatchedNoc, conflicts };
 }

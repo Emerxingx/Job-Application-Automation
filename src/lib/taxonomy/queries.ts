@@ -108,8 +108,9 @@ export interface CompletenessReport {
 }
 
 /** The integrity and bilingual-completeness report the tests and the console read. */
-export async function completeness(client: Client, locales: string[] = ['en', 'fr']): Promise<CompletenessReport> {
-  const all = await client.occupation.findMany({ include: { labels: { select: { locale: true } }, codes: { select: { scheme: true } } } });
+export async function completeness(client: Client, locales: string[] = ['en', 'fr'], options: { datasetId?: string } = {}): Promise<CompletenessReport> {
+  // Optionally one dataset's occupations only (a suite checking its own fixture; the console reads the whole spine).
+  const all = await client.occupation.findMany({ where: options.datasetId ? { datasetId: options.datasetId } : undefined, include: { labels: { select: { locale: true } }, codes: { select: { scheme: true } } } });
   const byLevel: Record<string, number> = {};
   const codesByScheme: Record<string, number> = {};
   const missingLabels: Record<string, string[]> = Object.fromEntries(locales.map((l) => [l, []]));

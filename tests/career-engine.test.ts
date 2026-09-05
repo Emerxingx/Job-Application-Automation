@@ -11,7 +11,9 @@ import path from 'node:path';
 import { describe, it } from 'node:test';
 import { ENGINE_VERSION, HONESTY, analyseTransition, difficultyBand, holdsCredential, holdsSkill, normalizeTerm, offeringCounterfactual, type CandidateFacts, type OccupationNode, type OfferingNode, type TransitionInput } from '../src/lib/career/engine';
 import { credentialCounterfactual } from '../src/lib/career/counterfactual';
-import type { CandidateEligibility, JobEligibilityFacts } from '../src/lib/eligibility/engine';
+import { WITHDRAWN_TITLE, withdrawFromAnalysis } from '../src/lib/career/withdraw';
+import { NOT_YET_HELD as ELIGIBILITY_NOT_YET_HELD, type CandidateEligibility, type JobEligibilityFacts } from '../src/lib/eligibility/engine';
+import { NOT_YET_HELD as CAREER_NOT_YET_HELD } from '../src/lib/career/engine';
 
 const P = { datasetKey: 'learning-fixture', attribution: 'Fixture attribution' };
 const skill = (id: string, name: string, importance: number | null = null) => ({ skillId: id, name, normalizedName: normalizeTerm(name), importance, level: null });
@@ -46,6 +48,44 @@ describe('career engine - transferable skills, gaps, difficulty, pathway, proven
     assert.equal(holdsCredential({ skills: [], certifications: ['Chartered Professional Accountant'] }, cpa), true);
     assert.equal(holdsCredential({ skills: [], certifications: ['CPAP therapy certificate'] }, cpa), false, 'a substring is not a spelling');
     assert.equal(holdsCredential({ skills: [], certifications: [] }, cpa), false);
+    // review M5: a certification that says it is not yet held is not held
+    for (const notYet of ['CPA (in progress)', 'CPA candidate', 'Working towards CPA', 'CPA exam booked', 'Studying for the CPA']) {
+      assert.equal(holdsCredential({ skills: [], certifications: [notYet] }, cpa), false, notYet);
+    }
+    assert.equal(String(CAREER_NOT_YET_HELD), String(ELIGIBILITY_NOT_YET_HELD), 'the two engines share the vocabulary');
+    // review L7: the same normalisation as the eligibility engine, so a dotted designation is one term in both
+    const peng = { name: 'P.Eng.', spellings: ['p eng', 'professional engineer'] };
+    assert.equal(holdsCredential({ skills: [], certifications: ['P. Eng'] }, peng), true);
+    assert.equal(holdsCredential({ skills: [], certifications: ['P.Eng. (Ontario)'] }, peng), true);
+  });
+
+  it('when offerings are WITHHELD the analysis says so: coverage is null, the pathway has a withheld step and never "nothing covers this" (review H1)', () => {
+    const a = analyseTransition({ ...base, offerings: [], offeringsWithheld: true });
+    assert.equal(a.offeringsWithheld, true);
+    assert.ok(a.gaps.skills.every((g) => g.coveredBy === null));
+    assert.ok(a.gaps.credentials.every((g) => g.coveredBy === null));
+    const withheld = a.pathway.filter((p) => p.kind === 'withheld');
+    assert.equal(withheld.length, 1);
+    assert.match(withheld[0]!.title, /not shown under your plan/);
+    assert.ok(!a.pathway.some((p) => /No licensed offering/.test(p.title)));
+    assert.deepEqual(withheld[0]!.closesSkillIds, ['s_py', 's_ml', 's_stats', 's_viz']);
+    const shown = analyseTransition({ ...base, offerings: [] });
+    assert.equal(shown.offeringsWithheld, false);
+    assert.ok(shown.pathway.some((p) => /No licensed offering/.test(p.title)), 'with nothing withheld an empty graph is said to be empty');
+  });
+
+  it('withdrawing a dataset from a stored analysis replaces its steps and coverage and lists the key; a second withdrawal is a no-op (review M4)', () => {
+    const a = analyseTransition(base);
+    const r = withdrawFromAnalysis(a, 'learning-fixture', new Set(['o_msc', 'o_python', 'o_aws']));
+    assert.equal(r.changed, true);
+    assert.deepEqual(r.analysis.withdrawn, ['learning-fixture']);
+    assert.ok(r.analysis.pathway.filter((p) => p.kind === 'credential').every((p) => p.title === WITHDRAWN_TITLE && p.offeringId === null && p.provenance === null));
+    assert.ok(r.analysis.gaps.skills.every((g) => g.coveredBy !== null && g.coveredBy.length === 0));
+    assert.ok(!r.analysis.provenance.some((p) => p.datasetKey === 'learning-fixture'));
+    assert.ok(r.analysis.provenance.some((p) => p.datasetKey === 'noc-2021'), 'another dataset\'s provenance stays');
+    const again = withdrawFromAnalysis(r.analysis, 'learning-fixture', new Set());
+    assert.equal(again.changed, false);
+    assert.equal(withdrawFromAnalysis(a, 'nothing', new Set()).changed, false);
   });
 
   it('separates what transfers from what is missing, orders gaps by importance, prices credentials by requirement, and bands the score', () => {

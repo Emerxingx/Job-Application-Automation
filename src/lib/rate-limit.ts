@@ -59,6 +59,8 @@ export const LIMITS = {
   analyticsRefresh: { limit: 3, windowSeconds: 60 * 10 },
   /** Stage 14 review: sign-in attempts per ACCOUNT (keyed by the digest of the email), whatever address they claim to come from. */
   authAccount: { limit: 30, windowSeconds: 60 * 15 },
+  /** Stage 16: the credential what-if, an audited read of the person's eligibility facts per call. */
+  careerWhatIf: { limit: 20, windowSeconds: 60 * 10 },
 } as const satisfies Record<string, RateLimitRule>;
 
 /**

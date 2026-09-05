@@ -137,7 +137,8 @@ describe('taxonomy — licence gate, loading, crosswalk, classification, RLS', {
   it('every real dataset starts unrecorded, and the loader refuses all of them', async () => {
     const all = await db.taxonomyDataset.findMany();
     assert.ok(all.length >= 6);
-    for (const d of all.filter((x) => !['fixture', 'soc-2018', 'onet'].includes(x.key))) assert.equal(d.licenceStatus, 'unrecorded', d.key);
+    // The learning-graph suite (Stage 16) records its own fixture-like keys concurrently; the real datasets it never touches.
+    for (const d of all.filter((x) => !['fixture', 'soc-2018', 'onet'].includes(x.key) && !x.key.startsWith('learning-'))) assert.equal(d.licenceStatus, 'unrecorded', d.key);
     assert.ok(all.every((d) => d.publisherTerms.length > 0), 'the publisher terms are synced from the registry');
     await assert.rejects(() => loader.loadNocRows(rows(), 'noc-2021'), /licence has not been recorded/);
     await assert.rejects(() => loader.loadNocRows(rows(), 'fixture'), /licence has not been recorded/);
@@ -207,7 +208,9 @@ describe('taxonomy — licence gate, loading, crosswalk, classification, RLS', {
   });
 
   it('the integrity report: no orphans, both locales complete, every unit group lacks SOC until the crosswalk loads', async () => {
-    const report = await queries.completeness(db);
+    // Scoped to this suite's dataset: another suite may hold occupations of its own at the same time.
+    const fixture = await db.taxonomyDataset.findUniqueOrThrow({ where: { key: 'fixture' } });
+    const report = await queries.completeness(db, ['en', 'fr'], { datasetId: fixture.id });
     assert.equal(report.occupations, 19);
     assert.deepEqual(report.orphans, []);
     assert.deepEqual(report.missingLabels.en, []);

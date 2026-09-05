@@ -26,7 +26,7 @@
  * depends on a jurisdiction it does not model answers `unknown`.
  */
 
-export const RULES_VERSION = '2026-09-03.1';
+export const RULES_VERSION = '2026-09-05.1';
 
 export type RuleId = 'work_authorization' | 'sponsorship' | 'security_clearance' | 'location' | 'licensure' | 'language';
 export type RuleStatus = 'pass' | 'fail' | 'unknown';
@@ -267,6 +267,8 @@ const LICENSED: { designation: string; spellings: string[]; titleWords: RegExp; 
   { designation: 'cpa', spellings: ['cpa', 'chartered professional accountant'], titleWords: /\b(cpa|chartered professional accountant)\b/, label: 'CPA designation' },
 ];
 const PREFERRED_WORDING = /\b(preferred|an? asset|a plus|nice to have|desirable|welcome)\b/;
+/** Words that mean a recorded certification is not yet held. Kept identical to src/lib/career/engine.ts NOT_YET_HELD (a test compares them). */
+export const NOT_YET_HELD = /\b(in progress|in-progress|candidate|student|pursuing|towards|toward|exam|prep|course|enrolled|studying|expected)\b/;
 
 function norm(x: string): string {
   return x.toLowerCase().replace(/[^\p{L}\p{N} ]+/gu, ' ').replace(/\s+/g, ' ').trim();
@@ -281,7 +283,9 @@ function licensure(c: CandidateEligibility, j: JobEligibilityFacts): RuleResult 
   if (!j.read) return { rule, status: 'unknown', reason: 'This posting has not been read for eligibility statements yet.', hard: false };
   const listed = [...new Set(j.certificationRequirements.map(norm).filter(Boolean))];
   if (listed.length === 0) return { rule, status: 'pass', reason: 'The posting lists no licence or certification.', hard: false };
-  const held = c.certifications.map(norm).filter(Boolean);
+  // A certification recorded as not yet held - "CPA (in progress)", "P.Eng candidate" - does not
+  // satisfy a licence the posting requires (Stage 16 review, shared vocabulary with the career engine).
+  const held = c.certifications.map(norm).filter((h) => h && !NOT_YET_HELD.test(h));
   const holds = (spellings: string[]) => held.some((h) => spellings.some((sp) => hasWholeWords(h, sp)));
   const title = norm(j.normalizedTitle || j.title);
   const rawTitle = norm(j.title);

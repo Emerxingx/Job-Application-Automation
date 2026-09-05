@@ -4,6 +4,7 @@ import { fail, ok, route } from '@/lib/api';
 import { CareerError, credentialWhatIf } from '@/lib/career/service';
 import { jobFacts, loadCandidateEligibility } from '@/lib/eligibility/service';
 import { quantityFor } from '@/lib/entitlements/service';
+import { LIMITS, rateLimit } from '@/lib/rate-limit';
 
 const schema = z.object({ credentialId: z.string().min(1), jobId: z.string().min(1) });
 
@@ -18,6 +19,9 @@ const schema = z.object({ credentialId: z.string().min(1), jobId: z.string().min
  */
 export const POST = route(async (request: Request) => {
   const { user, run } = await requireTenant();
+  // Every call is an audited read of the person's facts; the limiter keeps a loop from filling the audit log (review finding L8).
+  const limit = rateLimit('careerWhatIf', user.id, LIMITS.careerWhatIf);
+  if (!limit.ok) return fail('Too many comparisons in a short time. Try again in a few minutes.', 429);
   const body = schema.parse(await request.json());
   const { job, allowed } = await run(async (tx) => ({
     job: await tx.job.findUnique({ where: { id: body.jobId } }),
