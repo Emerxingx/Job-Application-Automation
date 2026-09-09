@@ -60,6 +60,7 @@ blocks the architecture baseline, is in
 | R-27 (L-3) | Are cross-border AI transfers acceptable under intended customer contracts, especially public-sector? | **OPEN** | Founder + privacy counsel | **Stage 03**; re-confirmed at Stages 11 and 17 |
 | R-28 (L-4) | What recruiter / staffing licensing applies in BC and each target jurisdiction? | **OPEN** | Founder + employment / regulatory counsel | **Stage 19** |
 | R-29 (L-5) | What consent language is required for agency representation and employer disclosure? | **OPEN** | Founder + employment / privacy counsel | **Stage 18** (disclosure); **Stage 19** (representation) |
+| R-31 | The staging database password was echoed into an agent session transcript on 2026-09-09 (a diagnostic probe's error message; never written to the repository). Treat as compromised: rotate in the Supabase dashboard and replace the value in every place it is held before any deployment. | **OPEN** | Founder | **Release readiness** (resume, 2026-09-09) |
 
 **Handling rule.** An unresolved question is never converted into an engineering
 assumption. A stage reaching its exit gate with its question still open is

@@ -85,7 +85,7 @@
     ],
     "verdict": "Stage 01 is PARTIAL, not PASS. Every unmet item traces to the staging project being unreachable from the build environment, except tenant-path adoption, which is engineering and continues in Stage 02 alongside the schema work that touches those handlers."
   },
-  "next_requirement": "NONE for the autonomous programme (run_complete). Keep the stacked PRs #13-#36 green until they are merged in order; every further step is a founder action listed in RELEASE_VERDICT.md.",
+  "next_requirement": "FOUNDER ACTIONS, in the order of RELEASE_VERDICT.md. Resumed 2026-09-09: the stack (#13-#36) and main are unchanged since the pause; PR #36 head e5c39c9 is green (CI run 97). First unresolved action: rotate the staging database credential (SUPABASE-CREDENTIAL-ROTATION), then item 1 (provision the environment: managed PostgreSQL in Canada reachable from where the app runs, a separate CMS database, an S3-compatible bucket in ca-central-1/ca-west-1, a host for the app and one for the worker, TLS, a secrets manager); env:check, run from this environment on 2026-09-09, reports 4 FAIL (AUTH_SECRET, PAYLOAD_SECRET, NEXT_PUBLIC_APP_URL, PAYLOAD_DATABASE_URI unset here) and 11 WARN, which is the expected shape of an environment that has never been provisioned. No hosting project exists for this repository on the connected Vercel or Netlify accounts; main carries no branch protection.",
   "blockers": [
     {
       "id": "ATS-SANDBOX-CREDENTIAL",
@@ -200,6 +200,15 @@
       "stage": "20",
       "summary": "No real OIDC identity provider or SCIM client is reachable or configured; SSO and SCIM are IMPLEMENTED-NOT-VALIDATED. Needs SSO_ENCRYPTION_KEY on the deployment, a customer identity provider, and an operator to complete the first sign-in and provisioning cycle.",
       "owner": "founder / operator"
+    },
+    {
+      "id": "SUPABASE-CREDENTIAL-ROTATION",
+      "type": "SECURITY",
+      "issue": "2026-09-09, on resuming from the safe pause: a reachability probe the agent ran in the build environment threw on the configured connection string (its password carries a URL-reserved character, as db-url.ts documents) and Node's error message echoed the full DATABASE_URL, password included, into the session transcript. It was not written to any file, commit, PR or evidence document, and it is not repeated anywhere in the repository. The value must nevertheless be treated as compromised.",
+      "owner": "Founder",
+      "latest_blocking_stage": "release readiness (RELEASE_VERDICT.md item 1)",
+      "status": "OPEN",
+      "effect": "Rotate the staging database password in the Supabase dashboard before any deployment or any further live connection attempt, then replace DATABASE_URL and DIRECT_URL wherever they are held (the build environment, the host's secret manager). A password made only of unreserved characters avoids the parsing hazard entirely; otherwise the runtime percent-encodes it once (src/lib/db-url.ts, used by src/lib/db.ts, payload.config.ts, the seed and the scripts), so no code change is needed. Reachability was re-tested the same day with fixed-word output only: both endpoints still time out from here (SUPABASE-NETWORK stays OPEN)."
     }
   ],
   "external_actions": [
