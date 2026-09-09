@@ -14,7 +14,7 @@ export const POST = route(async (request: Request) => {
   const { user, run } = await requireTenant();
 
   // Each pack is a full generation, so it is metered like the other AI calls.
-  const limit = rateLimit('interviewPrep', user.id, LIMITS.interviewPrep);
+  const limit = await rateLimit('interviewPrep', user.id, LIMITS.interviewPrep);
   if (!limit.ok) {
     return tooMany(
       `You have generated a lot of prep packs. Try again in ${describeWait(limit.retryAfterSeconds)}.`,

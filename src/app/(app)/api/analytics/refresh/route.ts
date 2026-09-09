@@ -10,7 +10,7 @@ import { LIMITS, rateLimit } from '@/lib/rate-limit';
  */
 export const POST = route(async () => {
   const user = await requireUser();
-  const limit = rateLimit('analytics_refresh', user.id, LIMITS.analyticsRefresh);
+  const limit = await rateLimit('analytics_refresh', user.id, LIMITS.analyticsRefresh);
   if (!limit.ok) return tooMany(`Your analytics were refreshed a moment ago. Try again in ${describeWait(limit.retryAfterSeconds)}.`, limit.retryAfterSeconds);
   const result = await refreshCandidateMarts(user.id);
   return ok({ refreshedAt: new Date().toISOString(), applications: result.applicationsRead, matches: result.matchesRead });

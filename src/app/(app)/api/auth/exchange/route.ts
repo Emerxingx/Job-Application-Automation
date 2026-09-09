@@ -35,7 +35,7 @@ export const POST = route(async (request: Request) => {
   const config = supabaseIdentityConfig();
   if (!config) return fail('Identity provider sign-in is not configured on this deployment.', 503);
 
-  const limit = rateLimit('auth', clientAddress(request), LIMITS.auth);
+  const limit = await rateLimit('auth', clientAddress(request), LIMITS.auth);
   if (!limit.ok) {
     return tooMany(`Too many attempts. Try again in ${describeWait(limit.retryAfterSeconds)}.`, limit.retryAfterSeconds);
   }

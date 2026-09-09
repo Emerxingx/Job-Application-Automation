@@ -64,7 +64,7 @@ const DRAIN_LIMIT = { limit: 6, windowSeconds: 60 };
 export const POST = route(async () => {
   const user = await requireUser();
 
-  const limit = rateLimit('webhook_drain', user.id, DRAIN_LIMIT);
+  const limit = await rateLimit('webhook_drain', user.id, DRAIN_LIMIT);
   if (!limit.ok) {
     return tooMany(
       `Deliveries are already being sent. Try again in ${describeWait(limit.retryAfterSeconds)}.`,

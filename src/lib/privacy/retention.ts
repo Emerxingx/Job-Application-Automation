@@ -9,9 +9,12 @@ import { dueErasures, executeErasure, retryFilePurge, unfinishedErasures } from 
  * `DATA_RETENTION_MATRIX.md` whose expiry is a platform default (not a
  * contract, not a statute, not an event the code already handles) leave on
  * schedule, and the matrix says which. Readiness gate G3 "Retention
- * enforcement: automated" was FAIL; this is the automation, minus the
- * scheduler (none exists: `npm run retention:sweep` is the operator's
- * command, like every other sweep).
+ * enforcement: automated" was FAIL; this is the automation, and since
+ * Stage 24 the worker runs it daily (`retention_sweep`, ADR-0038);
+ * `npm run retention:sweep` remains the operator's command for a worker
+ * that is down. Every due erasure therefore executes UNSUPERVISED on the
+ * first tick after its date; a request whose blocker reappeared is
+ * deferred and audited, never executed around (Stage 23 review M1).
  *
  * What it sweeps, matched to the matrix:
  * - Sessions: 30 days after expiry or revocation (the row is the revocation
@@ -39,6 +42,7 @@ export const RETENTION = {
   sessionDays: 30,
   aiRunDays: 365 * 2,
   rollupRunDays: 365,
+  workerRunDays: 90,
   mailboxReferenceDays: 180,
   martDays: 365 * 3,
 } as const;
@@ -49,6 +53,10 @@ export interface RetentionReport {
   rollupRuns: number;
   mailboxReferences: number;
   martRows: number;
+  /** Stage 24: the scheduler's own run rows, kept 90 days. */
+  workerRuns: number;
+  /** How many requests were due when the sweep ran; `erasures` is how many executed (Stage 24 review M4). */
+  erasuresDue: number;
   erasures: number;
   /** Completed requests whose person was NOT scrubbed (a restore to before the erasure ran) re-executed - review M4. */
   erasuresResumed: number;
@@ -63,6 +71,7 @@ export async function sweepRetention(now = new Date()): Promise<RetentionReport>
   const sessions = (await db.session.deleteMany({ where: { OR: [{ expiresAt: { lt: daysAgo(now, RETENTION.sessionDays) } }, { revokedAt: { lt: daysAgo(now, RETENTION.sessionDays) } }] } })).count;
   const aiRuns = (await db.aiRun.deleteMany({ where: { createdAt: { lt: daysAgo(now, RETENTION.aiRunDays) } } })).count;
   const rollupRuns = (await db.rollupRun.deleteMany({ where: { startedAt: { lt: daysAgo(now, RETENTION.rollupRunDays) } } })).count;
+  const workerRuns = (await db.workerRun.deleteMany({ where: { startedAt: { lt: daysAgo(now, RETENTION.workerRunDays) } } })).count;
 
   let mailboxReferences = 0;
   const accounts = await db.mailboxConnection.findMany({ distinct: ['userId'], select: { userId: true } });
@@ -78,9 +87,11 @@ export async function sweepRetention(now = new Date()): Promise<RetentionReport>
 
   let erasures = 0;
   let erasureErrors = 0;
+  const due = await dueErasures(now);
+  const erasuresDue = due.length;
   // A failure is logged with the user id and the redacted reason (review
   // L4): a count of one told the operator nothing.
-  for (const userId of await dueErasures(now)) {
+  for (const userId of due) {
     try {
       await executeErasure(userId, { now });
       erasures += 1;
@@ -110,7 +121,7 @@ export async function sweepRetention(now = new Date()): Promise<RetentionReport>
     }
   }
 
-  const report: RetentionReport = { sessions, aiRuns, rollupRuns, mailboxReferences, martRows, erasures, erasuresResumed, filePurgesRetried, erasureErrors };
+  const report: RetentionReport = { sessions, aiRuns, rollupRuns, workerRuns, mailboxReferences, martRows, erasuresDue, erasures, erasuresResumed, filePurgesRetried, erasureErrors };
   await recordSecurityEvent({ event: 'retention.swept', actor: { type: 'system' }, entityType: 'RetentionSweep', summary: `Retention sweep: ${sessions} sessions, ${aiRuns} AI runs, ${rollupRuns} rollup runs, ${mailboxReferences} mailbox references, ${martRows} mart rows removed; ${erasures} erasure(s) executed.`, detail: { ...report } });
   return report;
 }

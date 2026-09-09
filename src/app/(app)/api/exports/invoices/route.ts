@@ -29,7 +29,7 @@ const query = z.object({
 export const GET = route(async (request: Request) => {
   const user = await requireUser();
 
-  const limit = rateLimit('export', user.id, EXPORT_RATE_LIMIT);
+  const limit = await rateLimit('export', user.id, EXPORT_RATE_LIMIT);
   if (!limit.ok) {
     return tooMany(
       `That is a lot of exports at once. Try again in ${describeWait(limit.retryAfterSeconds)}.`,

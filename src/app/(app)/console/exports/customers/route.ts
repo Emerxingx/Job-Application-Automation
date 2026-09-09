@@ -92,7 +92,7 @@ export const GET = consoleRoute(async (request: Request) => {
   // An export reads thousands of rows and can render a hundred-page PDF, so it
   // carries the same ceiling as the customer-facing export routes on top of the
   // staff gate.
-  const limit = rateLimit('console-export-customers', staff.id, EXPORT_RATE_LIMIT);
+  const limit = await rateLimit('console-export-customers', staff.id, EXPORT_RATE_LIMIT);
   if (!limit.ok) {
     return tooMany(
       `Too many exports. Try again in ${describeWait(limit.retryAfterSeconds)}.`,

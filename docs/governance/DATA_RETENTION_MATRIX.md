@@ -34,6 +34,8 @@ so they still read correctly after erasure. `User.anonymizedAt` marks this.
 | Invoices, payments, credit notes | CONFIDENTIAL | **7 years** | — | **Survives account erasure** — statutory | STATUTORY KEEP — never swept, never erased; bill-to snapshot on the row |
 | Audit events | INTERNAL | 7 years | — | **Append-only; never deleted.** The ONE write: account erasure replaces the actor's address, IP and user agent on the person's own rows (the action, the ids and the summary stay). `prevHash`/`hash` columns exist but NO code writes them (Stage 03 evidence item 21; corrected in the Stage 23 review) — a hash chain is a Stage 24+ item and must hash a digest of the address | NEVER deleted — the sweep refuses it statically; erasure scrubs the actor identity only |
 | `ai_runs` | INTERNAL | 2 years | — | Prompt regression analysis and cost reporting | ENFORCED BY SWEEP — two years; deleted with the person on erasure |
+| Scheduler run rows (`WorkerRun`: job, window, status, counts in words) | INTERNAL | 90 days | — | Stage 24 | ENFORCED BY SWEEP |
+| Limiter buckets (`RateLimitBucket`: an opaque key and a count) | INTERNAL | one day after the window ends | — | Stage 24 | ENFORCED BY SWEEP (hourly worker job) |
 | Sessions | CONFIDENTIAL | 30 days after expiry or revocation (a revoked row is the revocation record until then) | Logout / revoke | | ENFORCED BY SWEEP — thirty days after expiry or revocation; deleted on erasure |
 | Rate-limit counters | INTERNAL | Window duration | — | Ephemeral | EPHEMERAL — in-process window |
 | Analytics marts | INTERNAL | 3 years | — | Aggregate; small cohorts suppressed | ENFORCED BY SWEEP — three years for the aggregate marts |
@@ -58,4 +60,4 @@ so they still read correctly after erasure. `User.anonymizedAt` marks this.
    row marked ENFORCED BY SWEEP and executes due erasures; account erasure
    (`src/lib/privacy/erasure.ts`, fourteen-day grace, scrub in place) handles every
    row marked ON EVENT; rows marked NOT AUTOMATED are stated, not hidden. There is
-   no scheduler: the sweep is an operator command until Stage 24.
+   the worker runs the sweep daily since Stage 24 (`retention_sweep`, ADR-0038); `npm run retention:sweep` is the operator's command for a worker that is down. A lost window (a worker crash mid-run) delays that day's erasures by one further day.

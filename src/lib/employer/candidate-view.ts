@@ -52,7 +52,7 @@ export async function sourceCandidates(actor: EmployerActor, requisitionId: stri
   const r = await db.requisition.findFirst({ where: { id: requisitionId, organizationId: actor.organizationId }, include: { job: true } });
   if (!r) throw new EmployerError('Requisition not found.', 404);
   if (!r.job || r.status !== 'open') throw new EmployerError('Open the requisition first; sourcing scores candidates against its published posting.', 409);
-  if (!rateLimit('employer:sourcing', r.id, LIMITS.employerSourcing).ok) throw new EmployerError('Sourcing for this requisition was run recently; try again in a few minutes.', 429);
+  if (!(await rateLimit('employer:sourcing', r.id, LIMITS.employerSourcing)).ok) throw new EmployerError('Sourcing for this requisition was run recently; try again in a few minutes.', 429);
   const limit = Math.min(Math.max(options.limit ?? 25, 1), SOURCING_CAP);
   // The sourcing set: candidates who said recruiters may see them, in some form.
   // (`CareerPreferences` has no relation to filter through, so the erased and

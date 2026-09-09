@@ -15,7 +15,7 @@ export const POST = route(async (request: Request) => {
 
   // Scanning scores every posting against the resume, so it is metered
   // separately from the monthly application allowance.
-  const limit = rateLimit('scan', user.id, LIMITS.scan);
+  const limit = await rateLimit('scan', user.id, LIMITS.scan);
   if (!limit.ok) {
     return tooMany(
       `You have run a lot of scans in a short time. Try again in ${describeWait(limit.retryAfterSeconds)}.`,

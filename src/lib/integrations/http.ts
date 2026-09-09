@@ -170,7 +170,7 @@ export function rateLimitHeaders(result: RateLimitResult, limit: number): Record
  * so a runaway script holding one key cannot starve the same customer's other
  * integrations, and revoking that key immediately frees its share.
  */
-export function enforceApiKeyRateLimit(key: AuthenticatedApiKey): RateLimitResult {
+export async function enforceApiKeyRateLimit(key: AuthenticatedApiKey): Promise<RateLimitResult> {
   return rateLimit(V1_RATE_BUCKET, key.id, {
     limit: Math.max(1, key.rateLimitPerMinute),
     windowSeconds: 60,
@@ -222,7 +222,7 @@ export function v1Route(
         // hitting one endpoint it lacks a scope for would otherwise lock itself
         // out of the endpoints it is entitled to.
         if (authentication.reason !== 'insufficient_scope') {
-          const failures = rateLimit(
+          const failures = await rateLimit(
             V1_AUTH_FAILURE_BUCKET,
             clientAddress(request),
             V1_AUTH_FAILURE_RULE,
@@ -249,7 +249,7 @@ export function v1Route(
       }
 
       const key = authentication.key;
-      const limit = enforceApiKeyRateLimit(key);
+      const limit = await enforceApiKeyRateLimit(key);
       const headers = rateLimitHeaders(limit, key.rateLimitPerMinute);
 
       if (!limit.ok) {
@@ -292,9 +292,15 @@ export function v1ErrorResponse(error: unknown): NextResponse {
   return apiError('internal_error', 'Something went wrong on our end.', 500);
 }
 
-/** Read the dynamic segments Next hands a route, decoded. */
+/**
+ * Read the dynamic segments Next hands a route, decoded. A STATIC route's
+ * `params` promise resolves to `undefined` under Next 16's production
+ * server - the Stage 24 smoke suite found every anonymous v1 request
+ * answering 500 for it, a defect the in-process contract tests (which build
+ * their own `args`) could not see. Hence the `?? {}`.
+ */
 export async function v1Params(args?: V1RouteArgs): Promise<Record<string, string>> {
-  const rawParams = args ? await args.params : {};
+  const rawParams = (args ? await args.params : undefined) ?? {};
   const params: Record<string, string> = {};
   for (const [k, v] of Object.entries(rawParams)) if (typeof v === 'string') params[k] = decodeURIComponent(v);
   return params;
@@ -321,7 +327,7 @@ export function v1PublicRoute(
   return async (request: Request, args?: V1RouteArgs) => {
     try {
       const params = await v1Params(args);
-      const limit = rateLimit(options.bucket ?? 'auth', clientAddress(request), options.rule ?? LIMITS.auth);
+      const limit = await rateLimit(options.bucket ?? 'auth', clientAddress(request), options.rule ?? LIMITS.auth);
       if (!limit.ok) {
         return apiError('rate_limited', 'Too many attempts. Try again shortly.', 429, {
           headers: { 'Retry-After': String(limit.retryAfterSeconds) },

@@ -28,10 +28,10 @@ export function scimRoute<Args extends unknown[]>(handler: (principal: ScimPrinc
     try {
       // Unauthenticated attempts are budgeted per address (review L5): a token
       // guesser gets the auth limit, not unlimited tries at the digest table.
-      const guesses = rateLimit('auth', `scim:${clientAddress(request)}`, LIMITS.auth);
+      const guesses = await rateLimit('auth', `scim:${clientAddress(request)}`, LIMITS.auth);
       if (!guesses.ok) return scimError(429, 'Too many requests.');
       const principal = await authenticateScim(request.headers.get('authorization'));
-      const limit = rateLimit('scim', principal.tokenId, LIMITS.scim);
+      const limit = await rateLimit('scim', principal.tokenId, LIMITS.scim);
       if (!limit.ok) return scimError(429, 'Too many requests.');
       return await handler(principal, request, ...args);
     } catch (error) {

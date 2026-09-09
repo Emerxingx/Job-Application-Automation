@@ -10,7 +10,7 @@ const schema = z.object({ staleAfterHours: z.number().int().min(1).max(24 * 30).
  * POST /api/console/sources/:key/refresh — run one freshness sweep now
  * (admin). Goes through the same gate as discovery: a disabled, incomplete
  * or uncredentialed source is refused and the refusal recorded. Stage 06:
- * until a scheduler exists (Stage 24), sweeps are started here or by
+ * besides the worker's six-hourly freshness job (Stage 24), sweeps are started here or by
  * `npm run jobs:freshness`.
  */
 export const POST = governanceRoute(async (request: Request, { params }: { params: Promise<{ key: string }> }) => {

@@ -16,7 +16,7 @@ const schema = z.object({ email: z.string().email().max(254) });
  * cookie; the `state` parameter is that token's id.
  */
 export const POST = route(async (request: Request) => {
-  const limit = rateLimit('auth', clientAddress(request), LIMITS.auth);
+  const limit = await rateLimit('auth', clientAddress(request), LIMITS.auth);
   if (!limit.ok) return tooMany(`Too many attempts. Try again in ${describeWait(limit.retryAfterSeconds)}.`, limit.retryAfterSeconds);
   const body = schema.parse(await request.json());
   try {

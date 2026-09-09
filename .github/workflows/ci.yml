@@ -326,9 +326,15 @@ jobs:
             sleep 3
           done
           echo "the application did not come up"; tail -50 a11y-server.log; exit 1
+      # Stage 24 (ADR-0038): the production smoke suite, run here against the
+      # built app so the deploy step's own gate is proven on every push; it
+      # needs no credential and checks the deny-by-default gate, the headers,
+      # the nonce policy, the two error envelopes and the CSRF refusal.
+      - name: Smoke suite against the built app
+        run: npm run smoke -- http://127.0.0.1:3000
       - name: Install Chromium for Playwright
         run: npx playwright install --with-deps chromium
-      - name: Audit every page
+      - name: Audit every page (WCAG) and prove the nonce policy (CSP) in the browser
         run: npm run a11y
       - name: Keep the report and traces
         if: always()

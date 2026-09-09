@@ -56,7 +56,7 @@ const COLUMNS: ExportColumn[] = [
 export const GET = consoleRoute(async (request: Request) => {
   const staff = await requireStaff('billing_ops');
 
-  const limit = rateLimit('console-export-invoices', staff.id, EXPORT_RATE_LIMIT);
+  const limit = await rateLimit('console-export-invoices', staff.id, EXPORT_RATE_LIMIT);
   if (!limit.ok) {
     return tooMany(
       `Too many exports. Try again in ${describeWait(limit.retryAfterSeconds)}.`,

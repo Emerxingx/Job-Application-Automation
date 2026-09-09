@@ -279,6 +279,8 @@ describe('Stage 23 - erasure, retention and health against the database', { skip
     const report = await retention.sweepRetention(d('2026-09-21T00:00:00Z'));
     assert.equal(report.erasuresResumed, 1);
     assert.equal(report.erasureErrors, 0);
+    assert.equal(typeof report.erasuresDue, 'number');
+    assert.equal(typeof report.workerRuns, 'number');
     const user = await db.user.findUniqueOrThrow({ where: { id: E.id } });
     assert.equal(user.fullName, 'Erased user');
     assert.ok(user.anonymizedAt);

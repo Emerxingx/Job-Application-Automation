@@ -2,9 +2,11 @@ import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getCache } from '@/lib/cache';
 import { getStorageProvider } from '@/lib/storage';
-import { clientAddress, rateLimit } from '@/lib/rate-limit';
+import { clientAddress, rateLimitLocal } from '@/lib/rate-limit';
 import { MART_REGISTRY } from '@/lib/analytics/platform/dictionary';
 import { martFreshness } from '@/lib/analytics/freshness';
+import { rateLimitStoreStatus } from '@/lib/rate-limit';
+import { workerHealth } from '@/lib/ops/scheduler';
 
 /**
  * Stage 23 (ADR-0037) - the health check a load balancer, an uptime monitor
@@ -84,6 +86,18 @@ async function checkMarts(): Promise<Check> {
   }
 }
 
+// Stage 24: scheduled work. Overdue when a job has not succeeded inside twice
+// its interval; a deployment whose worker has never run says so in two words.
+async function checkWorker(): Promise<Check> {
+  try {
+    const health = await workerHealth();
+    if (health.ok) return { ok: true, detail: 'current' };
+    return { ok: false, detail: health.everRan ? 'overdue' : 'never ran' };
+  } catch {
+    return { ok: false, detail: 'unknown' };
+  }
+}
+
 interface HealthBody {
   status: 'ok' | 'degraded' | 'unavailable';
   checks: Record<string, Check>;
@@ -95,11 +109,17 @@ let memo: { at: number; body: HealthBody } | null = null;
 /** Compute the answer, or serve the one computed inside the last MEMO_MS. Exported for the test. */
 export async function healthBody(now = Date.now()): Promise<HealthBody> {
   if (memo && now >= memo.at && now - memo.at < MEMO_MS) return memo.body;
-  const [database, migrations, storage, jobSources, marts] = await Promise.all([checkDatabase(), checkMigrations(), checkStorage(), checkJobSources(), checkMarts()]);
+  const [database, migrations, storage, jobSources, marts, worker] = await Promise.all([checkDatabase(), checkMigrations(), checkStorage(), checkJobSources(), checkMarts(), checkWorker()]);
   const cache: Check = { ok: true, detail: getCache().backend === 'redis' ? 'shared' : 'local' };
+  // Stage 24: the limiter store actually serving requests - `local` is correct
+  // for one instance and wrong for two (R-16); `degraded` means the shared
+  // store failed inside the last minute and requests are limited per instance
+  // (review M2), which is not ok.
+  const storeStatus = rateLimitStoreStatus();
+  const rateLimitStore: Check = { ok: storeStatus !== 'degraded', detail: storeStatus };
   const serving = database.ok && migrations.ok;
-  const operational = serving && storage.ok && jobSources.ok && marts.ok;
-  const body: HealthBody = { status: !serving ? 'unavailable' : operational ? 'ok' : 'degraded', checks: { database, migrations, cache, storage, jobSources, marts }, checkedAt: new Date(now).toISOString() };
+  const operational = serving && storage.ok && jobSources.ok && marts.ok && worker.ok && rateLimitStore.ok;
+  const body: HealthBody = { status: !serving ? 'unavailable' : operational ? 'ok' : 'degraded', checks: { database, migrations, cache, rateLimitStore, storage, jobSources, marts, worker }, checkedAt: new Date(now).toISOString() };
   memo = { at: now, body };
   return body;
 }
@@ -111,9 +131,12 @@ export function resetHealthMemo(): void {
 
 export async function GET(request: Request) {
   const noStore = { 'Cache-Control': 'no-store' };
-  const perAddress = rateLimit('health', clientAddress(request), { limit: 60, windowSeconds: 60 });
+  // Both budgets are per instance ON PURPOSE (review H2): they bound this
+  // process's cost, and a shared counter would add a database write per
+  // anonymous request to the one route a monitor polls.
+  const perAddress = await rateLimitLocal('health', clientAddress(request), { limit: 60, windowSeconds: 60 });
   if (!perAddress.ok) return NextResponse.json({ status: 'rate_limited' }, { status: 429, headers: { 'Retry-After': String(perAddress.retryAfterSeconds), ...noStore } });
-  const perInstance = rateLimit('health:all', 'all', GLOBAL_LIMIT);
+  const perInstance = await rateLimitLocal('health:all', 'all', GLOBAL_LIMIT);
   if (!perInstance.ok) return NextResponse.json({ status: 'rate_limited' }, { status: 429, headers: { 'Retry-After': String(perInstance.retryAfterSeconds), ...noStore } });
 
   const body = await healthBody();

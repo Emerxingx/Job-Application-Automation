@@ -9,7 +9,7 @@
  * converge on the same rows. The platform benchmark is rebuilt from the
  * outcome mart for the same days.
  *
- * There is no scheduler (ADR-0011 is not built). The job runs from the
+ * Since Stage 24 the worker runs this nightly (ADR-0011's queue is still not built). The job also runs from the
  * operator's sweep (`npm run analytics:rollup`), from the candidate's own
  * "refresh" on their analytics page (their rows only), and inline the first
  * time a candidate with applications opens the page with no rows yet. A
@@ -121,7 +121,18 @@ export async function rollupCandidateOutcomes(range: DateRange, options: { userI
     // unique-constraint failure, and a reader never sees a half-replaced day.
     const benchmarkRows = await db.$transaction(
       async (tx) => {
-        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`analytics:candidate:${options.userId ?? 'all'}`}::text))`;
+        // Stage 24 review (M7): the sweep (every candidate) holds the lock
+        // EXCLUSIVELY; a single candidate's refresh holds it SHARED, so two
+        // refreshes run side by side but never beside the sweep that
+        // rewrites the same (day × user) rows - the nightly worker made that
+        // collision daily rather than rare.
+        // A single candidate's two refreshes (a double click) still exclude
+        // each other on the per-user lock, taken AFTER the shared one so no
+        // cycle with the sweep is possible.
+        if (options.userId) {
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock_shared(hashtext('analytics:candidate:all'::text))`;
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`analytics:candidate:${options.userId}`}::text))`;
+        } else await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('analytics:candidate:all'::text))`;
         // The days this scope touched before the rewrite: a day the candidate
         // used to have rows on must be rebuilt too, or the benchmark keeps them.
         const before = await tx.candidateOutcomeMart.findMany({ where: scope, select: { day: true }, distinct: ['day'] });

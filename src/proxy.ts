@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { jwtVerify } from 'jose';
 import { DEV_AUTH_SECRET, isUsableSecret } from '@/lib/auth-policy';
+import { contentSecurityPolicy } from '../security-headers.mjs';
 
 /**
  * Global authentication gate — DENY BY DEFAULT.
@@ -185,8 +186,35 @@ export function isCrossSiteWrite(method: string, headers: { get(name: string): s
   }
 }
 
+/**
+ * Stage 24 (ADR-0038) - a per-request Content-Security-Policy with a script
+ * nonce. The nonce is 128 random bits; the policy goes on the REQUEST (so
+ * Next stamps the nonce on every script it emits for this render) and on
+ * the RESPONSE (so the browser enforces it). Every response this gate
+ * returns carries it - the page, a redirect, a 401, a 403 - because a
+ * static header cannot hold a per-request value. The edge runtime has Web
+ * Crypto and no Buffer, hence the manual base64.
+ */
+function newNonce(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  let s = '';
+  for (const b of bytes) s += String.fromCharCode(b);
+  return btoa(s);
+}
+
+function withCsp(response: NextResponse, csp: string): NextResponse {
+  response.headers.set('Content-Security-Policy', csp);
+  return response;
+}
+
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
+  const nonce = newNonce();
+  const csp = contentSecurityPolicy(nonce, process.env.NODE_ENV !== 'production');
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.set('Content-Security-Policy', csp);
+  requestHeaders.set('x-nonce', nonce);
+  const next = () => withCsp(NextResponse.next({ request: { headers: requestHeaders } }), csp);
 
   // A cross-site write carrying the session cookie is refused before anything
   // else looks at it - the cookie is the only thing an attacker's page can
@@ -198,17 +226,17 @@ export async function proxy(request: NextRequest) {
   // Origin against it would let an attacker satisfy the check with two
   // headers of their own choosing.
   if ((request.cookies.get('jobpilot_session') || request.cookies.get('payload-token')) && isCrossSiteWrite(request.method, request.headers, request.headers.get('host'), pathname)) {
-    return NextResponse.json({ error: 'Cross-site request refused.' }, { status: 403 });
+    return withCsp(NextResponse.json({ error: 'Cross-site request refused.' }, { status: 403 }), csp);
   }
 
-  if (isPublicPath(pathname)) return NextResponse.next();
+  if (isPublicPath(pathname)) return next();
 
-  if (await hasValidSession(request)) return NextResponse.next();
+  if (await hasValidSession(request)) return next();
 
   // An unauthenticated API call gets a JSON 401 — a redirect would be parsed as
   // a success by a fetch() caller and surface as a confusing parse error.
   if (pathname.startsWith('/api/')) {
-    return NextResponse.json({ error: 'Authentication required.' }, { status: 401 });
+    return withCsp(NextResponse.json({ error: 'Authentication required.' }, { status: 401 }), csp);
   }
 
   const login = new URL('/login', request.url);
@@ -216,7 +244,7 @@ export async function proxy(request: NextRequest) {
   // go. Only the path and query are carried, never an absolute URL, so this
   // cannot be turned into an open redirect.
   login.searchParams.set('next', pathname + request.nextUrl.search);
-  return NextResponse.redirect(login);
+  return withCsp(NextResponse.redirect(login), csp);
 }
 
 export const config = {

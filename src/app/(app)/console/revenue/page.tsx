@@ -506,12 +506,16 @@ function CohortTable({ grid, currency }: { grid: CohortGrid; currency: string })
     );
   }
 
+  // Stage 24: the tints are at most 10 % so the coloured text keeps 4.5:1 on
+  // them (axe measured 3.83:1 on a 25 % tint the first time the grid held
+  // data - the empty grid had passed); the strongest band of each colour is
+  // also bold, so the scale does not rely on colour alone.
   const shade = (parts: number): string => {
-    if (parts >= 900_000) return 'bg-success/25 text-success';
-    if (parts >= 700_000) return 'bg-success/15 text-success';
-    if (parts >= 500_000) return 'bg-warn/15 text-warn';
-    if (parts >= 250_000) return 'bg-warn/25 text-warn';
-    return 'bg-danger/20 text-danger';
+    if (parts >= 900_000) return 'bg-success/10 text-success font-bold';
+    if (parts >= 700_000) return 'bg-success/5 text-success';
+    if (parts >= 500_000) return 'bg-warn/5 text-warn';
+    if (parts >= 250_000) return 'bg-warn/10 text-warn font-bold';
+    return 'bg-danger/10 text-danger font-bold';
   };
 
   return (

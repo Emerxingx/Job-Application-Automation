@@ -12,11 +12,12 @@
  */
 import { db } from '../../src/lib/db';
 import { purgeExpiredCaseRecords } from '../../src/lib/cases/service';
+import { redactError } from '../../src/lib/log';
 
 purgeExpiredCaseRecords()
   .then((r) => console.log(`[retention] ${r.organizations} organisation(s) with a policy: ${r.notes} notes, ${r.assessments} assessments, ${r.cases} closed cases (${r.children} rows under them) purged`))
   .catch((error) => {
-    console.error(`[retention] failed: ${error instanceof Error ? error.message : String(error)}`);
+    console.error(`[retention] failed: ${redactError(error).message}`);
     process.exitCode = 1;
   })
   .finally(() => db.$disconnect());

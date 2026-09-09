@@ -10,6 +10,7 @@
  */
 import { db } from '@/lib/db';
 import { rollupCandidateOutcomes } from '@/lib/analytics/candidate/rollup';
+import { redactError } from '@/lib/log';
 
 async function main() {
   const days = Math.max(1, Number.parseInt(process.argv[2] ?? '400', 10) || 400);
@@ -21,6 +22,6 @@ async function main() {
 }
 
 main().catch((error) => {
-  console.error(error);
+  console.error(redactError(error).message);
   process.exit(1);
 });

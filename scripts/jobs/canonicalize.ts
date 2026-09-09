@@ -14,6 +14,7 @@ import { db } from '../../src/lib/db';
 import { canonicalColumns, canonicalize } from '../../src/lib/jobs/canonical';
 import type { NormalizedPosting } from '../../src/lib/connectors/types';
 import { parseJson } from '../../src/lib/types';
+import { redactError } from '../../src/lib/log';
 
 const BATCH = 200;
 
@@ -56,6 +57,6 @@ async function main() {
 }
 
 main().catch((error) => {
-  console.error(error);
+  console.error(redactError(error).message);
   process.exit(1);
 });

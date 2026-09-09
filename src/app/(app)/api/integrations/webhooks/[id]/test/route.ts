@@ -31,7 +31,7 @@ export const POST = route(async (_request: Request, { params }: Params) => {
   const { user, run } = await requireTenant();
   const { id } = await params;
 
-  const limit = rateLimit('webhook_test', user.id, TEST_LIMIT);
+  const limit = await rateLimit('webhook_test', user.id, TEST_LIMIT);
   if (!limit.ok) {
     return tooMany(
       `Too many test deliveries. Try again in ${describeWait(limit.retryAfterSeconds)}.`,

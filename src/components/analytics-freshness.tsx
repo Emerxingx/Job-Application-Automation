@@ -7,7 +7,7 @@ import { Loader2, RefreshCw } from 'lucide-react';
 /**
  * Stage 13 - a dashboard that reads marts must say how fresh they are
  * (ADR-0012 rule 4) and let the candidate rebuild their own rows on demand.
- * There is no scheduler; the operator's sweep and this button are the only
+ * Since Stage 24 the worker rebuilds the marts nightly; the operator's sweep and this button are the other
  * refreshes, so the timestamp is the truth, not decoration.
  */
 export function AnalyticsFreshness({ lastSucceededAt, lastStatus, stale }: { lastSucceededAt: string | null; lastStatus: string | null; /** Computed on the server: more than a day old, or never built. */ stale: boolean }) {

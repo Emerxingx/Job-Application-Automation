@@ -10,6 +10,7 @@
  */
 import { db } from '@/lib/db';
 import { pruneReferences, syncConnection } from '@/lib/mailbox/service';
+import { redactError } from '@/lib/log';
 
 async function main() {
   const connections = await db.mailboxConnection.findMany({ where: { status: 'connected' }, select: { id: true, userId: true, provider: true, kind: true } });
@@ -22,7 +23,7 @@ async function main() {
       console.log(`[mailbox] ${c.provider} ${c.kind} ${c.id}: ${r.threads} threads (${r.newThreads} new, ${r.auto} auto, ${r.pending} pending), ${r.calendarEvents} events, ${r.integrationEvents} integration events`);
     } catch (error) {
       failed += 1;
-      console.error(`[mailbox] ${c.provider} ${c.kind} ${c.id} failed:`, error instanceof Error ? error.message : error);
+      console.error(`[mailbox] ${c.provider} ${c.kind} ${c.id} failed:`, redactError(error).message);
     }
   }
   let pruned = 0;
@@ -33,6 +34,6 @@ async function main() {
 }
 
 main().catch((error) => {
-  console.error(error);
+  console.error(redactError(error).message);
   process.exit(1);
 });

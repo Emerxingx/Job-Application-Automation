@@ -294,8 +294,8 @@ export async function requestRepresentation(actor: StaffingActor, input: { engag
   // A request is a row a person sees under Settings: volume is bounded per
   // recruiter and per agency so an address list cannot be sprayed (Stage 19
   // review, H1; the Stage 17 limits, reused).
-  if (!rateLimit('staffing:represent', actor.user.id, LIMITS.representationRequest).ok) throw new StaffingError('Too many representation requests from this account; try again later.', 429);
-  if (!rateLimit('staffing:represent:org', actor.organizationId, LIMITS.representationRequestOrganization).ok) throw new StaffingError('This agency has reached its representation-request limit for today.', 429);
+  if (!(await rateLimit('staffing:represent', actor.user.id, LIMITS.representationRequest)).ok) throw new StaffingError('Too many representation requests from this account; try again later.', 429);
+  if (!(await rateLimit('staffing:represent:org', actor.organizationId, LIMITS.representationRequestOrganization)).ok) throw new StaffingError('This agency has reached its representation-request limit for today.', 429);
   const email = input.email.trim().toLowerCase();
   const existing = await db.representationConsent.findUnique({ where: { engagementId_invitedEmail: { engagementId: e.id, invitedEmail: email } } });
   if (existing && (existing.status === 'requested' || existing.status === 'granted')) throw new StaffingError('A request for that address already exists on this engagement.', 409);
